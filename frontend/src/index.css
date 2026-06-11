@@ -375,6 +375,52 @@ body {
   border-radius: 50%;
 }
 
+/* Live status pill */
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+}
+
+.status-pill .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-pill.online {
+  color: var(--success);
+  background-color: rgba(0, 200, 83, 0.08);
+}
+
+.status-pill.online .status-dot {
+  background-color: var(--success);
+}
+
+.status-pill.offline {
+  color: var(--danger);
+  background-color: rgba(255, 77, 79, 0.08);
+}
+
+.status-pill.offline .status-dot {
+  background-color: var(--danger);
+}
+
+/* Empty chart placeholder */
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 /* Utility */
 .mb-24 { margin-bottom: 24px; }
 .flex-row { display: flex; gap: 24px; }
