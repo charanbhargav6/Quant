@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Private keys / secrets
+*.pem
+*.key
+
+# Database
+Database/*.db
+Database/*.db-shm
+Database/*.db-wal
+Database/bhavcopy/
+
+# Logs
+Logs/
+*.log
+*.log.*
+
+# State files (contain positions/secrets)
+State/zerodha_token.json
+State/crave_state.json
+State/crave_positions.json
+
+# ML models
+ml/models/*.pkl
+ml/models/*.joblib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backtest outputs
+backtesting/*.pdf
+backtesting/*.html
+backtesting/*_results.json

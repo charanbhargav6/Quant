@@ -1,0 +1,40 @@
+# ═══════════════════════════════════════════
+# Trading Engine — Dependencies
+# ═══════════════════════════════════════════
+# Install: pip install -r requirements.txt
+
+# ─── Data & Analysis ─────────────────────
+pandas>=2.0.0
+numpy>=1.24.0
+yfinance>=0.2.55
+ta>=0.11.0
+xgboost>=2.0.0
+scikit-learn>=1.4.0
+
+# ─── Brokers ─────────────────────────────
+python-binance>=1.0.19
+alpaca-trade-api>=3.0.0
+kiteconnect>=5.0.0
+
+# ─── WebSocket & Networking ─────────────
+websocket-client>=1.6.0
+requests>=2.31.0
+
+# ─── Database ────────────────────────────
+supabase>=2.0.0
+
+# ─── Telegram ────────────────────────────
+python-telegram-bot>=20.0
+
+# ─── Security & Utilities ────────────────
+cryptography>=41.0.0
+python-dotenv>=1.0.0
+psutil>=5.9.0
+schedule>=1.2.0
+bcrypt>=4.0.0
+
+# ─── Optional (install if needed) ────────
+# pyotp>=2.9.0           # Zerodha TOTP auto-login
+# flask>=3.0.0           # Local web dashboard
+# boto3>=1.34.0          # AWS node management
+# beautifulsoup4>=4.12.0 # News scraping

@@ -1,0 +1,13 @@
+[Unit]
+Description=CRAVE Trading Bot
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/CRAVE
+ExecStart=/usr/bin/python3 run_bot.py --paper
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
