@@ -5,11 +5,8 @@ import {
   PieChart, Pie, Cell
 } from 'recharts';
 import {
-  LayoutDashboard, CreditCard, Award, BarChart2, List,
-  Newspaper, Calendar, Monitor, Calculator, TrendingUp,
-  MoreVertical, Share2, Key
+  LayoutDashboard, Award, BarChart2, List, TrendingUp
 } from 'lucide-react';
-import './index.css';
 
 const COLORS = ['#2e5cff', '#00c853', '#ff4d4f', '#00e5ff', '#ffab00', '#d500f9'];
 
@@ -24,11 +21,12 @@ function App() {
     losses: 0,
     max_drawdown_pct: 0
   });
-  
+
   const [curve, setCurve] = useState([]);
   const [trades, setTrades] = useState([]);
   const [openPositions, setOpenPositions] = useState([]);
   const [systemStatus, setSystemStatus] = useState(null);
+  const [tableView, setTableView] = useState('open'); // 'open' | 'closed'
 
   useEffect(() => {
     fetchData();
@@ -36,11 +34,11 @@ function App() {
     const statsSub = supabase.channel('stats_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'crave_account_stats' }, fetchData)
       .subscribe();
-      
+
     const tradesSub = supabase.channel('trades_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'crave_trades' }, fetchData)
       .subscribe();
-      
+
     const openPosSub = supabase.channel('open_pos_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'crave_open_positions' }, fetchData)
       .subscribe();
@@ -99,14 +97,14 @@ function App() {
     acc[t.symbol] = (acc[t.symbol] || 0) + 1;
     return acc;
   }, {});
-  
+
   const pieData = Object.keys(symbolCounts).map((key, i) => ({
     name: key,
     value: symbolCounts[key],
     color: COLORS[i % COLORS.length]
   }));
 
-  // Removed fake data fallback
+  const engineOnline = systemStatus?.bot_running;
 
   return (
     <div className="dashboard-container">
@@ -115,20 +113,10 @@ function App() {
         <div className="logo-section">
           <TrendingUp className="logo-icon" /> CRAVE
         </div>
-        
+
         <div className="nav-section">
           <div className="nav-label">MENU</div>
-          <a className="nav-item active"><LayoutDashboard /> Accounts Overview</a>
-          <a className="nav-item"><CreditCard /> Payouts</a>
-          <a className="nav-item"><Award /> Certificates</a>
-          <a className="nav-item"><BarChart2 /> Leaderboard</a>
-          <a className="nav-item"><List /> Order List</a>
-          
-          <div className="nav-label">APPS</div>
-          <a className="nav-item"><Newspaper /> News Feeds</a>
-          <a className="nav-item"><Calendar /> Economic Calendar</a>
-          <a className="nav-item"><Monitor /> WebTrader Platform</a>
-          <a className="nav-item"><Calculator /> Margin Calculator</a>
+          <a className="nav-item active"><LayoutDashboard /> Dashboard</a>
         </div>
 
         <div className="user-profile">
@@ -149,16 +137,17 @@ function App() {
         <div className="header">
           <h1>Accounts Overview{systemStatus ? ` — ${systemStatus.trading_mode} mode` : ''}</h1>
           <div className="header-actions">
-            <button className="btn btn-primary"><CreditCard size={16}/> Request Payout</button>
-            <button className="btn btn-secondary"><Share2 size={16}/> Share Matrices</button>
-            <button className="btn btn-secondary"><Key size={16}/></button>
+            <span className={`status-pill ${engineOnline ? 'online' : 'offline'}`}>
+              <span className="status-dot" />
+              {systemStatus ? (engineOnline ? 'Engine Online' : 'Engine Offline') : 'Connecting…'}
+            </span>
           </div>
         </div>
 
         <div className="dashboard-grid">
           {/* LEFT COLUMN */}
           <div className="flex-col">
-            
+
             {/* Chart Card */}
             <div className="card">
               <div className="card-header">
@@ -173,15 +162,19 @@ function App() {
                 </div>
               </div>
               <div style={{height: '240px', width: '100%'}}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={curve}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef0f6" />
-                    <XAxis dataKey="name" hide />
-                    <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{fill: '#8b92a5', fontSize: 12}} />
-                    <RechartsTooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-md)'}} />
-                    <Line type="monotone" dataKey="equity" stroke="#2e5cff" strokeWidth={3} dot={false} activeDot={{r: 6}} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {curve.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart data={curve}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef0f6" />
+                      <XAxis dataKey="name" hide />
+                      <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{fill: '#8b92a5', fontSize: 12}} />
+                      <RechartsTooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-md)'}} />
+                      <Line type="monotone" dataKey="equity" stroke="#2e5cff" strokeWidth={3} dot={false} activeDot={{r: 6}} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty">Waiting for equity data…</div>
+                )}
               </div>
             </div>
 
@@ -216,25 +209,37 @@ function App() {
             {/* Order History Table */}
             <div className="card">
               <div className="card-header" style={{marginBottom: 0}}>
-                <div className="card-title">Order History</div>
+                <div className="card-title"><List size={18}/> Order History</div>
                 <div className="header-actions">
-                  <button className="btn btn-primary" style={{padding: '6px 12px', fontSize: '12px'}}>Open Trades ({openPositions.length})</button>
-                  <button className="btn btn-secondary" style={{padding: '6px 12px', fontSize: '12px'}}>Closed Trades</button>
+                  <button
+                    className={`btn ${tableView === 'open' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{padding: '6px 12px', fontSize: '12px'}}
+                    onClick={() => setTableView('open')}
+                  >
+                    Open Trades ({openPositions.length})
+                  </button>
+                  <button
+                    className={`btn ${tableView === 'closed' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{padding: '6px 12px', fontSize: '12px'}}
+                    onClick={() => setTableView('closed')}
+                  >
+                    Closed Trades ({trades.length})
+                  </button>
                 </div>
               </div>
-              
+
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>Symbol</th>
                     <th>Type</th>
-                    <th>Open Price</th>
+                    <th>Entry Price</th>
                     <th>SL</th>
                     <th>Profit (R)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {openPositions.map((pos) => (
+                  {tableView === 'open' && openPositions.map((pos) => (
                     <tr key={pos.trade_id}>
                       <td style={{fontWeight: 600}}>{pos.symbol}</td>
                       <td><span className={`badge ${pos.direction === 'buy' || pos.direction === 'long' ? 'buy' : 'sell'}`}>{pos.direction.toUpperCase()}</span></td>
@@ -245,7 +250,7 @@ function App() {
                       </td>
                     </tr>
                   ))}
-                  {trades.slice(0, 3).map((t) => (
+                  {tableView === 'closed' && trades.slice(0, 20).map((t) => (
                     <tr key={t.trade_id}>
                       <td style={{fontWeight: 600}}>{t.symbol}</td>
                       <td><span className={`badge ${t.direction === 'buy' || t.direction === 'long' ? 'buy' : 'sell'}`}>{t.direction.toUpperCase()}</span></td>
@@ -256,8 +261,11 @@ function App() {
                       </td>
                     </tr>
                   ))}
-                  {trades.length === 0 && openPositions.length === 0 && (
-                     <tr><td colSpan="5" style={{textAlign: 'center', color: 'var(--text-muted)'}}>No trades recorded yet</td></tr>
+                  {tableView === 'open' && openPositions.length === 0 && (
+                    <tr><td colSpan="5" style={{textAlign: 'center', color: 'var(--text-muted)'}}>No open positions</td></tr>
+                  )}
+                  {tableView === 'closed' && trades.length === 0 && (
+                    <tr><td colSpan="5" style={{textAlign: 'center', color: 'var(--text-muted)'}}>No closed trades yet</td></tr>
                   )}
                 </tbody>
               </table>
@@ -267,7 +275,7 @@ function App() {
 
           {/* RIGHT COLUMN */}
           <div className="flex-col">
-            
+
             <div className="flex-row" style={{gap: '16px'}}>
               <div className="card" style={{flex: 1}}>
                 <div className="target-widget">
@@ -302,27 +310,27 @@ function App() {
 
             <div className="card">
               <div className="card-header"><div className="card-title">Most Traded</div></div>
-              <div className="donut-container">
-                <div className="legend-list">
-                  {pieData.map(entry => (
-                    <div className="legend-item" key={entry.name}>
-                      <div className="dot" style={{backgroundColor: entry.color}}></div>
-                      {entry.name}
-                    </div>
-                  ))}
+              {pieData.length > 0 ? (
+                <div className="donut-container">
+                  <div className="legend-list">
+                    {pieData.map(entry => (
+                      <div className="legend-item" key={entry.name}>
+                        <div className="dot" style={{backgroundColor: entry.color}}></div>
+                        {entry.name}
+                      </div>
+                    ))}
+                  </div>
+                  <PieChart width={120} height={120}>
+                    <Pie data={pieData} innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value" stroke="none">
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
                 </div>
-                <div style={{width: '120px', height: '120px'}}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={pieData} innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value" stroke="none">
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+              ) : (
+                <div style={{fontSize: '13px', color: 'var(--text-muted)', marginTop: '16px'}}>No trades recorded yet</div>
+              )}
             </div>
 
             <div className="card" style={{flex: 1}}>
