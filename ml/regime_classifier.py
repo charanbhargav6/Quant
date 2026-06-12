@@ -519,4 +519,9 @@ class RegimeClassifier:
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
-regime_model = RegimeClassifier()
+try:
+    from ml.deep_regime_model import deep_regime_model as regime_model
+    logger.info("[Regime] Active Model: DeepRegimeClassifier (PyTorch LSTM)")
+except ImportError as e:
+    logger.info(f"[Regime] PyTorch not found or deep regime failed: {e}. Falling back to XGBoost/Rule-based.")
+    regime_model = RegimeClassifier()
