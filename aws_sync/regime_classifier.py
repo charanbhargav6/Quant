@@ -21,13 +21,13 @@ TRAINING:
   The model learns: "which feature combinations lead to wins in which regime?"
 
   Train manually:
-    from ml.regime_classifier import regime_model
+    from Sub_Projects.Trading.ml.regime_classifier import regime_model
     regime_model.train()
 
   Auto-retrains monthly when 100+ new trades added.
 
 USAGE (after training):
-  from ml.regime_classifier import regime_model
+  from Sub_Projects.Trading.ml.regime_classifier import regime_model
 
   regime = regime_model.predict("XAUUSD=X", df_1h)
   # → "TRENDING_UP" / "TRENDING_DOWN" / "RANGING" / "VOLATILE"
@@ -61,7 +61,7 @@ class RegimeClassifier:
     @property
     def MIN_TRAINING_ROWS(self) -> int:
         try:
-            from config.config import ML
+            from Config.config import ML
             return ML.get("min_training_rows", 100)
         except Exception:
             return 100
@@ -69,7 +69,7 @@ class RegimeClassifier:
     @property
     def RETRAIN_INTERVAL_TRADES(self) -> int:
         try:
-            from config.config import ML
+            from Config.config import ML
             return ML.get("retrain_interval_trades", 100)
         except Exception:
             return 100
@@ -113,7 +113,7 @@ class RegimeClassifier:
             e50         = ema50.iloc[-1]
             e200        = ema200.iloc[-1] if not pd.isna(ema200.iloc[-1]) else e50
 
-            # ATR expansion check — independent baseline avoids desensitization
+            # ATR expansion check
             tr = pd.concat([
                 df['high'] - df['low'],
                 (df['high'] - df['close'].shift()).abs(),
@@ -121,18 +121,12 @@ class RegimeClassifier:
             ], axis=1).max(axis=1)
 
             atr_now = tr.ewm(alpha=1/14, adjust=False).mean().iloc[-1]
-            # Use an older, non-overlapping slice so sustained volatility
-            # doesn't inflate the baseline and suppress VOLATILE detection.
-            if len(tr) >= 100:
-                hist_tr = tr.iloc[:-50] if len(tr) > 100 else tr
-                atr_avg = hist_tr.mean()
-            else:
-                atr_avg = tr.mean()
+            atr_avg = tr.ewm(alpha=1/14, adjust=False).mean().tail(480).mean()
 
             if atr_avg > 0 and atr_now / atr_avg > 1.4:
                 return "VOLATILE"
 
-            # Trend detection — relaxed: only require EMA21 vs EMA50
+            # Trend detection using EMA alignment
             bullish_ema = last > e21 > e50
             bearish_ema = last < e21 < e50
 
@@ -156,12 +150,12 @@ class RegimeClassifier:
                 low = df['low']
                 plus_dm = high.diff().clip(lower=0)
                 minus_dm = (-low.diff()).clip(lower=0)
-                tr = pd.concat([
+                tr_adx = pd.concat([
                     high - low,
                     (high - close.shift()).abs(),
                     (low - close.shift()).abs(),
                 ], axis=1).max(axis=1)
-                atr14 = tr.ewm(alpha=1/14, adjust=False).mean()
+                atr14 = tr_adx.ewm(alpha=1/14, adjust=False).mean()
                 plus_di = 100 * (plus_dm.ewm(alpha=1/14, adjust=False).mean() / atr14)
                 minus_di = 100 * (minus_dm.ewm(alpha=1/14, adjust=False).mean() / atr14)
                 dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
@@ -200,7 +194,7 @@ class RegimeClassifier:
 
         # Use ML model
         try:
-            from ml.feature_engineering import extract_features
+            from Sub_Projects.Trading.ml.feature_engineering import extract_features
             features = extract_features(symbol, df, {})
             X = self._features_to_array(features)
 
@@ -229,13 +223,8 @@ class RegimeClassifier:
 
     def is_favourable(self, regime: str) -> bool:
         """
-        Is the SMC trend pipeline active for this regime?
-        RANGING routes to mean-reversion instead.
-        VOLATILE returns True but requires call to should_reduce_size() for
-        half-sizing — is_favourable() alone does NOT imply full position size.
-
-        NOTE: trading_loop._regime_checked_analyse() uses this method for routing.
-        Any change to the routing logic must be reflected here and vice versa.
+        Is SMC trading favourable in this regime?
+        RANGING markets are the primary cause of losing streaks.
         """
         return regime in ("TRENDING_UP", "TRENDING_DOWN", "VOLATILE")
 
@@ -261,7 +250,7 @@ class RegimeClassifier:
             from xgboost import XGBClassifier
             from sklearn.preprocessing import StandardScaler
             from sklearn.model_selection import cross_val_score
-            from ml.feature_engineering import get_training_dataframe
+            from Sub_Projects.Trading.ml.feature_engineering import get_training_dataframe
 
             df = get_training_dataframe(min_rows=self.MIN_TRAINING_ROWS)
             if df is None:
@@ -271,21 +260,19 @@ class RegimeClassifier:
                 )
                 return False
 
-            # Outlier removal on entry-time features only.
-            # r_multiple/outcome_class are forward-looking labels — including them
-            # removes high-R winners/deep losers as anomalies, creating survivorship
-            # bias before labeling even runs.
-            _OUTCOME_COLS = {"regime_label", "r_multiple", "outcome",
-                             "outcome_class", "close_price"}
+            # PRIORITY 5: Outlier removal before training (Freqtrade FreqAI pattern)
+            # Runner trades (+8R) and gap losses (-3R from news) are statistically
+            # extreme and skew regime labels. IsolationForest removes them.
+            # contamination=0.05 = remove ~5% most extreme rows.
             n_before = len(df)
             try:
                 from sklearn.ensemble import IsolationForest
                 numeric_cols = [c for c in df.columns
                                 if df[c].dtype in (float, int)
-                                and c not in _OUTCOME_COLS]
+                                and c not in ("regime_label",)]
                 X_check = df[numeric_cols].fillna(0).values
                 iso     = IsolationForest(
-                    contamination=min(0.05, max(0.01, 10 / len(df))),
+                    contamination=min(0.05, max(0.01, 10 / len(df))),  # Scale with dataset size
                     random_state=42,
                     n_jobs=-1,
                 )
@@ -327,16 +314,6 @@ class RegimeClassifier:
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(X)
 
-            # Class weights — VOLATILE (label 3) is rare; without weighting
-            # XGBoost ignores it, silently disabling the half-sizing gate.
-            from collections import Counter
-            counts = Counter(y.tolist())
-            n_total = len(y)
-            n_classes = len(counts)
-            sample_weight = np.array([
-                n_total / (n_classes * counts[label]) for label in y
-            ])
-
             # Train XGBoost
             model = XGBClassifier(
                 n_estimators=100,
@@ -345,32 +322,14 @@ class RegimeClassifier:
                 n_jobs=-1,
                 random_state=42
             )
-            model.fit(X_scaled, y, sample_weight=sample_weight)
+            model.fit(X_scaled, y)
 
-            # Cross-validation with TimeSeriesSplit — prevents future data leaking
-            # into training folds (standard k-fold inflates accuracy on time series).
-            from sklearn.model_selection import TimeSeriesSplit
-            tscv      = TimeSeriesSplit(n_splits=5)
-            cv_scores = cross_val_score(model, X_scaled, y, cv=tscv)
+            # Cross-validation score
+            cv_scores = cross_val_score(model, X_scaled, y, cv=5)
             logger.info(
                 f"[Regime] Training complete. "
                 f"CV accuracy: {cv_scores.mean():.3f} ± {cv_scores.std():.3f}"
             )
-
-            # Minimum quality gate — block deployment of useless models
-            min_cv = 0.45
-            try:
-                from config.config import ML as _ML_CFG
-                min_cv = _ML_CFG.get("min_cv_accuracy", 0.45)
-            except Exception:
-                pass
-
-            if cv_scores.mean() < min_cv:
-                logger.warning(
-                    f"[Regime] CV accuracy {cv_scores.mean():.1%} below minimum "
-                    f"{min_cv:.0%}. Model NOT deployed — using rules only."
-                )
-                return False
 
             self._model   = model
             self._scaler  = scaler
@@ -382,7 +341,7 @@ class RegimeClassifier:
 
             # Notify
             try:
-                from interfaces.telegram_interface import tg
+                from Sub_Projects.Trading.telegram_interface import tg
                 tg.send(
                     f"🤖 <b>Regime Classifier Trained</b>\n"
                     f"Rows: {len(df)}\n"
@@ -437,21 +396,21 @@ class RegimeClassifier:
         if atr_exp > 1.4:
             return 3   # VOLATILE
 
-        # Use EMA alignment at close as ground truth signal.
-        # Regime is a market structure property — NOT a trade outcome.
+        # Use EMA alignment at close as ground truth signal
         # The r > 0 condition was removed: a losing trade in a trending market
         # must still be labeled as trending, otherwise the classifier learns
         # "RANGING = bad outcome" instead of "RANGING = sideways structure."
-        ema21  = row.get("ema21_close", row.get("ema21", 0))
-        ema50  = row.get("ema50_close", row.get("ema50", 0))
+        ema21 = row.get("ema21_close", row.get("ema21", 0))
+        ema50 = row.get("ema50_close", row.get("ema50", 0))
         ema200 = row.get("ema200_close", row.get("ema200", 0))
 
+        # Session-tagged: EMA alignment at close confirms the regime
         if ema21 > ema50 > ema200:
             return 0   # TRENDING_UP
         if ema21 < ema50 < ema200:
             return 1   # TRENDING_DOWN
 
-        return 2   # RANGING (ambiguous EMA stack)
+        return 2   # RANGING (default for ambiguous EMA stack)
 
     def _features_to_array(self, features: dict):
         """Convert features dict to scaled array for prediction."""

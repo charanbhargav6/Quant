@@ -46,17 +46,17 @@ from typing import Optional, List
 
 logger = logging.getLogger("crave.trading_loop")
 
-from core.prop_firm_guard import PropFirmGuard
-from engines.economic_calendar import EconomicCalendar
-from engines.mean_reversion_engine import get_mr_engine
-from config.config import PROP_FIRM, ACCOUNT_SIZE, CONFIDENCE_GATES
+from Sub_Projects.Trading.prop_firm_guard import PropFirmGuard
+from Sub_Projects.Trading.economic_calendar import EconomicCalendar
+from Sub_Projects.Trading.mean_reversion_engine import get_mr_engine
+from Config.config import PROP_FIRM, ACCOUNT_SIZE, CONFIDENCE_GATES
 
 
 # ── Kill Zone Helper ──────────────────────────────────────────────────────────
 
 def is_in_kill_zone(symbol: str) -> tuple:
     try:
-        from config.config import KILL_ZONES
+        from Config.config import KILL_ZONES
         now_utc  = datetime.now(timezone.utc)
         now_mins = now_utc.hour * 60 + now_utc.minute
 
@@ -182,7 +182,7 @@ def _get_ohlcv_with_ws_fallback(symbol: str,
     No need for a redundant fallback chain here.
     """
     try:
-        from data.market_data_router import get_data_router
+        from Sub_Projects.Trading.data.market_data_router import get_data_router
         df = get_data_router().get_ohlcv(symbol, timeframe, limit=limit)
         if df is not None and len(df) >= 20:
             return df
@@ -191,8 +191,8 @@ def _get_ohlcv_with_ws_fallback(symbol: str,
 
     # Last resort: direct DataAgent call (only if router module itself fails)
     try:
-        from core.data_agent import get_data_agent
-        from config.config import get_instrument
+        from Sub_Projects.Trading.data_agent import get_data_agent
+        from Config.config import get_instrument
         exchange = get_instrument(symbol).get("exchange", "yfinance")
         return get_data_agent().get_ohlcv(
             symbol, exchange=exchange, timeframe=timeframe, limit=limit
@@ -219,7 +219,7 @@ class TradingLoop:
         self._is_paper          = True
 
         try:
-            from config.config import PAPER_TRADING
+            from Config.config import PAPER_TRADING
             self._is_paper = PAPER_TRADING.get("enabled", True)
         except Exception:
             self._is_paper = True
@@ -230,7 +230,7 @@ class TradingLoop:
         guard_account_size = ACCOUNT_SIZE
         if self._is_paper:
             try:
-                from config.config import PAPER_TRADING as _pt
+                from Config.config import PAPER_TRADING as _pt
                 paper_equity = float(_pt.get("starting_equity", 10000))
                 if guard_account_size != paper_equity:
                     logger.warning(
@@ -286,8 +286,8 @@ class TradingLoop:
             # → bias_score = 0 for ALL instruments → zero trades all day.
             # Fix: always run bias analysis on first cycle of each day.
             try:
-                from engines.daily_bias_engine import bias_engine
-                from engines.instrument_scanner import scanner
+                from Sub_Projects.Trading.daily_bias_engine import bias_engine
+                from Sub_Projects.Trading.instrument_scanner import scanner
                 logger.info("[TradingLoop] New day — running startup bias analysis...")
                 bias_engine.run_daily_analysis()
                 scanner.run_daily_scan()
@@ -298,20 +298,20 @@ class TradingLoop:
         equity = self._get_current_equity()
         self.prop_firm_guard.update_equity(equity)
 
-        from core.streak_state import streak
+        from Sub_Projects.Trading.streak_state import streak
         can_trade, reason = streak.can_trade()
         if not can_trade:
             logger.debug(f"[TradingLoop] Gate blocked: {reason}")
             return
 
         try:
-            from infra.node_orchestrator import orchestrator
+            from Sub_Projects.Trading.node_orchestrator import orchestrator
             if not orchestrator.is_active():
                 return
         except Exception:
             pass
 
-        from core.position_tracker import positions
+        from Sub_Projects.Trading.position_tracker import positions
         current_open = positions.count()
         if current_open >= self.MAX_INSTRUMENTS_PER_DAY:
             return
@@ -321,7 +321,7 @@ class TradingLoop:
         # Blocks entry if any limit would be breached.
         # Also triggers emergency SL tightening if heat is elevated.
         try:
-            from risk.portfolio_risk_engine import get_portfolio_risk
+            from Sub_Projects.Trading.risk.portfolio_risk_engine import get_portfolio_risk
             pr = get_portfolio_risk()
 
             # Emergency SL tighten (5-6.5% range)
@@ -344,7 +344,7 @@ class TradingLoop:
         # (Already handled by get_tradeable_symbols() in config.py -
         #  no code change needed here, just documentation.)
 
-        from engines.instrument_scanner import scanner
+        from Sub_Projects.Trading.instrument_scanner import scanner
         tradeable = scanner.get_tradeable_today()
         if not tradeable:
             return
@@ -381,21 +381,21 @@ class TradingLoop:
         Options signal check. Runs after regular SMC signal check.
         Only active when MARKETS["options"]["enabled"] = True.
         """
-        from config.config import is_market_enabled
+        from Config.config import is_market_enabled
         if not is_market_enabled("options"):
             return
 
-        from config.config import get_symbols_for_market
+        from Config.config import get_symbols_for_market
         option_symbols = get_symbols_for_market("options")
         if not option_symbols:
             return
 
         try:
-            from options.options_engine import get_options_engine
+            from Sub_Projects.Trading.options.options_engine import get_options_engine
 
             # Use NIFTY and BANKNIFTY as primary options candidates
             for symbol in ["NIFTY_FUT", "BANKNIFTY_FUT"]:
-                from core.data_agent import get_data_agent
+                from Sub_Projects.Trading.data_agent import get_data_agent
                 df = get_data_agent().get_ohlcv(symbol, exchange="zerodha", timeframe="1h", limit=100)
                 if df is None or len(df) < 20:
                     continue
@@ -403,7 +403,7 @@ class TradingLoop:
                 # Get SMC direction if any signal exists
                 smc_direction = None
                 try:
-                    from engines.daily_bias_engine import bias_engine
+                    from Sub_Projects.Trading.daily_bias_engine import bias_engine
                     bias = bias_engine.get_bias(symbol)
                     if bias and bias.get("bias") != "NO_TRADE":
                         smc_direction = ("buy"
@@ -430,7 +430,7 @@ class TradingLoop:
     def _notify_options_signal(self, strategy: dict):
         """Send options signal to Telegram for review."""
         try:
-            from interfaces.telegram_interface import tg
+            from Sub_Projects.Trading.telegram_interface import tg
             strikes = strategy.get("strikes", {})
             strike_str = " | ".join(f"{k}={v}" for k, v in strikes.items()
                                      if isinstance(v, (int, float)))
@@ -481,7 +481,7 @@ class TradingLoop:
         # ── 3. Regime Gate ────────────────────────────────────────────────
         regime = "UNKNOWN"
         try:
-            from ml.regime_classifier import regime_model
+            from Sub_Projects.Trading.ml.regime_classifier import regime_model
             df_1h = _get_ohlcv_with_ws_fallback(symbol, "1h", 100)
             if df_1h is not None:
                 regime = regime_model.predict(symbol, df_1h)
@@ -496,11 +496,11 @@ class TradingLoop:
             prop_risk_multiplier *= 0.5
 
         # ── 4. Routing ────────────────────────────────────────────────────
-        from config.config import get_asset_params
+        from Config.config import get_asset_params
         is_gold = get_asset_params(symbol).get("label") == "Gold"
 
         # Gold has its own trend/ranging logic in gold_strategy.py
-        if is_gold or regime_model.is_favourable(regime):
+        if is_gold or regime in ("TRENDING_UP", "TRENDING_DOWN", "VOLATILE"):
             return self._analyse_and_execute(symbol, kz_name, prop_risk_multiplier)
         elif regime == "RANGING":
             return self._analyse_mean_reversion(symbol, kz_name, regime, prop_risk_multiplier)
@@ -509,15 +509,9 @@ class TradingLoop:
             return None
 
     def _analyse_mean_reversion(self, symbol: str, kz_name: str, regime: str, prop_risk_multiplier: float = 1.0) -> Optional[dict]:
-        session_tag = f" [{kz_name}]" if kz_name else ""
-        logger.info(f"[TradingLoop] {symbol}: Regime=RANGING. Routing to Mean Reversion.{session_tag}")
+        logger.info(f"[TradingLoop] {symbol}: Regime=RANGING. Routing to Mean Reversion. ({kz_name})")
         df_15m = _get_ohlcv_with_ws_fallback(symbol, "15m", 250)
         mr_result = get_mr_engine().analyze(symbol, df_15m, regime)
-        
-        if not mr_result.get("signal"):
-            reason = mr_result.get("reason", "unknown")
-            logger.info(f"[TradingLoop] {symbol}: MR scan — no setup. Reason: {reason}")
-            return None
         
         if mr_result.get("signal"):
             conf_gate = CONFIDENCE_GATES.get(symbol, CONFIDENCE_GATES.get("default", 0.50))
@@ -575,11 +569,11 @@ class TradingLoop:
             return None
 
         # ── Route gold to dedicated pullback strategy ─────────────────────
-        from config.config import get_asset_params as _gap
+        from Config.config import get_asset_params as _gap
         _is_gold = _gap(symbol).get("label") == "Gold"
 
         if _is_gold:
-            from engines.gold_strategy import (
+            from Sub_Projects.Trading.gold_strategy import (
                 attach_gold_indicators, analyze_gold_context
             )
             df_15m = attach_gold_indicators(df_15m)
@@ -597,8 +591,8 @@ class TradingLoop:
             loss  = (-delta.clip(upper=0)).rolling(14).mean()
             df_15m['rsi_14'] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
 
-            from engines.hybrid_strategy import HybridStrategyAgent
-            strategy = HybridStrategyAgent()
+            from Sub_Projects.Trading.strategy_agent import StrategyAgent
+            strategy = StrategyAgent()
             
             # ── Pre-compute SMC catalogs (matching backtest architecture) ─
             fvg_catalog = strategy._build_fvg_catalog(df_15m)
@@ -621,44 +615,21 @@ class TradingLoop:
         macro_trend  = context.get("Macro_Trend", "Unknown")
         current_price = context.get("Current_Price", df_15m['close'].iloc[-1])
 
-        # ── Resolve direction from macro_trend + bias engine ──────────────
-        # The SMA-cross macro_trend returns "Unknown" in choppy markets
-        # (SMA50 > SMA200 but price < EMA21, or vice versa).
-        # Instead of blocking ALL trades, fall back to the daily bias engine.
-        from engines.daily_bias_engine import bias_engine
-        bias_data = bias_engine.get_bias(symbol)
-        bias_dir  = bias_data.get("bias", "NO_TRADE") if bias_data else "NO_TRADE"
-
-        if macro_trend in ("Bullish", "Bearish"):
-            # Strategy agent has a clear trend — use it
-            direction = "buy" if macro_trend == "Bullish" else "sell"
-        elif bias_dir in ("BUY", "SELL"):
-            # Macro trend unclear but bias engine has a view — use bias
-            direction = "buy" if bias_dir == "BUY" else "sell"
-            logger.info(
-                f"[TradingLoop] {symbol}: macro_trend=Unknown, using bias={bias_dir} as direction"
-            )
-        else:
-            # Both Unknown AND no bias — genuinely no trade
-            self._log_signal(symbol, "skip", "No trend: macro=Unknown, bias=NO_TRADE",
+        if macro_trend == "Unknown":
+            self._log_signal(symbol, "skip", "Unknown macro trend",
                              confidence, grade_str, context, df_1h=df_15m)
             return None
 
-        # Validate direction agrees with bias (if bias has a view)
-        if bias_dir in ("BUY", "SELL"):
-            expected_dir = "buy" if bias_dir == "BUY" else "sell"
-            if direction != expected_dir:
-                self._log_signal(symbol, "skip",
-                                 f"Bias conflict: bias={bias_dir} signal={direction}",
-                                 confidence, grade_str, context, df_1h=df_15m)
-                return None
-        elif bias_dir == "NO_TRADE":
-            # Bias explicitly says don't trade this instrument today
-            if not bias_engine.is_tradeable_today(symbol, direction):
-                self._log_signal(symbol, "skip",
-                                 f"Bias=NO_TRADE for {symbol} today",
-                                 confidence, grade_str, context, df_1h=df_15m)
-                return None
+        direction = "buy" if macro_trend == "Bullish" else "sell"
+
+        from Sub_Projects.Trading.daily_bias_engine import bias_engine
+        if not bias_engine.is_tradeable_today(symbol, direction):
+            bias = bias_engine.get_bias(symbol)
+            b    = bias.get("bias", "NO_TRADE") if bias else "NO_BIAS"
+            self._log_signal(symbol, "skip",
+                             f"Bias conflict: bias={b} signal={direction}",
+                             confidence, grade_str, context, df_1h=df_15m)
+            return None
 
         grade = None
         for g in ("A+", "A", "B+", "B"):
@@ -669,7 +640,7 @@ class TradingLoop:
             return None
 
         # ── ASSET_PARAMS grade gate (matching backtest exactly) ───────────
-        from config.config import get_asset_params
+        from Config.config import get_asset_params
         asset_p = get_asset_params(symbol)
         
         asset_min_grade = asset_p.get("min_grade", "B+")
@@ -708,7 +679,7 @@ class TradingLoop:
         # If price is at an OB, check delta confirms the direction.
         # Dead OBs have negative delta at the level — skip them.
         try:
-            from intelligence.order_flow import (
+            from Sub_Projects.Trading.intelligence.order_flow import (
                 check_delta_confirmation
             )
             obs = context.get("Order_Blocks", [])
@@ -744,7 +715,7 @@ class TradingLoop:
         # ── Zone 2: Jarvis Sentiment Override ────────────────────────────
         # Check macro narrative before executing signal.
         try:
-            from intelligence.jarvis_llm import get_jarvis
+            from Sub_Projects.Trading.intelligence.jarvis_llm import get_jarvis
             jarvis = get_jarvis()
             if jarvis.is_ready():
                 override = jarvis.get_sentiment_override(symbol, direction)
@@ -773,8 +744,8 @@ class TradingLoop:
             self._jarvis_half_size = False
 
         # ── Pre-calculate Risk Pct BEFORE the portfolio gate ──────────────
-        from core.risk_agent import RiskAgent
-        from core.streak_state import streak
+        from Sub_Projects.Trading.risk_agent import RiskAgent
+        from Sub_Projects.Trading.streak_state import streak
 
         risk_pct = streak.get_current_risk_pct(grade)
         
@@ -801,7 +772,7 @@ class TradingLoop:
 
         # ── Portfolio-level risk gate ─────────────────────────────────────
         try:
-            from risk.portfolio_risk_engine import get_portfolio_risk
+            from Sub_Projects.Trading.risk.portfolio_risk_engine import get_portfolio_risk
             pr_ok, pr_reason = get_portfolio_risk().can_add_position(
                 symbol, risk_pct, direction
             )
@@ -909,7 +880,7 @@ class TradingLoop:
           - Share vs unit sizing (stocks need shares, not lot_size)
         """
         try:
-            from brokers.broker_router import get_router
+            from Sub_Projects.Trading.brokers.broker_router import get_router
             return get_router().execute(validated, current_price,
                                         is_paper=self._is_paper)
         except Exception as e:
@@ -932,13 +903,13 @@ class TradingLoop:
 
         # FIX M4: delegate all slippage logic to paper_engine
         try:
-            from core.paper_trading import get_paper_engine
+            from Sub_Projects.Trading.paper_trading import get_paper_engine
             fill_data  = get_paper_engine().simulate_fill(validated, current_price)
             fill_price = fill_data["fill_price"]
         except Exception:
             fill_price = current_price   # fallback
 
-        from core.position_tracker import positions
+        from Sub_Projects.Trading.position_tracker import positions
         positions.open({
             **validated,
             "trade_id":    trade_id,
@@ -950,7 +921,7 @@ class TradingLoop:
         })
 
         try:
-            from interfaces.telegram_interface import tg
+            from Sub_Projects.Trading.telegram_interface import tg
             tg.send_trade_open({
                 **validated,
                 "trade_id":    trade_id,
@@ -972,8 +943,8 @@ class TradingLoop:
 
     def _live_execute(self, validated: dict, current_price: float) -> dict:
         try:
-            from core.execution_agent import ExecutionAgent
-            from core.data_agent import get_data_agent
+            from Sub_Projects.Trading.execution_agent import ExecutionAgent
+            from Sub_Projects.Trading.data_agent import get_data_agent
             exchange = validated.get("exchange", "alpaca")
             ea = ExecutionAgent(data_agent=get_data_agent())
             return ea.execute_trade(validated, current_price, exchange=exchange)
@@ -993,15 +964,15 @@ class TradingLoop:
         """
         if self._is_paper:
             try:
-                from core.paper_trading import get_paper_engine
+                from Sub_Projects.Trading.paper_trading import get_paper_engine
                 return get_paper_engine().get_equity()
             except Exception:
-                from config.config import PAPER_TRADING
+                from Config.config import PAPER_TRADING
                 return float(PAPER_TRADING.get("starting_equity", 10000))
 
         # Live mode: read from broker
         try:
-            from core.data_agent import get_data_agent
+            from Sub_Projects.Trading.data_agent import get_data_agent
             da      = get_data_agent()
             account = da.alpaca.get_account() if da.alpaca else None
             if account:
@@ -1032,7 +1003,7 @@ class TradingLoop:
         All 16 missing fields are now captured automatically.
         """
         try:
-            from core.database_manager import db
+            from Sub_Projects.Trading.database_manager import db
 
             # Generate signal_id if not provided
             sid = signal_id or str(uuid.uuid4())[:8].upper()
@@ -1079,7 +1050,7 @@ class TradingLoop:
             # FIX 3: Use feature_engineering for complete ML feature set
             if df_1h is not None:
                 try:
-                    from ml.feature_engineering import extract_features
+                    from Sub_Projects.Trading.ml.feature_engineering import extract_features
                     features = extract_features(symbol, df_1h, context, session_name)
                 except Exception as fe:
                     logger.debug(f"[TradingLoop] Feature extraction failed: {fe}")
@@ -1127,7 +1098,7 @@ class TradingLoop:
             in_kz, kz_name = is_in_kill_zone(symbol)
 
             if in_kz:
-                from core.position_tracker import positions
+                from Sub_Projects.Trading.position_tracker import positions
                 if not positions.has_open_position(symbol):
                     self._regime_checked_analyse(symbol, f"{kz_name} (watchlist)")
             else:
@@ -1144,8 +1115,8 @@ class TradingLoop:
 
     def _correlation_check(self, symbol: str, direction: str) -> tuple:
         try:
-            from core.position_tracker import positions
-            from config.config import RISK
+            from Sub_Projects.Trading.position_tracker import positions
+            from Config.config import RISK
 
             max_corr    = RISK.get("max_correlated_exposure_pct", 2.0)
             usd_long    = {"EURUSD=X", "GBPUSD=X", "AUDUSD=X", "XAUUSD=X", "BTCUSDT", "ETHUSDT"}
@@ -1172,13 +1143,13 @@ class TradingLoop:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _get_exchange_for(self, symbol: str) -> str:
-        from config.config import get_instrument
+        from Config.config import get_instrument
         return get_instrument(symbol).get("exchange", "paper")
 
     def _get_node_name(self) -> str:
         import socket
         hostname = socket.gethostname().upper()
-        from config.config import NODES
+        from Config.config import NODES
         for name, cfg in NODES.items():
             if any(p.upper() in hostname for p in cfg.get("hostname_patterns", [])):
                 return name
