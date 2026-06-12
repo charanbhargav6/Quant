@@ -100,90 +100,90 @@ class MeanReversionEngine:
             if rsi_val <= self.rsi_oversold:
                 if vol_sig["high_volume"]:
                     return {"signal": None, "reason": "MR long failed: No volume exhaustion (high vol detected)"}
-                
-                tp1 = bb_mid
-                tp2 = bb_upper
-                sl  = close - (atr_val * 1.5)
-                rr  = abs(tp1 - close) / abs(close - sl) if close != sl else 0
+                if choch.get("bullish_choch", False):
+                    tp1 = bb_mid
+                    tp2 = bb_upper
+                    sl  = close - (atr_val * 1.5)
+                    rr  = abs(tp1 - close) / abs(close - sl) if close != sl else 0
 
-                if rr < self.min_rr:
-                    return {"signal": None, "reason": f"MR long failed: R:R {rr:.2f} below {self.min_rr}"}
-
-                score = self._score_setup(
-                    "long", close, bb_lower, bb_upper, rsi_val, vol_sig, choch
-                )
-                return {
-                    "signal":     "buy",
-                    "symbol":     symbol,
-                    "strategy":   "mean_reversion",
-                    "entry":      round(close, 5),
-                    "stop_loss":  round(sl, 5),
-                    "take_profit_1": round(tp1, 5),
-                    "take_profit_2": round(tp2, 5),
-                    "rr_ratio":   round(rr, 2),
-                    "confidence": score,
-                    "atr":        round(atr_val, 5),
-                    "risk_pct":   self.max_risk_pct,
-                    "regime":     "RANGING",
-                    "indicators": {
-                        "rsi":       round(rsi_val, 1),
-                        "bb_lower":  round(bb_lower, 5),
-                        "bb_mid":    round(bb_mid, 5),
-                        "bb_upper":  round(bb_upper, 5),
-                        "choch":     choch,
-                        "vol_exhaustion": not vol_sig["high_volume"],
-                    },
-                    "time_exit_bars": self.time_exit_bars,
-                    "reason":     (
-                        f"MR LONG: price at lower BB ({bb_lower:.5f}), "
-                        f"RSI={rsi_val:.1f}, vol exhaustion, bullish 15M CHoCH"
-                    ),
-                }
+                    if rr >= self.min_rr:
+                        score = self._score_setup(
+                            "long", close, bb_lower, bb_upper, rsi_val, vol_sig, choch
+                        )
+                        return {
+                            "signal":     "buy",
+                            "symbol":     symbol,
+                            "strategy":   "mean_reversion",
+                            "entry":      round(close, 5),
+                            "stop_loss":  round(sl, 5),
+                            "take_profit_1": round(tp1, 5),
+                            "take_profit_2": round(tp2, 5),
+                            "rr_ratio":   round(rr, 2),
+                            "confidence": score,
+                            "atr":        round(atr_val, 5),
+                            "risk_pct":   self.max_risk_pct,
+                            "regime":     "RANGING",
+                            "indicators": {
+                                "rsi":       round(rsi_val, 1),
+                                "bb_lower":  round(bb_lower, 5),
+                                "bb_mid":    round(bb_mid, 5),
+                                "bb_upper":  round(bb_upper, 5),
+                                "choch":     choch,
+                                "vol_exhaustion": not vol_sig["high_volume"],
+                            },
+                            "time_exit_bars": self.time_exit_bars,
+                            "reason":     (
+                                f"MR LONG: price at lower BB ({bb_lower:.5f}), "
+                                f"RSI={rsi_val:.1f}, vol exhaustion, bullish 15M CHoCH"
+                            ),
+                        }
+                    else:
+                        return {"signal": None, "reason": f"MR long R:R {rr:.2f} below {self.min_rr}"}
 
         # ── SHORT setup (price at upper band) ────────────────────────────
         if close >= bb_upper * 0.992:
             if rsi_val >= self.rsi_overbought:
                 if vol_sig["high_volume"]:
                     return {"signal": None, "reason": "MR short failed: No volume exhaustion (high vol detected)"}
-                    
-                tp1 = bb_mid
-                tp2 = bb_lower
-                sl  = close + (atr_val * 1.5)
-                rr  = abs(close - tp1) / abs(sl - close) if close != sl else 0
+                if choch.get("bearish_choch", False):
+                    tp1 = bb_mid
+                    tp2 = bb_lower
+                    sl  = close + (atr_val * 1.5)
+                    rr  = abs(close - tp1) / abs(sl - close) if close != sl else 0
 
-                if rr < self.min_rr:
-                    return {"signal": None, "reason": f"MR short failed: R:R {rr:.2f} below {self.min_rr}"}
-
-                score = self._score_setup(
-                    "short", close, bb_lower, bb_upper, rsi_val, vol_sig, choch
-                )
-                return {
-                    "signal":     "sell",
-                    "symbol":     symbol,
-                    "strategy":   "mean_reversion",
-                    "entry":      round(close, 5),
-                    "stop_loss":  round(sl, 5),
-                    "take_profit_1": round(tp1, 5),
-                    "take_profit_2": round(tp2, 5),
-                    "rr_ratio":   round(rr, 2),
-                    "confidence": score,
-                    "atr":        round(atr_val, 5),
-                    "risk_pct":   self.max_risk_pct,
-                    "regime":     "RANGING",
-                    "indicators": {
-                        "rsi":      round(rsi_val, 1),
-                        "bb_lower": round(bb_lower, 5),
-                        "bb_mid":   round(bb_mid, 5),
-                        "bb_upper": round(bb_upper, 5),
-                        "choch":    choch,
-                        "vol_exhaustion": not vol_sig["high_volume"],
-                    },
-                    "time_exit_bars": self.time_exit_bars,
-                    "reason":     (
-                        f"MR SHORT: price at upper BB ({bb_upper:.5f}), "
-                        f"RSI={rsi_val:.1f}, vol exhaustion, bearish 15M CHoCH"
-                    ),
-                }
+                    if rr >= self.min_rr:
+                        score = self._score_setup(
+                            "short", close, bb_lower, bb_upper, rsi_val, vol_sig, choch
+                        )
+                        return {
+                            "signal":     "sell",
+                            "symbol":     symbol,
+                            "strategy":   "mean_reversion",
+                            "entry":      round(close, 5),
+                            "stop_loss":  round(sl, 5),
+                            "take_profit_1": round(tp1, 5),
+                            "take_profit_2": round(tp2, 5),
+                            "rr_ratio":   round(rr, 2),
+                            "confidence": score,
+                            "atr":        round(atr_val, 5),
+                            "risk_pct":   self.max_risk_pct,
+                            "regime":     "RANGING",
+                            "indicators": {
+                                "rsi":      round(rsi_val, 1),
+                                "bb_lower": round(bb_lower, 5),
+                                "bb_mid":   round(bb_mid, 5),
+                                "bb_upper": round(bb_upper, 5),
+                                "choch":    choch,
+                                "vol_exhaustion": not vol_sig["high_volume"],
+                            },
+                            "time_exit_bars": self.time_exit_bars,
+                            "reason":     (
+                                f"MR SHORT: price at upper BB ({bb_upper:.5f}), "
+                                f"RSI={rsi_val:.1f}, vol exhaustion, bearish 15M CHoCH"
+                            ),
+                        }
+                    else:
+                        return {"signal": None, "reason": f"MR short R:R {rr:.2f} below {self.min_rr}"}
 
         return {
             "signal": None,
