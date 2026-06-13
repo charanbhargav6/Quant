@@ -126,34 +126,47 @@ def extract_sequences(df):
         
     return np.array(X, dtype=np.float32), np.array(y, dtype=np.int64)
 
+VAL_FRACTION = 0.2     # chronological held-out tail per symbol
+MIN_VAL_ACC = 0.30     # 4-class random chance = 25%; refuse to save below this
+
 def main():
     symbols = ["GC=F", "EURUSD=X", "BTC-USD", "ETH-USD"]
-    all_X, all_y = [], []
-    
+    train_X, train_y, val_X, val_y = [], [], [], []
+
     for sym in symbols:
         try:
             df = fetch_data(sym, period="730d")
             if len(df) < SEQ_LENGTH + FUTURE_LOOKAHEAD + 1:
                 logger.warning(f"Not enough data for {sym}")
                 continue
-                
+
             df = generate_future_labels(df)
             X, y = extract_sequences(df)
-            
-            if X.shape[0] > 0:
-                all_X.append(X)
-                all_y.append(y)
+
+            if X.shape[0] == 0:
+                continue
+
+            # Chronological split: earliest sequences train, latest validate.
+            # Holding out the tail measures generalization to unseen future bars
+            # instead of reporting accuracy on the training data itself.
+            split = int(len(X) * (1 - VAL_FRACTION))
+            if split < 1 or split >= len(X):
+                train_X.append(X)
+                train_y.append(y)
+            else:
+                train_X.append(X[:split]); train_y.append(y[:split])
+                val_X.append(X[split:]);   val_y.append(y[split:])
         except Exception as e:
             logger.error(f"Failed to process {sym}: {e}")
-            
-    if not all_X:
+
+    if not train_X:
         logger.error("No data fetched.")
         return
-        
-    X_full = np.concatenate(all_X, axis=0)
-    y_full = np.concatenate(all_y, axis=0)
-    
-    logger.info(f"Total dataset: {X_full.shape[0]} sequences of shape {X_full.shape[1:]}")
+
+    X_full = np.concatenate(train_X, axis=0)
+    y_full = np.concatenate(train_y, axis=0)
+
+    logger.info(f"Training dataset: {X_full.shape[0]} sequences of shape {X_full.shape[1:]}")
     
     # Class balancing weights
     from collections import Counter
@@ -197,11 +210,33 @@ def main():
             correct += torch.sum(preds == batch_y).item()
             
         acc = correct / len(dataset)
-        logger.info(f"Epoch {epoch+1}/{EPOCHS} | Loss: {total_loss/len(loader):.4f} | Accuracy: {acc*100:.2f}%")
-        
+        logger.info(f"Epoch {epoch+1}/{EPOCHS} | Loss: {total_loss/len(loader):.4f} | Train Accuracy: {acc*100:.2f}%")
+
+    # Held-out validation accuracy (generalization check)
+    val_acc = None
+    if val_X:
+        Xv = np.concatenate(val_X, axis=0)
+        yv = np.concatenate(val_y, axis=0)
+        model.eval()
+        with torch.no_grad():
+            logits = model(torch.tensor(Xv).to(device))
+            preds  = torch.argmax(logits, dim=1).cpu().numpy()
+        val_acc = float((preds == yv).mean())
+        logger.info(f"Validation accuracy: {val_acc*100:.2f}% on {len(yv)} held-out sequences")
+    else:
+        logger.warning("No validation set held out — skipping validation gate.")
+
+    # Quality gate: refuse to overwrite the deployed model with a weak one.
+    if val_acc is not None and val_acc < MIN_VAL_ACC:
+        logger.error(
+            f"❌ Validation accuracy {val_acc*100:.2f}% below minimum "
+            f"{MIN_VAL_ACC*100:.0f}% — model NOT saved (keeping existing model)."
+        )
+        return
+
     # Save the real model
     torch.save(model.state_dict(), MODEL_PATH)
-    logger.info(f"✅ LSTM Training complete. Saved massive backtest model to {MODEL_PATH}")
+    logger.info(f"✅ LSTM Training complete. Saved model to {MODEL_PATH}")
 
 if __name__ == "__main__":
     main()

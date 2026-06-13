@@ -437,14 +437,11 @@ class RegimeClassifier:
         if atr_exp > 1.4:
             return 3   # VOLATILE
 
-        # Use EMA alignment at close as ground truth signal.
+        # Use EMA alignment at entry as ground truth signal.
         # Regime is a market structure property — NOT a trade outcome.
-        # The r > 0 condition was removed: a losing trade in a trending market
-        # must still be labeled as trending, otherwise the classifier learns
-        # "RANGING = bad outcome" instead of "RANGING = sideways structure."
-        ema21  = row.get("ema21_close", row.get("ema21", 0))
-        ema50  = row.get("ema50_close", row.get("ema50", 0))
-        ema200 = row.get("ema200_close", row.get("ema200", 0))
+        ema21  = row.get("ema21", 0)
+        ema50  = row.get("ema50", 0)
+        ema200 = row.get("ema200", 0)
 
         if ema21 > ema50 > ema200:
             return 0   # TRENDING_UP
@@ -519,9 +516,15 @@ class RegimeClassifier:
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
-try:
-    from ml.deep_regime_model import deep_regime_model as regime_model
-    logger.info("[Regime] Active Model: DeepRegimeClassifier (PyTorch LSTM)")
-except ImportError as e:
-    logger.info(f"[Regime] PyTorch not found or deep regime failed: {e}. Falling back to XGBoost/Rule-based.")
+from config.config import USE_DEEP_REGIME
+
+if USE_DEEP_REGIME:
+    try:
+        from ml.deep_regime_model import deep_regime_model as regime_model
+        logger.info("[Regime] Active Model: DeepRegimeClassifier (PyTorch LSTM)")
+    except ImportError as e:
+        logger.warning(f"[Regime] PyTorch missing for LSTM. Falling back: {e}")
+        regime_model = RegimeClassifier()
+else:
+    logger.info("[Regime] Active Model: RegimeClassifier (XGBoost/Rules)")
     regime_model = RegimeClassifier()

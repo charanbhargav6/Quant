@@ -26,23 +26,25 @@ class LSTMRegimeNet(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.3)
         self.fc2 = nn.Linear(32, num_classes)
-        self.softmax = nn.Softmax(dim=1)
-        
+
     def forward(self, x):
         # x shape: (batch_size, seq_length, input_size)
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        
+
         # out shape: (batch_size, seq_length, hidden_size)
         out, _ = self.lstm(x, (h0, c0))
-        
+
         # Take the output of the last time step
         out = out[:, -1, :]
         out = self.fc1(out)
         out = self.relu(out)
         out = self.dropout(out)
         out = self.fc2(out)
-        return self.softmax(out)
+        # Return raw logits. nn.CrossEntropyLoss applies log_softmax internally
+        # during training; inference applies softmax explicitly in predict().
+        # Applying Softmax here as well would double-softmax and cripple training.
+        return out
 
 class DeepRegimeClassifier:
     REGIMES = ["TRENDING_UP", "TRENDING_DOWN", "RANGING", "VOLATILE"]
@@ -52,6 +54,7 @@ class DeepRegimeClassifier:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
         self._trained = False
+        self._last_regime = None
         self._load_model()
         
     def _extract_sequence_features(self, df: pd.DataFrame) -> np.ndarray:
@@ -87,26 +90,34 @@ class DeepRegimeClassifier:
         return arr
 
     def predict(self, symbol: str, df: pd.DataFrame) -> str:
-        from ml.regime_classifier import RegimeClassifier
         # Fallback to rule-based if model not loaded
         if not self._trained or self.model is None:
-            return RegimeClassifier().detect_regime_rules(df, symbol)
-            
+            return self._rule_fallback(df, symbol)
+
         seq = self._extract_sequence_features(df)
         if seq is None:
-            return RegimeClassifier().detect_regime_rules(df, symbol)
-            
+            return self._rule_fallback(df, symbol)
+
         self.model.eval()
         with torch.no_grad():
             x = torch.tensor(seq, dtype=torch.float32).unsqueeze(0).to(self.device)
-            probs = self.model(x).cpu().numpy()[0]
-            
+            # Model returns raw logits — apply softmax here for probabilities.
+            probs = torch.softmax(self.model(x), dim=1).cpu().numpy()[0]
+
         idx = np.argmax(probs)
         regime = self.REGIMES[idx]
-        
+
         if probs[idx] < 0.5:
-            return RegimeClassifier().detect_regime_rules(df, symbol)
-            
+            return self._rule_fallback(df, symbol)
+
+        self._last_regime = regime
+        return regime
+
+    def _rule_fallback(self, df: pd.DataFrame, symbol: str) -> str:
+        """Rule-based regime via a cached classifier (avoids rebuilding it
+        on every prediction, which would re-run disk model loading)."""
+        regime = _get_rule_classifier().detect_regime_rules(df, symbol)
+        self._last_regime = regime
         return regime
 
     def is_favourable(self, regime: str) -> bool:
@@ -128,19 +139,52 @@ class DeepRegimeClassifier:
                 logger.error(f"[DeepRegime] Failed to load model: {e}")
                 self._trained = False
 
+    def get_status(self) -> dict:
+        return {
+            "trained":     self._trained,
+            "model_path":  str(MODEL_PATH),
+            "device":      str(self.device),
+            "model_type":  "DeepRegimeClassifier (PyTorch LSTM)",
+            "last_regime": self._last_regime,
+            "using":       "LSTM + rule fallback" if self._trained else "rules only",
+        }
+
     def train(self) -> bool:
         """
-        Train the LSTM on historical data sequences.
-        Note: This is a placeholder for the actual training loop.
-        In a full implementation, you would construct (N, SEQ_LENGTH, F) tensors
-        from historical data and backpropagate.
+        Train the LSTM by running the full training pipeline (ml/train_lstm.py),
+        then reload the trained weights from disk.
+
+        This delegates to the real pipeline — it must NEVER save freshly
+        initialized (random) weights over an existing trained model, which is
+        what the previous mock implementation did.
         """
-        logger.info("[DeepRegime] LSTM training initiated...")
-        # For MVP, we instantiate the architecture and save it to verify PyTorch integration
-        self.model = LSTMRegimeNet(input_size=4, num_classes=len(self.REGIMES)).to(self.device)
-        torch.save(self.model.state_dict(), MODEL_PATH)
-        self._trained = True
-        logger.info(f"[DeepRegime] Mock training complete. Model saved to {MODEL_PATH}")
-        return True
+        logger.info("[DeepRegime] Delegating to full LSTM training pipeline...")
+        try:
+            from ml import train_lstm
+            train_lstm.main()
+        except Exception as e:
+            logger.error(f"[DeepRegime] Training failed: {e}")
+            return False
+
+        # Reload freshly trained weights from disk (train_lstm only saves a
+        # model that clears its validation gate).
+        self._trained = False
+        self.model = None
+        self._load_model()
+        return self._trained
+
+
+# Module-level cached rule classifier for the prediction fallback path.
+# Built lazily to avoid a circular import (regime_classifier imports this module).
+_rule_classifier = None
+
+
+def _get_rule_classifier():
+    global _rule_classifier
+    if _rule_classifier is None:
+        from ml.regime_classifier import RegimeClassifier
+        _rule_classifier = RegimeClassifier()
+    return _rule_classifier
+
 
 deep_regime_model = DeepRegimeClassifier()
