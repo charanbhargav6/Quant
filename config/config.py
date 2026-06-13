@@ -56,6 +56,7 @@ DB_PATH        = DATABASE_DIR / "crave.db"
 #   ALPACA_PAPER_URL      — https://paper-api.alpaca.markets (stocks paper)
 #   POLYGON_API_KEY       — optional: better US market data than Alpaca
 #   TRADING_MODE          — paper / live (default: paper)
+#   USE_DEEP_REGIME       — True = LSTM Engine, False = XGBoost/Rules (default: False)
 #
 # NEW (Session 10):
 #   PROP_FIRM             — Name of the prop firm (e.g. ftmo, the5ers). Default: ftmo
@@ -68,6 +69,8 @@ try:
     ACCOUNT_SIZE = float(os.environ.get("ACCOUNT_SIZE", "1000"))
 except ValueError:
     ACCOUNT_SIZE = 1000.0
+
+USE_DEEP_REGIME = os.environ.get("USE_DEEP_REGIME", "false").lower() == "true"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NODE DETECTION
