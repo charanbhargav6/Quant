@@ -1011,8 +1011,8 @@ ASSET_PARAMS = {
     "gold":    {"sl_mult": 1.5, "rr": 1.5, "min_days": 60,  "label": "Gold",    "min_grade": "B+", "min_conf": 50},
     "silver":  {"sl_mult": 1.0, "rr": 1.5, "min_days": 60,  "label": "Silver",  "min_grade": "B+", "min_conf": 50},
     "forex":   {"sl_mult": 1.0, "rr": 1.5, "min_days": 90,  "label": "Forex",   "min_grade": "B+", "min_conf": 35},
-    "btc":     {"sl_mult": 1.2, "rr": 1.5, "min_days": 30,  "label": "BTC",     "min_grade": "B+", "min_conf": 45},
-    "crypto":  {"sl_mult": 2.5, "rr": 1.5, "min_days": 30,  "label": "Crypto",  "min_grade": "A",  "min_conf": 45},
+    "btc":     {"sl_mult": 1.2, "rr": 1.5, "min_days": 30,  "label": "BTC",     "min_grade": "B+", "min_conf": 50},
+    "crypto":  {"sl_mult": 1.3, "rr": 1.5, "min_days": 30,  "label": "Crypto",  "min_grade": "B+", "min_conf": 50},
     "default": {"sl_mult": 1.5, "rr": 2.0, "min_days": 30,  "label": "Unknown", "min_grade": "A",  "min_conf": 55},
 }
 
