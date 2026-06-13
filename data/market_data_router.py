@@ -96,8 +96,10 @@ class MarketDataRouter:
             try:
                 from core.database_manager import db
                 cached = db.get_cached_ohlcv(symbol, timeframe, limit=limit)
-                if cached is not None and len(cached) >= min(20, limit // 4):
-                    logger.debug(f"[DataRouter] Cache hit: {symbol} {timeframe}")
+                # FIX: Ensure cache has at least the requested limit (or very close to it)
+                # Previously, if bias_engine fetched 50 rows, it poisoned the cache for trading_loop needing 250
+                if cached is not None and len(cached) >= min(limit * 0.9, limit - 10):
+                    logger.debug(f"[DataRouter] Cache hit: {symbol} {timeframe} (rows={len(cached)})")
                     return cached
             except Exception:
                 pass

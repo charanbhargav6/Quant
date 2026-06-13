@@ -509,28 +509,14 @@ class WebSocketManager:
                         limit: int = 100) -> Optional[pd.DataFrame]:
         """
         Get recent OHLCV from WebSocket cache.
-        Falls back to database cache or REST API.
+        Returns None if no WS data exists. Fallbacks are handled by MarketDataRouter.
         """
         # Try WS cache first
         df = self._store.get_df(symbol, timeframe, limit=limit)
         if df is not None and len(df) >= 10:
             return df
 
-        # Fall back to database cache
-        try:
-            from core.database_manager import db
-            cached = db.get_cached_ohlcv(symbol, timeframe, limit=limit)
-            if cached is not None and len(cached) >= 10:
-                return cached
-        except Exception:
-            pass
-
-        # Fall back to REST API
-        try:
-            from core.data_agent import DataAgent
-            return DataAgent().get_ohlcv(symbol, timeframe=timeframe, limit=limit)
-        except Exception:
-            return None
+        return None
 
     def get_status(self) -> dict:
         """Status of all WebSocket connections."""
