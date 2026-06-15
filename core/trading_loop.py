@@ -270,11 +270,55 @@ class TradingLoop:
                 logger.error(f"[TradingLoop] Cycle error: {e}")
             time.sleep(self.SCAN_INTERVAL_SECS)
 
+    def _process_exit_signals(self):
+        try:
+            from core.position_tracker import positions
+            from interfaces.telegram_interface import tg
+            
+            open_pos = positions.get_all()
+            for pos in open_pos:
+                if pos.get("exit_signal"):
+                    trade_id = pos["trade_id"]
+                    symbol = pos["symbol"]
+                    reason = pos.get("exit_signal_reason", "Manual Close")
+                    
+                    df_1h = _get_ohlcv_with_ws_fallback(symbol, "1h", 2)
+                    if df_1h is None or df_1h.empty:
+                        continue
+                        
+                    current_price = float(df_1h['close'].iloc[-1])
+                    
+                    logger.info(f"[TradingLoop] Executing exit signal for {symbol} ({trade_id}) @ {current_price}")
+                    
+                    if self._is_paper:
+                        booking = positions.partial_close(
+                            trade_id=trade_id,
+                            close_pct=100.0,
+                            at_price=current_price,
+                            r_level=pos.get("exit_signal_r", 0.0)
+                        )
+                        if "error" not in booking:
+                            pnl = booking.get("pnl_pct", 0)
+                            pnl_str = f"+{pnl:.2f}%" if pnl > 0 else f"{pnl:.2f}%"
+                            icon = "✅" if pnl > 0 else "❌"
+                            tg.send(
+                                f"{icon} <b>TRADE CLOSED</b>\n"
+                                f"Symbol: {symbol}\n"
+                                f"Reason: {reason}\n"
+                                f"PnL: {pnl_str}"
+                            )
+                    else:
+                        logger.warning(f"[TradingLoop] Live execution close not implemented yet for {symbol}")
+        except Exception as e:
+            logger.error(f"[TradingLoop] Error processing exit signals: {e}")
+
     # ─────────────────────────────────────────────────────────────────────────
     # MAIN CYCLE
     # ─────────────────────────────────────────────────────────────────────────
 
     def _run_cycle(self):
+        self._process_exit_signals()
+        
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != self._last_trade_date:
             self._trades_today    = 0
@@ -360,12 +404,6 @@ class TradingLoop:
                 kz_name = _get_session_name(datetime.now(timezone.utc).hour)
                 logger.info(f"[TradingLoop] {symbol}: Outside kill zone — running analysis with reduced confidence ({kz_name})")
             
-            result = self._regime_checked_analyse(symbol, kz_name)
-            if result and result.get("executed"):
-                slots_available -= 1
-                if slots_available <= 0:
-                    break
-
             # FIX 6: Regime check is now a first-class method call,
             # not a monkey-patch in run_bot_final.py.
             result = self._regime_checked_analyse(symbol, kz_name)
@@ -889,6 +927,17 @@ class TradingLoop:
                              confidence, grade_str, context,
                              validated=validated, df_1h=df_1h,
                              signal_id=signal_id)
+                             
+            # Notify Telegram
+            try:
+                from core.position_tracker import positions
+                from interfaces.telegram_interface import tg
+                pos = positions.get(result.get("trade_id"))
+                if pos:
+                    tg.send_trade_open(pos)
+            except Exception as e:
+                logger.error(f"[TradingLoop] Failed to send Telegram trade open: {e}")
+                
             return {"executed": True, "trade_id": result.get("trade_id")}
 
         self._log_signal(symbol, "failed",

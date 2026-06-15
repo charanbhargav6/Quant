@@ -465,12 +465,18 @@ class PositionTracker:
         with self._lock:
             positions_snapshot = list(self._positions.values())
 
+        try:
+            from infra.node_orchestrator import orchestrator
+            my_node = orchestrator.get_active_node()
+        except:
+            my_node = "unknown"
+            
         if not positions_snapshot:
-            return "📭 No open positions."
+            return f"📭 No open positions. (Node: {my_node})"
 
         lines = [
-            f"📂 OPEN POSITIONS ({len(positions_snapshot)})",
-            "━━━━━━━━━━━━━━━━━━━━"
+            f"📊 OPEN POSITIONS ({len(positions_snapshot)}) - Node: {my_node}",
+            "━━━━━━━━━━━━━━━"
         ]
         for pos in positions_snapshot:
             direction = (

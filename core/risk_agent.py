@@ -258,7 +258,8 @@ class RiskAgent:
         lot_size        = self.size_position(current_equity, entry_price, sl_price)
         # Use the actual risk_fraction computed above (Kelly / tier / default),
         # not max_risk_per_trade which ignores Kelly and tier scaling.
-        capital_risked  = round(current_equity * risk_fraction, 2)
+        price_risk      = abs(entry_price - sl_price)
+        capital_risked  = round(lot_size * price_risk, 2)
         sl_distance_pct = round(abs(entry_price - sl_price) / entry_price * 100, 3)
 
         return {
