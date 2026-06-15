@@ -552,7 +552,8 @@ class DailyBiasEngine:
                 stars = "⭐" * s
                 short_sym = symbol.replace("=X", "").replace("-USD", "")
                 lines.append(f"{emoji} {short_sym}: {b} {stars}")
-            tg.send("\n".join(lines))
+            # Removed Telegram alert per user request, just log it.
+            # tg.send("\n".join(lines))
         except Exception as e:
             logger.debug(f"[Bias] Telegram summary failed: {e}")
 

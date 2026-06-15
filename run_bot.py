@@ -418,23 +418,7 @@ def run_full_bot(node: str, mode: str):
                 total_trades = stats.get("total_trades", 0)
                 min_trades   = pe._cfg.get("min_trades_for_live", 30)
 
-                tg.send(
-                    f"📊 <b>WEEKLY READINESS UPDATE</b>\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"Paper Trades : {total_trades} / {min_trades} needed\n"
-                    f"Win Rate     : {stats.get('win_rate', 'N/A')}\n"
-                    f"Expectancy   : {stats.get('expectancy_r', 'N/A')}\n"
-                    f"Sharpe       : {stats.get('sharpe_ratio', 'N/A')}\n"
-                    f"Max DD       : {stats.get('max_drawdown', 'N/A')}\n"
-                    f"Return       : {stats.get('total_return', 'N/A')}\n"
-                    f"Gate Status  : {'✅ PASSED' if ready else '❌ NOT YET'}\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    + (
-                        "🎉 Ready for live! Run /readiness for full report."
-                        if ready else
-                        f"⏳ {max(0, min_trades - total_trades)} more trades to minimum."
-                    )
-                )
+                # Removed noisy Telegram alert for weekly readiness per user request
 
                 if ready:
                     for chunk in [report[i:i+3000]
@@ -446,8 +430,8 @@ def run_full_bot(node: str, mode: str):
 
     schedule.every().day.at("06:30").do(daily_premarket)
 
-    if datetime.now(timezone.utc).hour >= 6:
-        daily_premarket()
+    # Removed forced daily_premarket() call on startup to avoid spam.
+    # It will run naturally at its scheduled time (06:30).
 
     # ── Schedule Zerodha daily token refresh at 03:30 UTC ─────────────────
     def zerodha_daily_login():
@@ -523,17 +507,7 @@ def run_full_bot(node: str, mode: str):
     from config.config import MARKETS
     active_markets = [m for m, c in MARKETS.items() if c.get("enabled")]
 
-    tg.send(
-        f"🚀 <b>Trading Engine v11.0 Online</b>\n"
-        f"Node     : {node}\n"
-        f"Mode     : {mode_str}\n"
-        f"Equity   : {paper_eq}\n"
-        f"Open pos : {open_pos}\n"
-        f"Can trade: {'✅' if streak.can_trade()[0] else '❌'}\n"
-        f"Risk(A+) : {streak.get_current_risk_pct('A+'):.2f}%\n"
-        f"DB size  : {db.get_db_size_mb()}MB\n"
-        f"Markets  : {', '.join(active_markets)}"
-    )
+    tg.send(f"🚀 <b>Node: {node}</b> is now ACTIVE")
 
     logger.info(
         f"[Main] ✅ All modules running (v11.0).\n"

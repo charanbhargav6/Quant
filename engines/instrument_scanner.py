@@ -419,7 +419,8 @@ class InstrumentScanner:
             if not tradeable:
                 lines.append("\n⚠️ No instruments qualify today. No trades.")
 
-            tg.send("\n".join(lines))
+            # Removed Telegram alert per user request, just log it.
+            # tg.send("\n".join(lines))
         except Exception as e:
             logger.debug(f"[Scanner] Telegram notify failed: {e}")
 
