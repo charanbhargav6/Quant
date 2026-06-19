@@ -578,6 +578,12 @@ class SupabasePusher:
 
         while self._running:
             try:
+                from infra.node_orchestrator import orchestrator
+                if not orchestrator.is_active():
+                    # Standby nodes should not push to dashboard!
+                    time.sleep(self.PUSH_INTERVAL_SECS)
+                    continue
+
                 now = time.time()
                 cycle += 1
 
