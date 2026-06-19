@@ -265,7 +265,7 @@ class DatabaseManager:
                 trade.get("direction"),
                 trade.get("entry_price"),
                 trade.get("exit_price"),
-                trade.get("stop_loss"),
+                trade.get("stop_loss", trade.get("original_sl", trade.get("current_sl"))),
                 trade.get("tp1_price"),
                 trade.get("tp2_price"),
                 trade.get("lot_size"),

@@ -255,7 +255,7 @@ class SupabasePusher:
                 "total_trades":     stats.get("total_trades", 0),
                 "wins":             stats.get("wins", 0),
                 "losses":           stats.get("losses", 0),
-                "win_rate":         stats.get("win_rate_float", 0),
+                "win_rate":         stats.get("win_rate_float", 0) / 100.0,
                 "profit_factor":    stats.get("profit_factor_float", 0),
                 "sharpe_ratio":     stats.get("sharpe_float", 0),
                 "expectancy_r":     stats.get("expectancy_float", 0),
