@@ -141,6 +141,14 @@ def run_full_bot(node: str, mode: str):
     Full bot — all modules.
     Paper mode by default. Flip to live after readiness gate passes.
     """
+    # Start Windows sleep watcher to catch laptop lid closing
+    if node == "laptop":
+        try:
+            from infra.laptop_sleep_watcher import start_watcher
+            start_watcher()
+        except ImportError:
+            pass
+
     logger.info(f"[Main] Starting FULL BOT — node={node} mode={mode}")
 
     # ── Infrastructure ────────────────────────────────────────────────────

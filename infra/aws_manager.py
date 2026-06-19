@@ -59,8 +59,11 @@ class AWSManager:
         self._available       = False
         self._connect()
 
-    def _connect(self):
+    def _connect(self) -> bool:
         """Initialise boto3 EC2 client."""
+        if self._available and self._ec2 is not None:
+            return True
+            
         try:
             import boto3
             self._ec2       = boto3.client(
@@ -73,10 +76,15 @@ class AWSManager:
             self._ec2.describe_regions(RegionNames=[self._region])
             self._available = True
             logger.info(f"[AWS] Connected — region: {self._region}")
+            return True
         except ImportError:
             logger.info("[AWS] boto3 not installed. Run: pip install boto3")
         except Exception as e:
             logger.info(f"[AWS] Not available: {e}")
+        return False
+
+    def _ensure_connected(self) -> bool:
+        return self._connect()
 
     # ─────────────────────────────────────────────────────────────────────────
     # INSTANCE DISCOVERY
@@ -117,7 +125,7 @@ class AWSManager:
         Returns True if started successfully.
         wait=True blocks until instance is running (~45-60 seconds).
         """
-        if not self._available:
+        if not self._ensure_connected():
             logger.warning("[AWS] Not available — cannot start instance.")
             return False
 
