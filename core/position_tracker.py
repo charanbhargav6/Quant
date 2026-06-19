@@ -471,12 +471,18 @@ class PositionTracker:
         except:
             my_node = "unknown"
             
+        try:
+            from data.market_data_router import get_data_router
+            router = get_data_router()
+        except:
+            router = None
+            
         if not positions_snapshot:
-            return f"📭 No open positions. (Node: {my_node})"
+            return f"🟢 No open positions. (Node: {my_node})"
 
         lines = [
             f"📊 OPEN POSITIONS ({len(positions_snapshot)}) - Node: {my_node}",
-            "━━━━━━━━━━━━━━━"
+            "───────────────────────────"
         ]
         for pos in positions_snapshot:
             direction = (
@@ -484,13 +490,33 @@ class PositionTracker:
                 else "🔴 SHORT"
             )
             tp_ext = len(pos.get("tp_extensions", []))
+            
+            floating_r_str = ""
+            if router:
+                try:
+                    price = router.get_live_price(pos["symbol"])
+                    if price:
+                        entry = pos["entry_price"]
+                        original_sl = pos.get("original_sl", pos["current_sl"])
+                        sl_dist = abs(entry - original_sl)
+                        if sl_dist <= 0: sl_dist = entry * 0.001
+                        
+                        if pos["direction"] in ("buy", "long"):
+                            r = (price - entry) / sl_dist
+                        else:
+                            r = (entry - price) / sl_dist
+                        floating_r_str = f"  Float : {r:+.2f}R\n"
+                except Exception:
+                    pass
+
             lines.append(
                 f"\n{direction} {pos['symbol']}\n"
                 f"  Entry : {pos['entry_price']}\n"
                 f"  SL    : {pos['current_sl']}\n"
-                f"  TP    : {pos['current_tp']}"
-                + (f" (+{tp_ext} ext)" if tp_ext else "") +
-                f"\n  Remain: {pos.get('remaining_pct',100):.0f}%\n"
+                f"  TP    : {pos['current_tp']}\n"
+                + (f"  Ext   : +{tp_ext}\n" if tp_ext else "") +
+                floating_r_str +
+                f"  Remain: {pos.get('remaining_pct',100):.0f}%\n"
                 f"  Grade : {pos.get('grade','?')} | "
                 f"Risk: {pos.get('risk_pct',1.0):.2f}%\n"
                 f"  Opened: {pos.get('open_time','?')[:10]}"

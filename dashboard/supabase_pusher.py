@@ -318,8 +318,12 @@ class SupabasePusher:
                 try:
                     price    = router.get_live_price(pos["symbol"])
                     entry    = pos["entry_price"]
-                    sl_dist  = abs(entry - pos["current_sl"])
-                    if price and sl_dist > 0:
+                    original_sl = pos.get("original_sl", pos["current_sl"])
+                    sl_dist  = abs(entry - original_sl)
+                    if sl_dist <= 0:
+                        sl_dist = entry * 0.001
+                        
+                    if price:
                         if pos["direction"] in ("buy", "long"):
                             unrealised_r = round((price - entry) / sl_dist, 2)
                         else:
