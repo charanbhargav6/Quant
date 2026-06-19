@@ -277,36 +277,77 @@ class TradingLoop:
             
             open_pos = positions.get_all()
             for pos in open_pos:
-                if pos.get("exit_signal"):
-                    trade_id = pos["trade_id"]
-                    symbol = pos["symbol"]
-                    reason = pos.get("exit_signal_reason", "Manual Close")
+                trade_id = pos["trade_id"]
+                symbol = pos["symbol"]
+                direction = pos["direction"]
+                entry = pos["entry_price"]
+                current_sl = pos["current_sl"]
+                current_tp = pos["current_tp"]
+                original_sl = pos.get("original_sl", current_sl)
+                
+                df_1m = _get_ohlcv_with_ws_fallback(symbol, "1m", 2)
+                if df_1m is None or df_1m.empty:
+                    continue
                     
-                    df_1h = _get_ohlcv_with_ws_fallback(symbol, "1h", 2)
-                    if df_1h is None or df_1h.empty:
+                current_price = float(df_1m['close'].iloc[-1])
+                high = float(df_1m['high'].iloc[-1])
+                low = float(df_1m['low'].iloc[-1])
+                
+                sl_dist = abs(entry - original_sl)
+                if sl_dist <= 0:
+                    sl_dist = entry * 0.001
+                
+                # Check Paper SL/TP
+                if self._is_paper:
+                    sl_hit = False
+                    tp_hit = False
+                    hit_price = current_price
+                    
+                    if direction in ("buy", "long"):
+                        if low <= current_sl:
+                            sl_hit = True
+                            hit_price = current_sl
+                        elif current_tp and high >= current_tp:
+                            tp_hit = True
+                            hit_price = current_tp
+                    else:
+                        if high >= current_sl:
+                            sl_hit = True
+                            hit_price = current_sl
+                        elif current_tp and low <= current_tp:
+                            tp_hit = True
+                            hit_price = current_tp
+                            
+                    if sl_hit:
+                        r_multiple = (hit_price - entry) / sl_dist if direction in ("buy", "long") else (entry - hit_price) / sl_dist
+                        logger.info(f"[TradingLoop] SL HIT for {symbol} @ {hit_price}")
+                        positions.close(
+                            trade_id=trade_id, exit_price=hit_price,
+                            r_multiple=r_multiple, outcome="stop_loss"
+                        )
                         continue
                         
-                    current_price = float(df_1h['close'].iloc[-1])
-                    
+                    if tp_hit:
+                        r_multiple = (hit_price - entry) / sl_dist if direction in ("buy", "long") else (entry - hit_price) / sl_dist
+                        logger.info(f"[TradingLoop] TP HIT for {symbol} @ {hit_price}")
+                        positions.close(
+                            trade_id=trade_id, exit_price=hit_price,
+                            r_multiple=r_multiple, outcome="take_profit"
+                        )
+                        continue
+
+                # Check Dynamic TP Exit Signals
+                if pos.get("exit_signal"):
+                    reason = pos.get("exit_signal_reason", "Manual Close")
                     logger.info(f"[TradingLoop] Executing exit signal for {symbol} ({trade_id}) @ {current_price}")
                     
                     if self._is_paper:
-                        booking = positions.partial_close(
+                        positions.close(
                             trade_id=trade_id,
-                            close_pct=100.0,
-                            at_price=current_price,
-                            r_level=pos.get("exit_signal_r", 0.0)
+                            exit_price=current_price,
+                            r_multiple=pos.get("exit_signal_r", 0.0),
+                            outcome="exit_signal"
                         )
-                        if "error" not in booking:
-                            pnl = booking.get("pnl_pct", 0)
-                            pnl_str = f"+{pnl:.2f}%" if pnl > 0 else f"{pnl:.2f}%"
-                            icon = "✅" if pnl > 0 else "❌"
-                            tg.send(
-                                f"{icon} <b>TRADE CLOSED</b>\n"
-                                f"Symbol: {symbol}\n"
-                                f"Reason: {reason}\n"
-                                f"PnL: {pnl_str}"
-                            )
                     else:
                         logger.warning(f"[TradingLoop] Live execution close not implemented yet for {symbol}")
         except Exception as e:
