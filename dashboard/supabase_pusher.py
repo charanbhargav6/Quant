@@ -306,11 +306,17 @@ class SupabasePusher:
             router   = get_data_router()
             all_pos  = positions.get_all()
 
-            # Delete all then reinsert (positions list is small)
+            # Smart sync: only delete closed positions to prevent UI flickering
             if self._client:
-                self._client.table("crave_open_positions").delete().neq(
-                    "trade_id", ""
-                ).execute()
+                try:
+                    resp = self._client.table("crave_open_positions").select("trade_id").execute()
+                    existing_ids = [row["trade_id"] for row in resp.data]
+                    current_ids = [pos["trade_id"] for pos in all_pos]
+                    for t_id in existing_ids:
+                        if t_id not in current_ids:
+                            self._client.table("crave_open_positions").delete().eq("trade_id", t_id).execute()
+                except Exception as e:
+                    pass
 
             for pos in all_pos:
                 # Calculate unrealised R
