@@ -206,7 +206,7 @@ def _get_ohlcv_with_ws_fallback(symbol: str,
 
 class TradingLoop:
 
-    SCAN_INTERVAL_SECS      = 300
+    SCAN_INTERVAL_SECS      = 120
     MAX_INSTRUMENTS_PER_DAY = 4
 
     def __init__(self):
@@ -287,6 +287,26 @@ class TradingLoop:
                 
                 df_1m = _get_ohlcv_with_ws_fallback(symbol, "1m", 2)
                 if df_1m is None or df_1m.empty:
+                    try:
+                        from datetime import datetime, timezone
+                        last_upd = datetime.fromisoformat(pos["last_updated"])
+                        if (datetime.now(timezone.utc) - last_upd).total_seconds() > 7200:
+                            logger.warning(f"[TradingLoop] {symbol} stale for >2h, forcing close.")
+                            fallback_df = _get_ohlcv_with_ws_fallback(symbol, "1h", 2)
+                            if fallback_df is not None and not fallback_df.empty:
+                                hit_price = float(fallback_df['close'].iloc[-1])
+                            else:
+                                hit_price = entry
+                            
+                            sl_dist = abs(entry - original_sl) if abs(entry - original_sl) > 0 else (entry * 0.001)
+                            r_multiple = (hit_price - entry) / sl_dist if direction in ("buy", "long") else (entry - hit_price) / sl_dist
+                            
+                            positions.close(
+                                trade_id=trade_id, exit_price=hit_price,
+                                r_multiple=r_multiple, outcome="stale_force_close"
+                            )
+                    except Exception as e:
+                        logger.error(f"[TradingLoop] Stale position check error: {e}")
                     continue
                     
                 current_price = float(df_1m['close'].iloc[-1])
@@ -605,9 +625,19 @@ class TradingLoop:
                 return None
                 
             final_risk = mr_result["risk_pct"] * 100.0 * prop_risk_multiplier
+            
+            try:
+                from core.risk_agent import get_risk_agent
+                equity = self.prop_firm_guard.get_current_equity()
+                lot_size = get_risk_agent().size_position(equity, mr_result["entry"], mr_result["stop_loss"])
+            except Exception:
+                lot_size = 1.0
+                
             validated = {
                 "action": mr_result["signal"],
+                "direction": mr_result["signal"],
                 "price": mr_result["entry"],
+                "entry": mr_result["entry"],
                 "symbol": symbol,
                 "is_swing_trade": False,
                 "approved": True,
@@ -619,7 +649,15 @@ class TradingLoop:
                 "node": self._get_node_name(),
                 "order_type": "market",
                 "strict_post_only": False,
-                "signal_id": str(uuid.uuid4())[:8].upper()
+                "signal_id": str(uuid.uuid4())[:8].upper(),
+                "stop_loss": mr_result["stop_loss"],
+                "take_profit": mr_result["take_profit_2"],
+                "take_profit_1": mr_result["take_profit_1"],
+                "take_profit_2": mr_result["take_profit_2"],
+                "lot_size": lot_size,
+                "atr_value": mr_result["atr"],
+                "sl_multiplier": 1.5,
+                "confidence_pct": mr_result["confidence"]
             }
             
             logger.info(
@@ -799,24 +837,15 @@ class TradingLoop:
                         delta_check = check_delta_confirmation(
                             df_5m, ob_zone, direction
                         )
-                        if delta_check.get("signal") == "SKIP":
+                        if delta_check.get("signal") in ("SKIP", "WAIT"):
                             logger.info(
                                 f"[TradingLoop] {symbol}: "
-                                f"DEAD OB — {delta_check['reason']}"
+                                f"Delta Warning ({delta_check.get('signal')}) — {delta_check['reason']} (Proceeding anyway)"
                             )
-                            self._log_signal(
-                                symbol, "skip",
-                                f"Dead OB: {delta_check['reason']}",
-                                confidence, grade_str, context, df_1h=df_15m
-                            )
-                            return None
-                        if delta_check.get("signal") == "WAIT":
-                            logger.debug(
-                                f"[TradingLoop] {symbol}: "
-                                f"Delta WAIT — {delta_check['reason']}"
-                            )
-                            self._add_to_watchlist(symbol, {"symbol": symbol, "score": 7})
-                            return None
+                            # Downgrade grade instead of blocking
+                            if grade == "A+": grade = "A"
+                            elif grade == "A": grade = "B+"
+                            elif grade == "B+": grade = "B"
         except Exception as e:
             logger.debug(f"[TradingLoop] Delta check error (non-fatal): {e}")
 
@@ -830,15 +859,10 @@ class TradingLoop:
                 action   = override.get("action", "PROCEED")
                 if action == "NO_TRADE":
                     logger.info(
-                        f"[TradingLoop] {symbol}: Jarvis veto — "
-                        f"{override['reason']}"
+                        f"[TradingLoop] {symbol}: Jarvis veto advisory — "
+                        f"{override['reason']} (Proceeding anyway with half size)"
                     )
-                    self._log_signal(
-                        symbol, "skip",
-                        f"Jarvis: {override['reason']}",
-                        confidence, grade_str, context, df_1h=df_15m
-                    )
-                    return None
+                    self._jarvis_half_size = True
                 if action == "HALF_SIZE":
                     self._jarvis_half_size = True
                     logger.info(
