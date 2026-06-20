@@ -605,13 +605,13 @@ RISK = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 CONFIDENCE_GATES = {
-    "BTCUSDT": 0.55,
-    "ETHUSDT": 0.55,
-    "EURUSD=X": 0.55,
-    "XAUUSD=X": 0.60,
-    "NIFTY50": 0.65,
-    "SPY": 0.65,
-    "default": 0.50,
+    "BTCUSDT": 0.45,
+    "ETHUSDT": 0.45,
+    "EURUSD=X": 0.45,
+    "XAUUSD=X": 0.50,
+    "NIFTY50": 0.55,
+    "SPY": 0.55,
+    "default": 0.40,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -632,20 +632,20 @@ PARTIAL_BOOKING = [
 KILL_ZONES = {
     # ── Original (crypto / forex / gold) ──────────────────────────────────
     "london": {
-        "start_utc": "07:00", "end_utc": "10:00",
+        "start_utc": "06:00", "end_utc": "11:00",
         "instruments": "all", "priority": 1,
     },
     "ny": {
-        "start_utc": "12:30", "end_utc": "15:00",
+        "start_utc": "11:30", "end_utc": "16:00",
         "instruments": "all", "priority": 1,
     },
     "asian": {
-        "start_utc": "23:00", "end_utc": "02:00",
+        "start_utc": "22:00", "end_utc": "03:00",
         "instruments": ["USDJPY=X", "BTCUSDT", "ETHUSDT", "SOLUSDT"],
         "priority": 2,
     },
     "london_close": {
-        "start_utc": "15:00", "end_utc": "16:00",
+        "start_utc": "14:00", "end_utc": "17:00",
         "instruments": ["XAUUSD=X", "EURUSD=X", "GBPUSD=X"],
         "priority": 2,
     },
@@ -671,7 +671,7 @@ KILL_ZONES = {
     # Best SMC setups on NSE: open drive and close drive only.
     # Midday (05:30-08:30 UTC = 11:00-14:00 IST) = low volume, skip.
     "india_open_drive": {
-        "start_utc": "04:00", "end_utc": "05:30",  # 09:30-11:00 IST
+        "start_utc": "03:00", "end_utc": "06:30",  # 09:30-11:00 IST (+ widened)
         "instruments": ["RELIANCE", "TCS", "HDFCBANK", "INFY",
                          "ICICIBANK", "SBIN", "BHARTIARTL", "ITC",
                          "BAJFINANCE", "TATAMOTORS", "MARUTI",
@@ -681,7 +681,7 @@ KILL_ZONES = {
         "market": "india",
     },
     "india_close_drive": {
-        "start_utc": "08:30", "end_utc": "10:00",  # 14:00-15:30 IST
+        "start_utc": "07:30", "end_utc": "11:00",  # 14:00-15:30 IST (+ widened)
         "instruments": ["RELIANCE", "TCS", "HDFCBANK", "INFY",
                          "ICICIBANK", "SBIN", "BHARTIARTL", "ITC",
                          "BAJFINANCE", "TATAMOTORS", "MARUTI",
@@ -1016,6 +1016,7 @@ ASSET_PARAMS = {
     "forex":   {"sl_mult": 1.0, "rr": 1.5, "min_days": 90,  "label": "Forex",   "min_grade": "B+", "min_conf": 35},
     "btc":     {"sl_mult": 1.2, "rr": 1.5, "min_days": 30,  "label": "BTC",     "min_grade": "B+", "min_conf": 50},
     "crypto":  {"sl_mult": 1.3, "rr": 1.5, "min_days": 30,  "label": "Crypto",  "min_grade": "B+", "min_conf": 50},
+    "india":   {"sl_mult": 1.5, "rr": 1.5, "min_days": 30,  "label": "India",   "min_grade": "B+", "min_conf": 45},
     "default": {"sl_mult": 1.5, "rr": 2.0, "min_days": 30,  "label": "Unknown", "min_grade": "A",  "min_conf": 55},
 }
 
@@ -1035,4 +1036,5 @@ def get_asset_params(ticker: str) -> dict:
     if t in _FOREX_PAIRS_SET:      return ASSET_PARAMS["forex"]
     if t in ("BTC-USD", "BTC", "BTCUSDT"): return ASSET_PARAMS["btc"]
     if t in _CRYPTO_TICKERS_SET:   return ASSET_PARAMS["crypto"]
+    if get_market_for_symbol(t) == "india": return ASSET_PARAMS["india"]
     return ASSET_PARAMS["default"]
