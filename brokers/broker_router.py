@@ -141,6 +141,30 @@ class BrokerRouter:
 
         return False, "OK"
 
+    def close_position(self, symbol: str, is_paper: bool, exchange: str) -> bool:
+        """Route close request to the correct live broker if not paper."""
+        if is_paper or exchange == "paper":
+            return True
+
+        logger.info(f"[Router] Sending LIVE close command for {symbol} on {exchange}")
+        try:
+            if exchange == "alpaca":
+                agent = self._get_alpaca_stocks()
+                return agent.close_position(symbol)
+            elif exchange == "zerodha":
+                agent = self._get_zerodha()
+                return agent.close_position(symbol)
+            elif exchange == "binance":
+                # Assuming ExecutionAgent/Binance has a close or we just warn
+                logger.warning(f"[Router] Binance live close not implemented yet for {symbol}")
+                return False
+            else:
+                logger.warning(f"[Router] Unknown exchange {exchange} for close_position")
+                return False
+        except Exception as e:
+            logger.error(f"[Router] Live close failed for {symbol}: {e}")
+            return False
+
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUTION PATHS
     # ─────────────────────────────────────────────────────────────────────────
@@ -151,6 +175,10 @@ class BrokerRouter:
         try:
             from core.paper_trading import get_paper_engine
             fill = get_paper_engine().simulate_fill(validated, current_price)
+            if fill.get("status") == "pending":
+                logger.info(f"[Router] Order for {validated['symbol']} pending: {fill.get('reason')}")
+                return {"status": "pending", "reason": fill.get("reason")}
+
             trade_id = str(uuid.uuid4())[:8].upper()
 
             from core.position_tracker import positions

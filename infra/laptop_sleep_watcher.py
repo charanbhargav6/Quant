@@ -18,16 +18,16 @@ from infra.aws_manager import aws
 
 logger = logging.getLogger("crave.sleep_watcher")
 
-def _on_sleep():
-    """Triggered right before laptop goes to sleep."""
-    logger.warning("🚨 [SleepWatcher] Windows Sleep Event Detected! Laptop lid closed.")
+def _on_sleep(reason="Sleep/Shutdown Event"):
+    """Triggered right before laptop goes to sleep or shuts down."""
+    logger.warning(f"🚨 [SleepWatcher] Windows {reason} Detected!")
     
     # Fire AWS start API call immediately
     logger.info("[SleepWatcher] Firing AWS start command...")
-    aws.start_instance(wait=False)
+    aws().start_instance(wait=False)
     
     # Tell orchestrator to immediately hand over power
-    orchestrator.trigger_failover("laptop", "Laptop Lid Closed / Sleep Mode")
+    orchestrator.trigger_failover("laptop", f"Laptop {reason}")
     
     # Try one last emergency push to sync state before Wi-Fi cuts
     try:
@@ -44,13 +44,27 @@ def wndproc(hwnd, msg, wparam, lparam):
     if msg == win32con.WM_POWERBROADCAST:
         if wparam == win32con.PBT_APMSUSPEND:
             # Run in separate thread so we don't block Windows Message Pump
-            t = threading.Thread(target=_on_sleep)
+            t = threading.Thread(target=_on_sleep, args=("Lid Closed / Sleep",))
             t.start()
             t.join(timeout=3.0)  # Windows only gives us ~2 seconds anyway
+    elif msg == win32con.WM_QUERYENDSESSION:
+        t = threading.Thread(target=_on_sleep, args=("Shutdown/Logoff",))
+        t.start()
+        t.join(timeout=3.0)
+        return 1
     return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
 
 def start_watcher():
     """Run the Windows message loop in a background thread."""
+    
+    # Pre-warm AWS connection and cache instance ID so start is instant on sleep
+    def _warm_aws():
+        try:
+            aws()._get_instance_id()
+        except Exception:
+            pass
+    threading.Thread(target=_warm_aws, daemon=True).start()
+
     def _loop():
         try:
             hinst = win32api.GetModuleHandle(None)
