@@ -8,7 +8,11 @@ import {
   LayoutDashboard, Award, BarChart2, List, TrendingUp
 } from 'lucide-react';
 
-const COLORS = ['#2e5cff', '#00c853', '#ff4d4f', '#00e5ff', '#ffab00', '#d500f9'];
+const COLORS = [
+  '#2e5cff', '#00c853', '#ff4d4f', '#00e5ff', '#ffab00', '#d500f9',
+  '#ff3d00', '#76ff03', '#ea80fc', '#18ffff', '#ffd600', '#f50057',
+  '#651fff', '#00b0ff', '#1de9b6', '#c6ff00', '#ff9100', '#8c9eff'
+];
 
 function App() {
   const [stats, setStats] = useState({
@@ -241,7 +245,14 @@ function App() {
                 <tbody>
                   {tableView === 'open' && openPositions.map((pos) => (
                     <tr key={pos.trade_id}>
-                      <td style={{fontWeight: 600}}>{pos.symbol}</td>
+                      <td style={{fontWeight: 600}}>
+                        {pos.symbol}
+                        {pos.remaining_pct != null && pos.remaining_pct < 100 && (
+                          <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px', fontWeight: 500}}>
+                            ({pos.remaining_pct}%)
+                          </span>
+                        )}
+                      </td>
                       <td><span className={`badge ${pos.direction === 'buy' || pos.direction === 'long' ? 'buy' : 'sell'}`}>{pos.direction.toUpperCase()}</span></td>
                       <td>{pos.entry_price}</td>
                       <td>{pos.current_sl}</td>
