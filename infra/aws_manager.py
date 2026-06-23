@@ -135,6 +135,12 @@ class AWSManager:
             return False
 
         try:
+            if not wait:
+                logger.info(f"[AWS] Fast starting instance {instance_id}...")
+                self._ec2.start_instances(InstanceIds=[instance_id])
+                self._instance_start = datetime.now(timezone.utc)
+                return True
+
             state = self._get_state()
 
             if state == "running":

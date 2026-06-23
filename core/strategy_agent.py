@@ -155,12 +155,12 @@ class StrategyAgent:
             candles_since = df.iloc[fvg['formed_at']:i]
 
             if fvg['type'] == 'BULL':
-                if (candles_since['close'] < fvg['bottom']).any():
+                if (candles_since['low'] < fvg['bottom']).any():
                     continue
                 if current_price > fvg['top'] * 1.005:  # 0.5% tolerance above top
                     continue
             elif fvg['type'] == 'BEAR':
-                if (candles_since['close'] > fvg['top']).any():
+                if (candles_since['high'] > fvg['top']).any():
                     continue
                 if current_price < fvg['bottom'] * 0.995:
                     continue
@@ -232,13 +232,13 @@ class StrategyAgent:
             candles_since = df.iloc[ob['formed_at']:i]
 
             if ob['type'] == 'BULL':
-                if (candles_since['close'] < ob['bottom']).any():
+                if (candles_since['low'] < ob['bottom']).any():
                     continue
                 if current_low > ob['top'] * 1.03:
                     continue
 
             elif ob['type'] == 'BEAR':
-                if (candles_since['close'] > ob['top']).any():
+                if (candles_since['high'] > ob['top']).any():
                     continue
                 if current_high < ob['bottom'] * 0.97:
                     continue

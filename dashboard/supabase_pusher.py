@@ -364,6 +364,20 @@ class SupabasePusher:
             trades = db.get_recent_trades(limit=200)
 
             for t in trades:
+                # Handle string confidences like "High" from manual trades
+                conf = t.get("confidence")
+                if isinstance(conf, str):
+                    if conf.lower() == "high":
+                        conf = 90
+                    elif conf.lower() == "medium":
+                        conf = 70
+                    elif conf.lower() == "low":
+                        conf = 40
+                    else:
+                        conf = 50
+                elif conf is None:
+                    conf = 0
+
                 self._upsert("crave_trades", {
                     "trade_id":       t.get("trade_id", ""),
                     "symbol":         t.get("symbol"),
@@ -372,7 +386,7 @@ class SupabasePusher:
                     "exit_price":     t.get("exit_price"),
                     "stop_loss":      t.get("stop_loss"),
                     "grade":          t.get("grade"),
-                    "confidence":     t.get("confidence"),
+                    "confidence":     int(conf) if conf is not None else 0,
                     "r_multiple":     t.get("r_multiple"),
                     "outcome":        t.get("outcome"),
                     "hold_duration_h": t.get("hold_duration_h"),

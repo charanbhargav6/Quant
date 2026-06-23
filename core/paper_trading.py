@@ -119,7 +119,13 @@ class PaperTradingEngine:
         order_type = validated.get("order_type", "market")
         limit_px   = validated.get("limit_price")
         if order_type == "limit" and limit_px:
+            if direction in ("buy", "long") and live_price > limit_px:
+                return {"status": "pending", "reason": f"Live price {live_price} > limit {limit_px}"}
+            if direction in ("sell", "short") and live_price < limit_px:
+                return {"status": "pending", "reason": f"Live price {live_price} < limit {limit_px}"}
+
             return {
+                "status":          "filled",
                 "fill_price":      round(limit_px, 5),
                 "slippage":        0.0,
                 "spread_cost_pct": 0.0,

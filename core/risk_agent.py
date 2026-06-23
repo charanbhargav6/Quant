@@ -92,6 +92,7 @@ class RiskAgent:
         if self._session_day_start != session_day:
             self.daily_start_equity   = current_equity
             self._session_day_start   = session_day
+            self.consecutive_losses   = 0
             logger.info(f"[RiskAgent] New session day {session_day}. "
                         f"Daily baseline set to ${current_equity:,.2f}")
 
@@ -118,9 +119,7 @@ class RiskAgent:
                 return False, f"Daily loss limit {daily_loss_pct*100:.1f}% hit."
 
         # ── Consecutive loss kill switch ──
-        recent = [t['result'] for t in self.trade_log[-self.max_consecutive_losses:]]
-        if (len(recent) == self.max_consecutive_losses
-                and all(r == 'L' for r in recent)):
+        if self.consecutive_losses >= self.max_consecutive_losses:
             msg = (f"⚠️ {self.max_consecutive_losses} consecutive losses. "
                    f"Cooling off — no new trades this session.")
             logger.warning(msg)

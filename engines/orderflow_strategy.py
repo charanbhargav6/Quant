@@ -42,15 +42,17 @@ def calculate_volume_profile(df: pd.DataFrame, bins: int = 50) -> dict:
         if not can_expand_up and not can_expand_down:
             break   # Both boundaries exhausted — stop instead of using -1 sentinel
 
-        vol_above = volume_profile[vah_idx + 1] if can_expand_up   else 0
-        vol_below = volume_profile[val_idx - 1] if can_expand_down else 0
+        vol_above = volume_profile[vah_idx + 1] if can_expand_up   else -1
+        vol_below = volume_profile[val_idx - 1] if can_expand_down else -1
 
-        if vol_above >= vol_below:
+        if vol_above >= vol_below and can_expand_up:
             vah_idx += 1
             current_volume += vol_above
-        else:
+        elif can_expand_down:
             val_idx -= 1
             current_volume += vol_below
+        else:
+            break
 
     val_price = bin_edges[val_idx]
     vah_price = bin_edges[vah_idx + 1]

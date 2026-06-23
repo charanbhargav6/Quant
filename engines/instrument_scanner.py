@@ -339,7 +339,7 @@ class InstrumentScanner:
                     return False, msg
         except Exception as e:
             logger.debug(f"[Scanner] VIX fetch failed: {e}")
-        return True, ""
+            return False, "VIX fetch failed (safety trigger)"
 
     # ── IMP-02: DXY Inverse Gate ─────────────────────────────────────────────
     def _check_dxy_gate(self, instrument: str, direction: str) -> tuple:
@@ -363,7 +363,7 @@ class InstrumentScanner:
                     return False, msg
         except Exception as e:
             logger.debug(f"[Scanner] DXY fetch failed: {e}")
-        return True, ""
+            return False, "DXY fetch failed (safety trigger)"
 
     # ─────────────────────────────────────────────────────────────────────────
     # HELPERS

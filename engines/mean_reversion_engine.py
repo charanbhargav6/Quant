@@ -103,7 +103,7 @@ class MeanReversionEngine:
                 
                 tp1 = bb_mid
                 tp2 = bb_upper
-                sl  = close - (atr_val * 1.5)
+                sl  = close - (bb_width * 0.4)
                 rr  = abs(tp1 - close) / abs(close - sl) if close != sl else 0
 
                 if rr < self.min_rr:
@@ -148,7 +148,7 @@ class MeanReversionEngine:
                     
                 tp1 = bb_mid
                 tp2 = bb_lower
-                sl  = close + (atr_val * 1.5)
+                sl  = close + (bb_width * 0.4)
                 rr  = abs(close - tp1) / abs(sl - close) if close != sl else 0
 
                 if rr < self.min_rr:
@@ -260,18 +260,18 @@ class MeanReversionEngine:
 
     def _volume_signal(self, df: pd.DataFrame) -> dict:
         """Detect volume exhaustion at extremes."""
-        if "volume" not in df.columns or len(df) < 20:
+        if "volume" not in df.columns or len(df) < 50:
             return {"high_volume": False, "declining_3bar": False, "below_50pct_avg": False}
 
         vol        = df["volume"]
-        avg_20     = float(vol.rolling(20).mean().iloc[-1])
+        avg_50     = float(vol.rolling(50).mean().iloc[-1])
         current    = float(vol.iloc[-1])
         declining  = (len(vol) >= 3 and
                       vol.iloc[-1] < vol.iloc[-2] < vol.iloc[-3])
-        below_50   = current < avg_20 * 0.5
+        below_50   = current < avg_50 * 0.5
 
         return {
-            "high_volume":      current > avg_20 * 1.3,
+            "high_volume":      current > avg_50 * 2.0,
             "declining_3bar":   declining,
             "below_50pct_avg":  below_50,
         }
