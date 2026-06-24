@@ -1,21 +1,23 @@
 """
-CRAVE v10.0 - Instrument Scanner
+CRAVE v11.1 - Instrument Scanner
 ==================================
 Runs daily at 06:45 UTC after DailyBiasEngine completes.
 Ranks all instruments and selects the top 1-2 to trade today.
 
-SCORING CRITERIA (max 10 points):
-  ATR expansion      +3  current ATR > 20d avg ATR by 20%+ (market is moving)
-  Liquidity nearby   +3  equal highs/lows or FVG within 1× ATR (magnet levels)
-  Bias strength      +3  from DailyBiasEngine (1/2/3 points)
-  Clean structure    +1  no conflicting signals, clear BOS/CHoCH
-  Funding neutral     -2  (crypto only) extreme funding = crowded trade
+SCORING CRITERIA (max 13 points):
+  ATR expansion         +3  current ATR > 20d avg ATR by 20%+ (market is moving)
+  Liquidity nearby      +2  equal highs/lows or FVG within 1× ATR (magnet levels)
+  Bias strength         +3  from DailyBiasEngine (1/2/3 points)
+  Clean structure       +1  no conflicting signals, clear BOS/CHoCH
+  Support/Resistance    +4  price at key S/R with confluence
+  Funding neutral       -2  (crypto only) extreme funding = crowded trade
 
 TRADEABLE TODAY:
-  Score >= 6 AND bias != NO_TRADE → tradeable
-  Score < 6 OR bias == NO_TRADE  → skip today
+  Score >= 6 AND bias != NO_TRADE → tradeable (SMC)
+  Score >= 4 (MR trades when ranging)
+  Score < 4 → skip today
 
-IF NOTHING SCORES >= 6:
+IF NOTHING SCORES >= 4:
   No trades today. Zero is better than a forced bad trade.
 
 USAGE:
@@ -111,28 +113,42 @@ class InstrumentScanner:
         breakdown = {}
 
         # ── 1. ATR Expansion (+3) ──────────────────────────────────────────
-        df = self._get_ohlcv(symbol, "1h", limit=250)
+        df = self._get_ohlcv(symbol, "1h", limit=500)
         atr_score = 0
         if df is not None and len(df) >= 50:
-            atr     = self._wilder_atr(df, 14)
-            atr_20d = self._wilder_atr(df.tail(480), 14)  # 20d avg on 1H = 480 candles
+            # Calculate full ATR series using Wilder's smoothing
+            tr = pd.concat([
+                df['high'] - df['low'],
+                (df['high'] - df['close'].shift()).abs(),
+                (df['low']  - df['close'].shift()).abs(),
+            ], axis=1).max(axis=1)
+            atr_series = tr.ewm(alpha=1.0/14, adjust=False).mean()
 
-            if not pd.isna(atr) and not pd.isna(atr_20d) and atr_20d > 0:
-                expansion = atr / atr_20d
+            current_atr = float(atr_series.iloc[-1])
+            # 20-day average on 1H = last 480 candles (or all available)
+            lookback = min(480, len(atr_series) - 1)
+            avg_atr = float(atr_series.iloc[-lookback:].mean())
+
+            if avg_atr > 0 and not pd.isna(current_atr) and not pd.isna(avg_atr):
+                expansion = current_atr / avg_atr
                 if expansion >= 1.4:
                     atr_score = 3
-                    breakdown["ATR"] = "+3 (strongly expanding)"
+                    breakdown["ATR"] = f"+3 (strongly expanding {expansion:.2f}x)"
                 elif expansion >= 1.2:
                     atr_score = 2
-                    breakdown["ATR"] = "+2 (expanding)"
+                    breakdown["ATR"] = f"+2 (expanding {expansion:.2f}x)"
                 elif expansion >= 1.0:
                     atr_score = 1
-                    breakdown["ATR"] = "+1 (normal)"
+                    breakdown["ATR"] = f"+1 (normal {expansion:.2f}x)"
                 else:
-                    breakdown["ATR"] = "+0 (contracting - avoid)"
+                    breakdown["ATR"] = f"+0 (contracting {expansion:.2f}x - avoid)"
+            else:
+                breakdown["ATR"] = "+0 (insufficient data)"
             score += atr_score
+        else:
+            breakdown["ATR"] = "+0 (no data)"
 
-        # ── 2. Liquidity Proximity (+3) ────────────────────────────────────
+        # ── 2. Liquidity Proximity (+2) ────────────────────────────────────
         liq_score = 0
         if df is not None and len(df) >= 20:
             liq_score = self._check_liquidity_proximity(df, symbol)
@@ -175,7 +191,14 @@ class InstrumentScanner:
                 breakdown["Structure"] = "+0 (doji/indecision)"
         score += structure_score
 
-        # ── 5. Funding rate penalty (crypto, -2) ──────────────────────────
+        # ── 5. Support & Resistance (+4) ───────────────────────────────────
+        sr_score = 0
+        if df is not None and len(df) >= 50:
+            sr_score = self._check_support_resistance(df, symbol, direction)
+            score   += sr_score
+            breakdown["S/R"] = f"+{sr_score}"
+
+        # ── 6. Funding rate penalty (crypto, -2) ──────────────────────────
         funding_penalty = 0
         if inst_cfg.get("funding_check"):
             try:
@@ -194,7 +217,7 @@ class InstrumentScanner:
         score += funding_penalty
 
         # ── Final decision ────────────────────────────────────────────────
-        # FIX B2: Two tiers:
+        # Two tiers:
         #   SMC trades:  score >= 6 AND bias present (directional trend needed)
         #   MR  trades:  score >= 4 (ranging sessions — no direction required)
         smc_tradeable = score >= self.MIN_SCORE_TO_TRADE and bias_score > 0
@@ -225,7 +248,7 @@ class InstrumentScanner:
             else:
                 reason = "Below threshold"
         else:
-            reason = f"Score {score}/10 - tradeable"
+            reason = f"Score {score}/13 - tradeable"
 
         return {
             "symbol":    symbol,
@@ -236,7 +259,163 @@ class InstrumentScanner:
         }
 
     # ─────────────────────────────────────────────────────────────────────────
-    # LIQUIDITY PROXIMITY CHECK
+    # SUPPORT & RESISTANCE CHECK (+4 max)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _check_support_resistance(self, df: pd.DataFrame,
+                                   symbol: str,
+                                   direction: Optional[str] = None) -> int:
+        """
+        Detect key Support and Resistance levels using pivot points,
+        round numbers, and multi-touch validation.
+        
+        Returns 0-4 points based on S/R confluence:
+          +4 = price at a multi-touch S/R level with direction alignment
+          +3 = price at a strong S/R level (3+ touches)
+          +2 = price near a moderate S/R level (2 touches)
+          +1 = price near a round number or single pivot
+          +0 = no significant S/R nearby
+        """
+        current = float(df['close'].iloc[-1])
+        atr     = self._wilder_atr(df, 14)
+        if atr == 0:
+            return 0
+
+        # Proximity: within 0.5× ATR of the level
+        proximity = atr * 0.5
+        sr_points = 0
+
+        # ── 1. Pivot-based S/R (swing highs/lows with touch counting) ────
+        levels = self._find_sr_levels(df, window=10)
+        
+        best_level_score = 0
+        best_level_info  = None
+        
+        for level_price, touch_count, level_type in levels:
+            dist = abs(current - level_price)
+            if dist > proximity:
+                continue
+            
+            # Direction alignment bonus
+            direction_aligned = False
+            if direction == "long" and level_type == "support":
+                direction_aligned = True
+            elif direction == "short" and level_type == "resistance":
+                direction_aligned = True
+            
+            level_score = 0
+            if touch_count >= 3 and direction_aligned:
+                level_score = 4  # Multi-touch + direction aligned = maximum
+            elif touch_count >= 3:
+                level_score = 3  # Strong S/R (3+ touches)
+            elif touch_count >= 2:
+                level_score = 2  # Moderate S/R (2 touches)
+            else:
+                level_score = 1  # Single pivot
+            
+            if level_score > best_level_score:
+                best_level_score = level_score
+                best_level_info  = (level_price, touch_count, level_type)
+        
+        sr_points = best_level_score
+
+        # ── 2. Round number proximity bonus (+1) ──────────────────────────
+        # Gold: round to $10, Forex: round to 0.0100, Crypto: round to $1000/$100
+        round_bonus = self._check_round_number(current, symbol, atr)
+        if round_bonus and sr_points < 4:
+            sr_points = min(sr_points + 1, 4)
+
+        return sr_points
+
+    def _find_sr_levels(self, df: pd.DataFrame, window: int = 10) -> list:
+        """
+        Find S/R levels by detecting swing highs/lows and counting touches.
+        
+        Returns list of (price, touch_count, type) tuples.
+        type = 'support' or 'resistance'
+        """
+        highs = df['high'].values
+        lows  = df['low'].values
+        closes = df['close'].values
+        current = closes[-1]
+        atr = self._wilder_atr(df, 14)
+        if atr == 0:
+            return []
+        
+        # Tolerance for "touching" a level: 0.3% of price or 0.2× ATR
+        touch_tol = min(current * 0.003, atr * 0.2)
+        
+        levels = []  # (price, type)
+        
+        # Find swing highs (resistance candidates)
+        for i in range(window, len(df) - window):
+            if highs[i] == max(highs[i-window:i+window+1]):
+                levels.append((float(highs[i]), "resistance"))
+        
+        # Find swing lows (support candidates)
+        for i in range(window, len(df) - window):
+            if lows[i] == min(lows[i-window:i+window+1]):
+                levels.append((float(lows[i]), "support"))
+        
+        # Cluster nearby levels (within touch_tol)
+        clustered = []
+        used = set()
+        for i, (price_i, type_i) in enumerate(levels):
+            if i in used:
+                continue
+            cluster_prices = [price_i]
+            cluster_type   = type_i
+            used.add(i)
+            for j, (price_j, type_j) in enumerate(levels):
+                if j in used:
+                    continue
+                if abs(price_i - price_j) <= touch_tol:
+                    cluster_prices.append(price_j)
+                    used.add(j)
+            
+            avg_price   = sum(cluster_prices) / len(cluster_prices)
+            touch_count = len(cluster_prices)
+            clustered.append((avg_price, touch_count, cluster_type))
+        
+        # Sort by touch count descending
+        clustered.sort(key=lambda x: x[1], reverse=True)
+        return clustered[:10]  # Top 10 levels
+
+    def _check_round_number(self, price: float, symbol: str,
+                             atr: float) -> bool:
+        """Check if price is near a psychologically significant round number."""
+        # Determine round number interval based on asset
+        sym_upper = symbol.upper()
+        if "XAU" in sym_upper or "GOLD" in sym_upper or "GC" in sym_upper:
+            interval = 10.0    # Gold: $10 rounds (e.g., 3300, 3310)
+        elif any(c in sym_upper for c in ("BTC",)):
+            interval = 1000.0  # BTC: $1000 rounds
+        elif any(c in sym_upper for c in ("ETH",)):
+            interval = 100.0   # ETH: $100 rounds
+        elif any(c in sym_upper for c in ("SOL",)):
+            interval = 10.0    # SOL: $10 rounds
+        elif any(c in sym_upper for c in ("USD", "EUR", "GBP", "AUD", "JPY")):
+            interval = 0.0100  # Forex: 100 pip rounds
+            if "JPY" in sym_upper:
+                interval = 1.0  # JPY pairs: 1.0 rounds
+        elif any(c in sym_upper for c in ("NIFTY", "BANKNIFTY")):
+            interval = 100.0   # Indian indices
+        elif any(c in sym_upper for c in ("RELIANCE", "TCS", "HDFC", "INFY")):
+            interval = 50.0    # Indian stocks
+        else:
+            interval = atr * 5  # Fallback: 5× ATR as "big round"
+
+        if interval == 0:
+            return False
+
+        nearest_round = round(price / interval) * interval
+        dist = abs(price - nearest_round)
+        
+        # "Near" = within 0.3× ATR of the round number
+        return dist <= atr * 0.3
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LIQUIDITY PROXIMITY CHECK (+2 max, was +3 — tightened)
     # ─────────────────────────────────────────────────────────────────────────
 
     def _check_liquidity_proximity(self, df: pd.DataFrame,
@@ -244,57 +423,50 @@ class InstrumentScanner:
         """
         Check if price is near a significant liquidity level.
         Equal highs/lows or unmitigated FVGs = price magnet = high follow-through.
+        
+        Tightened vs v10: proximity threshold reduced from 2× ATR to 1× ATR,
+        FVG window reduced from 20 to 10 candles for freshness.
         """
         current = df['close'].iloc[-1]
         atr     = self._wilder_atr(df, 14)
         if atr == 0:
             return 0
 
-        proximity_threshold = atr * 2   # within 2× ATR of a level
+        proximity_threshold = atr * 1.0   # Tightened from 2× to 1× ATR
 
         # Equal highs (liquidity pool above)
-        recent_highs = df['high'].tail(50).values
+        recent_highs = df['high'].tail(30).values  # Reduced from 50 to 30
         for i in range(len(recent_highs)):
             for j in range(i + 1, len(recent_highs)):
-                if abs(recent_highs[i] - recent_highs[j]) / recent_highs[i] <= 0.002:
+                if abs(recent_highs[i] - recent_highs[j]) / recent_highs[i] <= 0.001:  # Tighter: 0.1% vs 0.2%
                     level = (recent_highs[i] + recent_highs[j]) / 2
                     if abs(current - level) <= proximity_threshold:
-                        return 3   # Very close to equal highs
+                        return 2   # Near equal highs
 
         # Equal lows (liquidity pool below)
-        recent_lows = df['low'].tail(50).values
+        recent_lows = df['low'].tail(30).values
         for i in range(len(recent_lows)):
             for j in range(i + 1, len(recent_lows)):
-                if abs(recent_lows[i] - recent_lows[j]) / recent_lows[i] <= 0.002:
+                if abs(recent_lows[i] - recent_lows[j]) / recent_lows[i] <= 0.001:
                     level = (recent_lows[i] + recent_lows[j]) / 2
                     if abs(current - level) <= proximity_threshold:
-                        return 3
+                        return 2
 
-        # Unmitigated FVG nearby
-        for i in range(max(0, len(df)-20), len(df)-2):
+        # Unmitigated FVG nearby (last 10 candles only — must be fresh)
+        for i in range(max(0, len(df)-10), len(df)-2):
             c1_high = df['high'].iloc[i]
-            c1_low  = df['low'].iloc[i]
             c3_low  = df['low'].iloc[i + 2]
             c3_high = df['high'].iloc[i + 2]
+            c1_low  = df['low'].iloc[i]
 
             if c3_low > c1_high:   # Bullish FVG
                 mid = (c1_high + c3_low) / 2
                 if abs(current - mid) <= proximity_threshold:
-                    return 2
+                    return 1
 
             if c3_high < c1_low:   # Bearish FVG
                 mid = (c3_high + c1_low) / 2
                 if abs(current - mid) <= proximity_threshold:
-                    return 2
-
-        # Swing high/low nearby
-        window = 5
-        for i in range(window, len(df) - window):
-            if df['high'].iloc[i] == df['high'].iloc[i-window:i+window+1].max():
-                if abs(current - df['high'].iloc[i]) <= proximity_threshold:
-                    return 1
-            if df['low'].iloc[i] == df['low'].iloc[i-window:i+window+1].min():
-                if abs(current - df['low'].iloc[i]) <= proximity_threshold:
                     return 1
 
         return 0
@@ -340,6 +512,8 @@ class InstrumentScanner:
         except Exception as e:
             logger.debug(f"[Scanner] VIX fetch failed: {e}")
             return False, "VIX fetch failed (safety trigger)"
+        # FIX: was missing — VIX <= 25 means OK to trade
+        return True, ""
 
     # ── IMP-02: DXY Inverse Gate ─────────────────────────────────────────────
     def _check_dxy_gate(self, instrument: str, direction: str) -> tuple:
@@ -364,6 +538,8 @@ class InstrumentScanner:
         except Exception as e:
             logger.debug(f"[Scanner] DXY fetch failed: {e}")
             return False, "DXY fetch failed (safety trigger)"
+        # FIX: was missing — DXY momentum neutral or favourable = OK
+        return True, ""
 
     # ─────────────────────────────────────────────────────────────────────────
     # HELPERS
@@ -414,7 +590,7 @@ class InstrumentScanner:
             for item in results[:6]:   # show top 6
                 status = "✅" if item["tradeable"] else "❌"
                 short  = item["symbol"].replace("=X", "").replace("-USD", "")
-                lines.append(f"{status} {short}: {item['score']}/10 - {item['reason']}")
+                lines.append(f"{status} {short}: {item['score']}/13 - {item['reason']}")
 
             if not tradeable:
                 lines.append("\n⚠️ No instruments qualify today. No trades.")
@@ -435,7 +611,7 @@ class InstrumentScanner:
         for item in ranking:
             status = "✅" if item["tradeable"] else "❌"
             short  = item["symbol"].replace("=X","").replace("-USD","")
-            lines.append(f"{status} {short}: {item['score']}/10")
+            lines.append(f"{status} {short}: {item['score']}/13")
         return "\n".join(lines)
 
 
@@ -464,4 +640,3 @@ def _get_ema_lean(symbol: str) -> str:
         return "neutral"
     except Exception:
         return "neutral"
-
