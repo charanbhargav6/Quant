@@ -309,6 +309,17 @@ class NodeOrchestrator:
                             sync.set_active(True)
                         except Exception:
                             pass
+                        
+                        # Auto-stop AWS when laptop takes back control
+                        if self._my_node == "laptop":
+                            try:
+                                from infra.aws_manager import get_aws
+                                get_aws().stop_instance()
+                                logger.info("[Orchestrator] Automatically stopped AWS instance.")
+                                from interfaces.telegram_interface import tg
+                                tg.send("☁️ AWS Instance Stopped\nPrimary node has resumed.\nCredits saved. ✅")
+                            except Exception as e:
+                                logger.warning(f"[Orchestrator] Failed to stop AWS automatically: {e}")
 
                     elif not should_be_active and self._is_active:
                         self._is_active = False
