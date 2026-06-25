@@ -608,7 +608,7 @@ CONFIDENCE_GATES = {
     "BTCUSDT": 0.45,
     "ETHUSDT": 0.45,
     "EURUSD=X": 0.45,
-    "XAUUSD=X": 0.50,
+    "XAUUSD=X": 0.40,
     "NIFTY50": 0.55,
     "SPY": 0.55,
     "default": 0.40,

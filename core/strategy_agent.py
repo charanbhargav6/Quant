@@ -480,45 +480,76 @@ class StrategyAgent:
         divergence    = factors.get("divergence", "none")
         vol_signal    = factors.get("vol_signal", "")
         session_ok    = factors.get("session_ok", True)
+        # New: proximity flags (nearby but not exact intersection)
+        fvg_nearby    = factors.get("fvg_nearby", False)
+        ob_nearby     = factors.get("ob_nearby", False)
 
+        # ── Trend (20 pts) ────────────────────────────────────────────────
         if trend in ("Bullish", "Bearish"):
             points += 20; breakdown["Trend Filter"] = "+20"
         else:
-            breakdown["Trend Filter"] = "+0 (Unknown)"
+            # Partial credit for having structure direction even without
+            # perfect SMA cross. The daily bias engine already confirmed
+            # the direction — Unknown trend shouldn't zero everything.
+            if "BOS" in structure or "CHoCH" in structure:
+                points += 10
+                breakdown["Trend Filter"] = "+10 (Structure-implied)"
+            else:
+                breakdown["Trend Filter"] = "+0 (Unknown)"
 
+        # ── FVG (10 exact / 5 nearby) ─────────────────────────────────────
         if fvg_hit:
-            points += 10; breakdown["FVG Interaction"] = "+10"
+            points += 10; breakdown["FVG Interaction"] = "+10 (inside zone)"
+        elif fvg_nearby:
+            points += 5; breakdown["FVG Interaction"] = "+5 (approaching zone)"
 
+        # ── Order Block (10 exact / 5 nearby) ─────────────────────────────
         if ob_hit:
-            points += 10; breakdown["Order Block"] = "+10"
+            points += 10; breakdown["Order Block"] = "+10 (inside zone)"
+        elif ob_nearby:
+            points += 5; breakdown["Order Block"] = "+5 (approaching zone)"
 
+        # ── Liquidity Sweep (10 pts) ──────────────────────────────────────
         if sweep:
             points += 10; breakdown["Liquidity Sweep"] = "+10"
 
-        # ── Strict 3-Concept Confluence Bonus ──
-        if fvg_hit and ob_hit and sweep:
+        # ── 3-Concept Confluence Bonus ────────────────────────────────────
+        smc_concepts = sum([fvg_hit or fvg_nearby, ob_hit or ob_nearby, sweep])
+        if smc_concepts >= 3:
             points += 25; breakdown["3-Concept Confluence"] = "+25"
+        elif smc_concepts >= 2:
+            points += 10; breakdown["2-Concept Confluence"] = "+10"
 
+        # ── Market Structure (10 pts) ─────────────────────────────────────
         if "CHoCH" in structure or "BOS" in structure:
             points += 10; breakdown["Market Structure"] = f"+10 ({structure})"
 
+        # ── Premium/Discount Zone (10 pts) ────────────────────────────────
         if (trend == "Bullish" and "DISCOUNT" in pd_zone) or (trend == "Bearish" and "PREMIUM" in pd_zone):
             points += 10; breakdown["Premium/Discount"] = "+10"
 
+        # ── RSI Divergence (10 pts) ───────────────────────────────────────
         if divergence != "none" and "none" not in divergence.lower():
             points += 10; breakdown["RSI Divergence"] = f"+10 ({divergence})"
 
+        # ── Volume Delta (5 pts) ──────────────────────────────────────────
         if (trend == "Bullish" and "Bullish" in vol_signal) or (trend == "Bearish" and "Bearish" in vol_signal):
             points += 5; breakdown["Volume Delta"] = "+5"
 
+        # ── Session filter — REMOVED ──────────────────────────────────────
+        # The trading loop's kill zone check already handles session quality.
+        # Penalizing here causes double-dipping: first the loop reduces
+        # confidence for off-session, then this scorer penalizes again,
+        # making it impossible to reach B+ grade outside London/NY.
+        # We log it for audit but don't subtract points.
         if not session_ok:
-            points = max(0, points - 10)
-            breakdown["Session Filter"] = "-10 (Asian/Dead Zone)"
+            breakdown["Session"] = "Off-session (no penalty, handled by kill zone)"
 
-        if points >= 75:   grade = "A+"
-        elif points >= 55: grade = "A"
-        elif points >= 40: grade = "B+"
-        elif points >= 25: grade = "B"
+        # ── Grade assignment ──────────────────────────────────────────────
+        if points >= 70:   grade = "A+"
+        elif points >= 50: grade = "A"
+        elif points >= 35: grade = "B+"
+        elif points >= 20: grade = "B"
         else:              grade = "C"
 
         return grade, min(points, 100), breakdown
@@ -572,6 +603,36 @@ class StrategyAgent:
             for ob in active_obs
         )
 
+        # ── FVG/OB PROXIMITY (within 1 ATR) ──────────────────────────────
+        # In live trading, price often approaches an FVG/OB but hasn't
+        # entered it yet. Credit "nearby" for partial confidence boost.
+        atr_val = 0
+        try:
+            tr = pd.concat([
+                fast_window['high'] - fast_window['low'],
+                (fast_window['high'] - fast_window['close'].shift()).abs(),
+                (fast_window['low']  - fast_window['close'].shift()).abs(),
+            ], axis=1).max(axis=1)
+            atr_val = float(tr.ewm(alpha=1.0/14, adjust=False).mean().iloc[-1])
+        except Exception:
+            pass
+
+        fvg_nearby = False
+        if not fvg_hit and atr_val > 0:
+            for f in active_fvgs:
+                mid = (f['top'] + f['bottom']) / 2
+                if abs(current_price - mid) <= atr_val * 1.5:
+                    fvg_nearby = True
+                    break
+
+        ob_nearby = False
+        if not ob_hit and atr_val > 0:
+            for ob in active_obs:
+                mid = (ob['high'] + ob['low']) / 2
+                if abs(current_price - mid) <= atr_val * 1.5:
+                    ob_nearby = True
+                    break
+
         try:
             last_ts    = df['time'].iloc[-1]
             session_ok = _is_london_or_ny(last_ts)
@@ -602,6 +663,8 @@ class StrategyAgent:
             "structure_event": struct_event.get("event", ""),
             "fvg_hit":         fvg_hit,
             "ob_hit":          ob_hit,
+            "fvg_nearby":      fvg_nearby,
+            "ob_nearby":       ob_nearby,
             "sweep":           sweep.get("sweep_detected", False),
             "pd_zone":         pd_zone.get("zone", ""),
             "divergence":      rsi_div.get("divergence", "none"),
