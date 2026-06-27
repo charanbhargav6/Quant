@@ -408,12 +408,16 @@ class SupabasePusher:
                 datetime.now(timezone.utc) - self._start_time
             ).total_seconds() / 3600
 
-            active_node = "unknown"
+            # Determine THIS node's identity and who the elected active is
+            this_node = "unknown"
+            elected_active = "unknown"
             try:
                 from infra.node_orchestrator import orchestrator
-                active_node = orchestrator.get_active_node()
+                this_node = orchestrator._my_node
+                elected_active = orchestrator.get_active_node()
             except Exception:
-                active_node = socket.gethostname()
+                this_node = socket.gethostname()
+                elected_active = this_node
 
             ws_connected = False
             try:
@@ -424,10 +428,17 @@ class SupabasePusher:
             except Exception:
                 pass
 
+            # FIX v11.2: Use id=1 always (single-row status) but ONLY the
+            # elected active node pushes. Standby nodes skip this entirely.
+            # The flickering was caused by BOTH nodes pushing to id=1.
+            is_this_active = (this_node == elected_active)
+            if not is_this_active:
+                return  # Standby node should NOT update system status
+
             self._upsert("crave_system_status", {
                 "id":              1,
                 "updated_at":      datetime.now(timezone.utc).isoformat(),
-                "active_node":     active_node,
+                "active_node":     this_node,
                 "trading_mode":    os.environ.get("TRADING_MODE", "paper"),
                 "bot_running":     True,
                 "ws_connected":    ws_connected,
