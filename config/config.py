@@ -143,14 +143,14 @@ INSTRUMENTS = {
     "XAUUSD=X": {
         "label": "Gold", "asset_class": "gold", "market": "gold",
         "sl_mult": 2.0, "rr": 2.0, "min_days": 60,
-        "sessions": ["london", "ny"], "exchange": "yfinance", "type": "spot",
+        "sessions": ["london", "ny"], "exchange": "mt5", "type": "spot",
         "lot_size_type": "units", "currencies": ["XAU", "USD"],
         "pip_size": 0.01, "enabled": True,
     },
     "XAGUSD=X": {
         "label": "Silver", "asset_class": "silver", "market": "gold",
         "sl_mult": 2.0, "rr": 2.0, "min_days": 60,
-        "sessions": ["london", "ny"], "exchange": "yfinance", "type": "spot",
+        "sessions": ["london", "ny"], "exchange": "mt5", "type": "spot",
         "lot_size_type": "units", "currencies": ["XAG", "USD"],
         "pip_size": 0.001, "enabled": False,
     },
@@ -181,29 +181,29 @@ INSTRUMENTS = {
     # ── Forex Majors ──────────────────────────────────────────────────────
     "EURUSD=X": {
         "label": "Euro/Dollar", "asset_class": "forex", "market": "forex",
-        "sl_mult": 1.0, "rr": 1.5, "min_days": 90,
-        "sessions": ["london", "ny"], "exchange": "yfinance", "type": "forex",
+        "sl_mult": 1.5, "rr": 2.0, "min_days": 90,
+        "sessions": ["london", "ny"], "exchange": "mt5", "type": "forex",
         "lot_size_type": "units", "currencies": ["EUR", "USD"],
         "pip_size": 0.0001, "enabled": True,
     },
     "GBPUSD=X": {
         "label": "Pound/Dollar", "asset_class": "forex", "market": "forex",
-        "sl_mult": 2.5, "rr": 2.0, "min_days": 90,
-        "sessions": ["london", "ny"], "exchange": "yfinance", "type": "forex",
+        "sl_mult": 1.5, "rr": 2.0, "min_days": 90,
+        "sessions": ["london", "ny"], "exchange": "mt5", "type": "forex",
         "lot_size_type": "units", "currencies": ["GBP", "USD"],
         "pip_size": 0.0001, "enabled": True,
     },
     "USDJPY=X": {
         "label": "Dollar/Yen", "asset_class": "forex", "market": "forex",
-        "sl_mult": 2.5, "rr": 2.0, "min_days": 90,
-        "sessions": ["london", "ny", "asian"], "exchange": "yfinance", "type": "forex",
+        "sl_mult": 1.5, "rr": 2.0, "min_days": 90,
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "forex",
         "lot_size_type": "units", "currencies": ["USD", "JPY"],
         "pip_size": 0.01, "enabled": True,
     },
     "AUDUSD=X": {
         "label": "Aussie/Dollar", "asset_class": "forex", "market": "forex",
-        "sl_mult": 2.5, "rr": 2.0, "min_days": 90,
-        "sessions": ["london", "ny", "asian"], "exchange": "yfinance", "type": "forex",
+        "sl_mult": 1.5, "rr": 2.0, "min_days": 90,
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "forex",
         "lot_size_type": "units", "currencies": ["AUD", "USD"],
         "pip_size": 0.0001, "enabled": True,
     },
@@ -619,10 +619,14 @@ CONFIDENCE_GATES = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 PARTIAL_BOOKING = [
-    {"r_level": 1.0, "close_pct": 30, "sl_move_to": "breakeven"},
-    {"r_level": 2.0, "close_pct": 20, "sl_move_to": "+1R"},
-    {"r_level": 3.0, "close_pct": 20, "sl_move_to": "+2R"},
-    {"r_level": 4.0, "close_pct": 10, "sl_move_to": "+3R"},
+    # v11.2 FIX: Old "breakeven at 1R" was the #1 cause of 12% win rate.
+    # Price hits 1R (tiny move with tight SL), SL moves to entry,
+    # any normal pullback closes at 0R → most trades are breakeven.
+    # NEW: Protect 70% at 1R (-0.3R), full breakeven only at 2R.
+    {"r_level": 1.0, "close_pct": 25, "sl_move_to": "-0.3R"},
+    {"r_level": 2.0, "close_pct": 25, "sl_move_to": "breakeven"},
+    {"r_level": 3.0, "close_pct": 25, "sl_move_to": "+1R"},
+    {"r_level": 4.0, "close_pct": 25, "sl_move_to": "+2R"},
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1002,22 +1006,17 @@ ASSET_PARAMS = {
     # min_grade: minimum allowed signal grade
     # min_conf:  minimum confidence % threshold
     #
-    # Optimization results (90d 1H data):
-    #   BTC:    sl=1.2 rr=1.5 B+ conf>=45  -> 247 trades, 49.4% WR, +306%
-    #   ETH:    sl=2.5 rr=1.5 A  conf>=35  -> 83 trades,  37.3% WR, +32%
-    #   SOL:    sl=2.0 rr=1.5 A  conf>=35  -> 68 trades,  33.8% WR, +4%
-    #   Gold:   sl=2.0 rr=1.5 B+ conf>=35  -> 555 trades, 39.3% WR, +381%
-    #   Silver: sl=1.0 rr=1.5 B+ conf>=50  -> 203 trades, 42.4% WR, +118%
-    #   EURUSD: sl=1.0 rr=1.5 B+ conf>=35  -> 626 trades, 39.0% WR, +485%
-    #   GBPUSD: sl=1.0 rr=1.5 B+ conf>=35  -> 618 trades, 29.0% WR, +18%
+    # v11.2 LIVE-TUNED: Wider SL + higher RR to prevent breakeven trap.
+    # Old 1.0x ATR SL = market noise level → guaranteed stop hunt.
+    # New 1.5-2.0x ATR SL = room to breathe + 2.0 RR = better payoff.
     #
-    "gold":    {"sl_mult": 1.5, "rr": 1.5, "min_days": 60,  "label": "Gold",    "min_grade": "B+", "min_conf": 50},
-    "silver":  {"sl_mult": 1.0, "rr": 1.5, "min_days": 60,  "label": "Silver",  "min_grade": "B+", "min_conf": 50},
-    "forex":   {"sl_mult": 1.0, "rr": 1.5, "min_days": 90,  "label": "Forex",   "min_grade": "B+", "min_conf": 35},
-    "btc":     {"sl_mult": 1.2, "rr": 1.5, "min_days": 30,  "label": "BTC",     "min_grade": "B+", "min_conf": 50},
-    "crypto":  {"sl_mult": 1.3, "rr": 1.5, "min_days": 30,  "label": "Crypto",  "min_grade": "B+", "min_conf": 50},
-    "india":   {"sl_mult": 1.5, "rr": 1.5, "min_days": 30,  "label": "India",   "min_grade": "B+", "min_conf": 45},
-    "default": {"sl_mult": 1.5, "rr": 2.0, "min_days": 30,  "label": "Unknown", "min_grade": "A",  "min_conf": 55},
+    "gold":    {"sl_mult": 2.0, "rr": 2.0, "min_days": 60,  "label": "Gold",    "min_grade": "B+", "min_conf": 40},
+    "silver":  {"sl_mult": 1.5, "rr": 2.0, "min_days": 60,  "label": "Silver",  "min_grade": "B+", "min_conf": 40},
+    "forex":   {"sl_mult": 1.5, "rr": 2.0, "min_days": 90,  "label": "Forex",   "min_grade": "B+", "min_conf": 35},
+    "btc":     {"sl_mult": 1.8, "rr": 2.0, "min_days": 30,  "label": "BTC",     "min_grade": "B+", "min_conf": 40},
+    "crypto":  {"sl_mult": 1.8, "rr": 2.0, "min_days": 30,  "label": "Crypto",  "min_grade": "B+", "min_conf": 40},
+    "india":   {"sl_mult": 1.5, "rr": 2.0, "min_days": 30,  "label": "India",   "min_grade": "B+", "min_conf": 40},
+    "default": {"sl_mult": 1.5, "rr": 2.0, "min_days": 30,  "label": "Unknown", "min_grade": "B+", "min_conf": 40},
 }
 
 _FOREX_PAIRS_SET    = {"EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X",

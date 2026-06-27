@@ -178,6 +178,16 @@ class PositionTracker:
         logger.info(
             f"[Positions] SL updated: {pos['symbol']} {old_sl}→{new_sl} ({reason})"
         )
+
+        # Sync SL to MT5 if this is an MT5 position
+        if pos.get("exchange") == "mt5" and pos.get("mt5_ticket"):
+            try:
+                from brokers.mt5_agent import get_mt5
+                mt5 = get_mt5()
+                mt5.modify_sl(pos["mt5_ticket"], new_sl)
+            except Exception as e:
+                logger.warning(f"[Positions] MT5 SL sync failed: {e}")
+
         return True
 
     def update_tp(self, trade_id: str, new_tp: float,

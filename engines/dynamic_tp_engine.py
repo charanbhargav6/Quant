@@ -238,14 +238,16 @@ class DynamicTPEngine:
         'breakeven' → entry
         '+1R'       → entry + sl_distance (long) or entry - sl_distance (short)
         '+2R'       → entry + 2×sl_distance
-        etc.
+        '-0.3R'     → entry - 0.3×sl_distance (long) = partial protection
+                       (SL is still below entry, giving the trade room to breathe)
         """
         if sl_move == "breakeven":
             return entry
 
-        if sl_move.startswith("+") and "R" in sl_move:
+        # Handle both positive (+1R, +2R) and negative (-0.3R) R values
+        if "R" in sl_move:
             try:
-                r_val = float(sl_move.replace("+", "").replace("R", ""))
+                r_val = float(sl_move.replace("R", ""))
                 if direction in ("buy", "long"):
                     return round(entry + r_val * sl_distance, 5)
                 else:

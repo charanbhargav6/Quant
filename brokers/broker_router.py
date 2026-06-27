@@ -39,6 +39,7 @@ class BrokerRouter:
         # Brokers loaded lazily — no crash on import
         self._alpaca_stocks = None
         self._zerodha       = None
+        self._mt5           = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # MAIN EXECUTE
@@ -76,7 +77,10 @@ class BrokerRouter:
             return {"status": "blocked", "reason": reason}
 
         # ── Route to correct broker ───────────────────────────────────────
-        if exchange == "binance":
+        if exchange == "mt5":
+            return self._execute_mt5(validated, current_price)
+
+        elif exchange == "binance":
             return self._execute_binance(validated, current_price)
 
         elif exchange == "alpaca":
@@ -148,14 +152,16 @@ class BrokerRouter:
 
         logger.info(f"[Router] Sending LIVE close command for {symbol} on {exchange}")
         try:
-            if exchange == "alpaca":
+            if exchange == "mt5":
+                agent = self._get_mt5()
+                return agent.close_position(crave_symbol=symbol)
+            elif exchange == "alpaca":
                 agent = self._get_alpaca_stocks()
                 return agent.close_position(symbol)
             elif exchange == "zerodha":
                 agent = self._get_zerodha()
                 return agent.close_position(symbol)
             elif exchange == "binance":
-                # Assuming ExecutionAgent/Binance has a close or we just warn
                 logger.warning(f"[Router] Binance live close not implemented yet for {symbol}")
                 return False
             else:
@@ -341,6 +347,86 @@ class BrokerRouter:
             self._zerodha = get_zerodha()
         return self._zerodha
 
+    def _get_mt5(self):
+        if self._mt5 is None:
+            from brokers.mt5_agent import get_mt5
+            self._mt5 = get_mt5()
+        return self._mt5
+
+    def _execute_mt5(self, validated: dict, current_price: float) -> dict:
+        """
+        Route forex/gold/crypto to MetaTrader 5.
+        Falls back to paper mode if MT5 is not available (e.g. on AWS/Linux).
+        """
+        try:
+            agent = self._get_mt5()
+            if not agent.ensure_connected():
+                logger.warning("[Router] MT5 not available — falling back to paper mode")
+                return self._paper_fill(validated, current_price)
+
+            symbol    = validated["symbol"]
+            direction = validated["direction"]
+            entry     = validated.get("entry", current_price)
+            sl        = validated["stop_loss"]
+            tp        = validated.get("take_profit_2") or validated.get("take_profit")
+
+            # Calculate lot size using MT5's tick value for accurate sizing
+            equity   = agent.get_account_info()
+            eq_value = equity["equity"] if equity else 10000
+            risk_pct = validated.get("risk_pct", 1.0)
+
+            lot_size = agent.calculate_lot_size(
+                crave_symbol=symbol,
+                equity=eq_value,
+                risk_pct=risk_pct,
+                entry=entry,
+                sl=sl,
+            )
+
+            result = agent.place_order(
+                crave_symbol=symbol,
+                direction=direction,
+                lot_size=lot_size,
+                sl=sl,
+                tp=tp,
+                comment=f"CRAVE {validated.get('grade', '?')}",
+            )
+
+            if result.get("status") == "filled":
+                import uuid
+                trade_id = str(uuid.uuid4())[:8].upper()
+
+                from core.position_tracker import positions
+                positions.open({
+                    **validated,
+                    "trade_id":     trade_id,
+                    "entry":        result["fill_price"],
+                    "entry_price":  result["fill_price"],
+                    "lot_size":     result["volume"],
+                    "is_paper":     False,
+                    "exchange":     "mt5",
+                    "mt5_ticket":   result["ticket"],
+                    "signal_id":    validated.get("signal_id"),
+                })
+
+                logger.info(
+                    f"[Router] MT5 FILLED ✅ | {symbol} {direction.upper()} "
+                    f"| Lot: {result['volume']} | Price: {result['fill_price']} "
+                    f"| Ticket: {result['ticket']}"
+                )
+                return {"status": "filled", "trade_id": trade_id,
+                        "fill_price": result["fill_price"],
+                        "mt5_ticket": result["ticket"]}
+
+            logger.warning(f"[Router] MT5 order failed: {result.get('reason')}")
+            # Fall back to paper if MT5 execution fails
+            logger.info("[Router] Falling back to paper fill")
+            return self._paper_fill(validated, current_price)
+
+        except Exception as e:
+            logger.error(f"[Router] MT5 execution error: {e}")
+            return self._paper_fill(validated, current_price)
+
     # ─────────────────────────────────────────────────────────────────────────
     # STATUS
     # ─────────────────────────────────────────────────────────────────────────
@@ -374,6 +460,14 @@ class BrokerRouter:
                          f"{'authenticated' if zr.is_authenticated() else 'needs daily login'}")
         except Exception:
             lines.append("❌ Zerodha: error")
+
+        # MT5
+        try:
+            mt5 = self._get_mt5()
+            lines.append(f"{'✅' if mt5.is_connected() else '❌'} MT5: "
+                         f"{'connected' if mt5.is_connected() else 'not connected'}")
+        except Exception:
+            lines.append("❌ MT5: not available")
 
         return "\n".join(lines)
 
