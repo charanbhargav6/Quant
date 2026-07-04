@@ -174,6 +174,7 @@ def run_full_bot(node: str, mode: str):
     tg.start()
     tg.start_schedulers()
 
+
     # ── Start trading engines ─────────────────────────────────────────────
     dynamic_tp.start()
     event_hedge.start()
@@ -186,6 +187,61 @@ def run_full_bot(node: str, mode: str):
         logger.info("[Main] Supabase dashboard pusher started.")
     except Exception as e:
         logger.warning(f"[Main] Dashboard pusher failed: {e}")
+
+    # ── v12 Intelligence Layer ────────────────────────────────────────────
+    # News Sentinel — hybrid news scraper (5 sources)
+    try:
+        from intelligence.news_sentinel import get_sentinel
+        get_sentinel().start()
+        logger.info("[Main] 📰 News Sentinel started (5-source hybrid scraper)")
+    except Exception as e:
+        logger.warning(f"[Main] News Sentinel failed: {e}")
+
+    # X/Twitter monitor — influential account tracker
+    try:
+        from intelligence.x_scraper import get_x_scraper
+        get_x_scraper().start()
+        logger.info("[Main] 🐦 X/Twitter monitor started")
+    except Exception as e:
+        logger.warning(f"[Main] X scraper failed: {e}")
+
+    # News Trader — red-folder event + straddle engine
+    try:
+        from intelligence.news_trader import get_news_trader
+        get_news_trader().start()
+        logger.info("[Main] 🔥 News Trader started (directional + straddle)")
+    except Exception as e:
+        logger.warning(f"[Main] News Trader failed: {e}")
+
+    # Universal Scanner — dynamic asset universe
+    try:
+        from engines.universal_scanner import get_universal_scanner
+        get_universal_scanner().start()
+        logger.info("[Main] 🔭 Universal Scanner started (80+ assets)")
+    except Exception as e:
+        logger.warning(f"[Main] Universal Scanner failed: {e}")
+
+    # Wealth Manager — profit allocation
+    try:
+        from wealth.profit_allocator import get_allocator
+        allocator = get_allocator()
+        # Set initial equity from MT5 or paper
+        try:
+            from brokers.mt5_agent import get_mt5
+            mt5 = get_mt5()
+            if mt5.connect():
+                info = mt5.get_account_info()
+                if info:
+                    allocator.set_initial_equity(info["equity"])
+                    logger.info(f"[Main] 💰 Wealth Manager started (equity=${info['equity']:.2f})")
+        except Exception:
+            from core.paper_trading import get_paper_engine
+            pe = get_paper_engine()
+            allocator.set_initial_equity(pe.get_equity())
+            logger.info(f"[Main] 💰 Wealth Manager started (paper equity=${pe.get_equity():.2f})")
+    except Exception as e:
+        logger.warning(f"[Main] Wealth Manager failed: {e}")
+
 
     # ── Options Engine ────────────────────────────────────────────────────
     from config.config import is_market_enabled
@@ -332,6 +388,106 @@ def run_full_bot(node: str, mode: str):
             tg.send(f"📊 VIX error: {e}")
 
     tg.register_command("/vix", _vix_cmd)
+
+    # ── v12 Telegram Commands ─────────────────────────────────────────────
+    def _news_cmd(args):
+        try:
+            from intelligence.news_sentinel import get_sentinel
+            news = get_sentinel().get_recent_news(max_age_mins=60)
+            if not news:
+                tg.send("📰 No recent financial news (last 1h)")
+                return
+            lines = ["📰 *Recent News* (last 1h)\n"]
+            for n in news[:8]:
+                emoji = "🟢" if n["sentiment"] == "bullish" else "🔴" if n["sentiment"] == "bearish" else "⚪"
+                assets = ", ".join(n.get("assets", [])[:3])
+                lines.append(f"{emoji} {n['headline'][:80]}\n    → {assets} | {n['impact']}")
+            tg.send("\n".join(lines))
+        except Exception as e:
+            tg.send(f"📰 News error: {e}")
+
+    tg.register_command("/news", _news_cmd)
+
+    def _universe_cmd(args):
+        try:
+            from engines.universal_scanner import get_universal_scanner
+            rankings = get_universal_scanner().get_full_rankings()
+            if not rankings:
+                tg.send("🔭 Universe scan not yet completed. Wait for first 4h cycle.")
+                return
+            lines = ["🔭 *Asset Universe Rankings*\n"]
+            for i, r in enumerate(rankings[:10], 1):
+                lines.append(
+                    f"{i}. `{r['symbol']}` — Score: {r['composite_score']:.1f} "
+                    f"| ATR={r['atr_score']:.0f} ADX={r['adx_score']:.0f} "
+                    f"Mom={r['momentum_score']:.0f} News={r['news_score']:.0f}"
+                )
+            tg.send("\n".join(lines))
+        except Exception as e:
+            tg.send(f"🔭 Universe error: {e}")
+
+    tg.register_command("/universe", _universe_cmd)
+
+    def _wealth_cmd(args):
+        try:
+            from wealth.profit_allocator import get_allocator
+            status = get_allocator().get_status()
+            lines = [
+                "💰 *Wealth Manager Status*\n",
+                f"Current Equity: `${status['current_equity']:.2f}`",
+                f"High Water Mark: `${status['high_water_mark']:.2f}`",
+                f"Total Return: `{status['total_return_pct']:.1f}%`",
+                f"\n*Allocation Config:*",
+            ]
+            for bucket, pct in status["allocation_config"].items():
+                lines.append(f"  • {bucket.title()}: {pct}")
+            tg.send("\n".join(lines))
+        except Exception as e:
+            tg.send(f"💰 Wealth error: {e}")
+
+    tg.register_command("/wealth", _wealth_cmd)
+
+    def _autopsy_cmd(args):
+        try:
+            from intelligence.trade_autopsy import get_autopsy
+            stats = get_autopsy().get_statistics()
+            tg.send(
+                f"🧠 *Trade Autopsy / Self-Learning*\n\n"
+                f"Total Lessons: `{stats['total_lessons']}`\n"
+                f"Positive (boost confidence): `{stats.get('positive_lessons', 0)}`\n"
+                f"Negative (reduce confidence): `{stats.get('negative_lessons', 0)}`\n"
+                f"Symbols Covered: `{stats.get('symbols_covered', 0)}`"
+            )
+        except Exception as e:
+            tg.send(f"🧠 Autopsy error: {e}")
+
+    tg.register_command("/autopsy", _autopsy_cmd)
+
+    def _corr_cmd(args):
+        try:
+            from engines.correlation_engine import get_correlation_engine
+            from core.position_tracker import positions
+            open_pos = positions.get_all()
+            if not open_pos:
+                tg.send("📊 No open positions to check correlations.")
+                return
+            syms = list(set(p["symbol"] for p in open_pos.values()))
+            if len(syms) < 2:
+                tg.send("📊 Need 2+ different symbols to check correlation.")
+                return
+            matrix = get_correlation_engine().get_correlation_matrix(syms)
+            if matrix.empty:
+                tg.send("📊 Could not compute correlations (insufficient data)")
+                return
+            lines = ["📊 *Position Correlation Matrix*\n```"]
+            lines.append(matrix.to_string())
+            lines.append("```")
+            tg.send("\n".join(lines))
+        except Exception as e:
+            tg.send(f"📊 Correlation error: {e}")
+
+    tg.register_command("/correlations", _corr_cmd)
+
 
     # ── Schedule daily pre-market at 06:30 UTC ────────────────────────────
     def daily_premarket():

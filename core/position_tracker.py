@@ -440,6 +440,19 @@ class PositionTracker:
         except Exception:
             pass
 
+        # ── v12: Trade Autopsy — self-learning from every trade ───────────
+        try:
+            import threading
+            from intelligence.trade_autopsy import get_autopsy
+            threading.Thread(
+                target=get_autopsy().analyze_trade,
+                args=(closed_trade,),
+                daemon=True,
+                name=f"Autopsy-{pos['symbol']}",
+            ).start()
+        except Exception:
+            pass
+
         return closed_trade
 
     # ─────────────────────────────────────────────────────────────────────────
