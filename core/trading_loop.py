@@ -1002,6 +1002,45 @@ class TradingLoop:
         signal_id = str(uuid.uuid4())[:8].upper()
         validated["signal_id"] = signal_id
 
+        # ── v12: Multi-Agent Council Gate ─────────────────────────────────
+        try:
+            from intelligence.agent_council import get_council
+            council_context = {
+                "regime":       context.get("regime", "unknown") if isinstance(context, dict) else "unknown",
+                "daily_bias":   context.get("daily_bias", "neutral") if isinstance(context, dict) else "neutral",
+                "session":      self._get_session(),
+                "drawdown_pct": self._get_drawdown_pct(),
+                "atr_ratio":    context.get("atr_ratio", 1.0) if isinstance(context, dict) else 1.0,
+                "adx":          context.get("adx", 0) if isinstance(context, dict) else 0,
+                "rsi":          context.get("rsi", 50) if isinstance(context, dict) else 50,
+            }
+            council_result = get_council().deliberate(validated, council_context)
+
+            if council_result["decision"] == "reject":
+                logger.info(
+                    f"[TradingLoop] ❌ COUNCIL REJECTED: {symbol} {direction.upper()} "
+                    f"({council_result['approvals']}/6 approve) — {council_result['reasoning']}"
+                )
+                self._log_signal(
+                    symbol, "council_rejected", council_result["reasoning"],
+                    confidence, grade_str, context if isinstance(context, dict) else {},
+                    result={"status": "council_rejected"}
+                )
+                # Send Telegram notification
+                try:
+                    from interfaces.telegram_interface import tg
+                    tg.send(get_council().get_telegram_summary(council_result))
+                except Exception:
+                    pass
+                return None
+            else:
+                logger.info(
+                    f"[TradingLoop] ✅ COUNCIL APPROVED: {symbol} {direction.upper()} "
+                    f"({council_result['approvals']}/6 approve)"
+                )
+        except Exception as e:
+            logger.debug(f"[TradingLoop] Council gate skipped: {e}")
+
         result = self._execute(validated, current_price)
 
         if result and result.get("status") in ("filled", "paper_filled"):
@@ -1315,6 +1354,23 @@ class TradingLoop:
             if any(p.upper() in hostname for p in cfg.get("hostname_patterns", [])):
                 return name
         return "unknown"
+
+    def _get_session(self) -> str:
+        """Get current trading session name."""
+        h = datetime.now(timezone.utc).hour
+        return _get_session_name(h)
+
+    def _get_drawdown_pct(self) -> float:
+        """Get current drawdown percentage."""
+        try:
+            from core.position_tracker import positions
+            equity = positions.get_current_equity()
+            peak   = positions.get_peak_equity()
+            if peak and peak > 0:
+                return round((peak - equity) / peak * 100, 2)
+        except Exception:
+            pass
+        return 0.0
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

@@ -242,6 +242,14 @@ def run_full_bot(node: str, mode: str):
     except Exception as e:
         logger.warning(f"[Main] Wealth Manager failed: {e}")
 
+    # Strategy Evolver — weekly self-improvement loop
+    try:
+        from intelligence.strategy_evolver import get_evolver
+        get_evolver().start()
+        logger.info("[Main] 🧬 Strategy Evolver started (weekly evolution cycle)")
+    except Exception as e:
+        logger.warning(f"[Main] Strategy Evolver failed: {e}")
+
 
     # ── Options Engine ────────────────────────────────────────────────────
     from config.config import is_market_enabled
@@ -487,6 +495,59 @@ def run_full_bot(node: str, mode: str):
             tg.send(f"📊 Correlation error: {e}")
 
     tg.register_command("/correlations", _corr_cmd)
+
+    def _council_cmd(args):
+        try:
+            from intelligence.agent_council import get_council
+            last = get_council().get_last_deliberation()
+            if not last:
+                tg.send("🏛️ No council deliberation yet. Waiting for next signal.")
+                return
+            tg.send(get_council().get_telegram_summary(last))
+        except Exception as e:
+            tg.send(f"🏛️ Council error: {e}")
+
+    tg.register_command("/council", _council_cmd)
+
+    def _evolve_cmd(args):
+        try:
+            from intelligence.strategy_evolver import get_evolver
+            tg.send("🧬 Running forced evolution cycle... (this may take 30s)")
+            import threading
+            def _run():
+                report = get_evolver().force_evolution()
+                tg.send(f"🧬 Evolution complete: {report.get('status', 'unknown')}")
+            threading.Thread(target=_run, daemon=True).start()
+        except Exception as e:
+            tg.send(f"🧬 Evolve error: {e}")
+
+    tg.register_command("/evolve", _evolve_cmd)
+
+    def _params_cmd(args):
+        try:
+            from intelligence.strategy_evolver import get_evolver
+            params = get_evolver().get_params()
+            lines = ["⚙️ *Active Trading Parameters*\n"]
+            for key, val in sorted(params.items()):
+                lines.append(f"  `{key}`: {val}")
+            tg.send("\n".join(lines))
+        except Exception as e:
+            tg.send(f"⚙️ Params error: {e}")
+
+    tg.register_command("/params", _params_cmd)
+
+    def _benchmark_cmd(args):
+        try:
+            from intelligence.strategy_evolver import get_evolver
+            tg.send("📈 Running monthly benchmark vs S&P 500...")
+            import threading
+            def _run():
+                get_evolver().monthly_benchmark()
+            threading.Thread(target=_run, daemon=True).start()
+        except Exception as e:
+            tg.send(f"📈 Benchmark error: {e}")
+
+    tg.register_command("/benchmark", _benchmark_cmd)
 
 
     # ── Schedule daily pre-market at 06:30 UTC ────────────────────────────
