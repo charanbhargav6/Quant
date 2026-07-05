@@ -676,10 +676,17 @@ class TradingCouncil:
         risk_vote = next((v for v in votes if v["agent"] == "Risk"), None)
         risk_veto = risk_vote and risk_vote["vote"] == "reject" and risk_vote["confidence"] >= 80
 
+        # Execution Agent has VETO power for market closures (weekends, holidays)
+        exec_vote = next((v for v in votes if v["agent"] == "Execution"), None)
+        exec_veto = exec_vote and exec_vote["vote"] == "reject" and exec_vote["confidence"] >= 95
+
         decision = "execute"
         if risk_veto:
             decision = "reject"
             summary = f"VETOED by Risk Agent: {risk_vote['reasoning']}"
+        elif exec_veto:
+            decision = "reject"
+            summary = f"VETOED by Execution Agent: {exec_vote['reasoning']}"
         elif approvals >= self.MIN_APPROVALS:
             decision = "execute"
             summary = f"APPROVED {approvals}/6 — executing trade"
@@ -696,6 +703,7 @@ class TradingCouncil:
             "votes":       votes,
             "reasoning":   summary,
             "risk_veto":   risk_veto,
+            "exec_veto":   exec_veto,
             "timestamp":   datetime.now(timezone.utc).isoformat(),
         }
 

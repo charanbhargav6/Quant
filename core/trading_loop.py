@@ -397,7 +397,37 @@ class TradingLoop:
 
     def _run_cycle(self):
         self._process_exit_signals()
-        
+
+        # ── v12: Weekend Market Guard ─────────────────────────────────────
+        # Forex/Gold/Commodities: CLOSED Fri 22:00 UTC → Sun 22:00 UTC
+        # Crypto: trades 24/7 — exempt
+        # Without this check, yfinance returns stale Friday prices on
+        # Saturday/Sunday, and the bot generates fake signals on dead data.
+        now_utc = datetime.now(timezone.utc)
+        weekday = now_utc.weekday()  # 0=Mon ... 6=Sun
+        hour    = now_utc.hour
+
+        # Saturday all day (weekday=5) or Sunday before 22:00 UTC (weekday=6)
+        # or Friday after 22:00 UTC (weekday=4, hour>=22)
+        is_forex_closed = (
+            weekday == 5 or                          # Saturday
+            (weekday == 6 and hour < 22) or           # Sunday before 22:00
+            (weekday == 4 and hour >= 22)              # Friday after 22:00
+        )
+
+        if is_forex_closed:
+            # Only log once per hour to avoid spam
+            if not hasattr(self, '_last_weekend_log') or \
+               (now_utc - self._last_weekend_log).total_seconds() > 3600:
+                logger.info(
+                    f"[TradingLoop] 🚫 Markets closed (weekend). "
+                    f"Day={now_utc.strftime('%A')} {hour}:00 UTC. "
+                    f"Forex/Gold/Commodities paused. Crypto still active."
+                )
+                self._last_weekend_log = now_utc
+            # Skip the entire scan — no point running bias/scanner on stale data
+            return
+
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != self._last_trade_date:
             self._trades_today    = 0
