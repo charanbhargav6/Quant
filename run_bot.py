@@ -1,7 +1,7 @@
 """
-Trading Engine v11.0 — Main Entry Point
-==========================================
-Merged from CRAVE's dual entry points into single clean launcher.
+Trading Engine v12.2 — Main Entry Point
+Wires all components, establishes WebSocket connections, starts agents,
+and manages the main event loop. single clean launcher.
 Supports: full bot, lite bot, backtest, status, readiness, setup.
 
 Run:  python run_bot.py
@@ -94,7 +94,7 @@ def detect_node() -> str:
 def print_banner(node: str, mode: str):
     print(f"""
 ╔══════════════════════════════════════════════════════╗
-║            Trading Engine v11.0                      ║
+║            Trading Engine v12.2                      ║
 ║     Smart Money Concept Trading System               ║
 ║     Indian Market Integration Enabled                ║
 ╠══════════════════════════════════════════════════════╣
@@ -735,7 +735,7 @@ def run_full_bot(node: str, mode: str):
     tg.send(f"🚀 <b>Node: {node}</b> is now ACTIVE")
 
     logger.info(
-        f"[Main] ✅ All modules running (v11.0).\n"
+        f"[Main] ✅ All modules running (v12.2).\n"
         f"       Trading loop: scanning every 5 min\n"
         f"       Dynamic TP:   checking every 15 min\n"
         f"       Event hedge:  checking every 5 min\n"
@@ -804,10 +804,11 @@ def run_lite_bot(node: str, mode: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Trading Engine v11.0")
+    # ── CLI Arguments ────────────────────────────────────────────────────────
+    parser = argparse.ArgumentParser(description="Trading Engine v12.2")
+    parser.add_argument("--backtest", action="store_true", help="Run in backtest mode")
     parser.add_argument("--paper",      action="store_true")
     parser.add_argument("--live",       action="store_true")
-    parser.add_argument("--backtest",   action="store_true")
     parser.add_argument("--status",     action="store_true")
     parser.add_argument("--setup",      action="store_true")
     parser.add_argument("--readiness",  action="store_true")
@@ -855,7 +856,7 @@ def main():
 
 
 def run_backtest_mode():
-    print("\n📊 Trading Engine v11.0 Backtest Mode")
+    print("\n📊 Trading Engine v12.2 Backtest Mode")
     print("─────────────────────────────────────")
     symbol = input("Symbol (e.g. BTCUSD, XAUUSD, ^NSEI, RELIANCE.NS): ").strip()
     days   = int(input("Days (min 60 for gold, 30 for crypto): ").strip() or "60")
@@ -885,7 +886,7 @@ def run_backtest_mode():
 
 
 def run_setup_wizard():
-    print("\n🔧 Trading Engine v11.0 Setup Wizard")
+    print("\n🔧 Trading Engine v12.2 Setup Wizard")
     print("─────────────────────────────────────")
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:

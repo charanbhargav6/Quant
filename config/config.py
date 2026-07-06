@@ -884,7 +884,7 @@ TELEGRAM_COMMANDS = {
 
 PAPER_TRADING = {
     "enabled":               True,
-    "starting_equity":       1000,
+    "starting_equity":       ACCOUNT_SIZE,
     "min_trades_for_live":   30,
     "min_win_rate":          50.0,
     "max_wr_deviation_pct":  5.0,
