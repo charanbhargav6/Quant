@@ -302,8 +302,8 @@ class TradingLoop:
                             r_multiple = (hit_price - entry) / sl_dist if direction in ("buy", "long") else (entry - hit_price) / sl_dist
                             
                             try:
-                                from brokers.broker_router import get_broker_router
-                                get_broker_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                                from brokers.broker_router import get_router
+                                get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
                             except Exception as e:
                                 logger.error(f"[TradingLoop] Stale position live close error: {e}")
                             
@@ -347,8 +347,8 @@ class TradingLoop:
                     r_multiple = (hit_price - entry) / sl_dist if direction in ("buy", "long") else (entry - hit_price) / sl_dist
                     logger.info(f"[TradingLoop] SL HIT for {symbol} @ {hit_price}")
                     try:
-                        from brokers.broker_router import get_broker_router
-                        get_broker_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                        from brokers.broker_router import get_router
+                        get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
                     except Exception as e:
                         logger.error(f"[TradingLoop] SL hit live close error: {e}")
                     positions.close(
@@ -361,8 +361,8 @@ class TradingLoop:
                     r_multiple = (hit_price - entry) / sl_dist if direction in ("buy", "long") else (entry - hit_price) / sl_dist
                     logger.info(f"[TradingLoop] TP HIT for {symbol} @ {hit_price}")
                     try:
-                        from brokers.broker_router import get_broker_router
-                        get_broker_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                        from brokers.broker_router import get_router
+                        get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
                     except Exception as e:
                         logger.error(f"[TradingLoop] TP hit live close error: {e}")
                     positions.close(
@@ -377,8 +377,8 @@ class TradingLoop:
                     logger.info(f"[TradingLoop] Executing exit signal for {symbol} ({trade_id}) @ {current_price}")
                     
                     try:
-                        from brokers.broker_router import get_broker_router
-                        get_broker_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                        from brokers.broker_router import get_router
+                        get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
                     except Exception as e:
                         logger.error(f"[TradingLoop] Exit signal live close error: {e}")
                     
