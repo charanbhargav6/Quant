@@ -646,18 +646,22 @@ class TradingLoop:
         from config.config import get_asset_params
         is_gold = get_asset_params(symbol).get("label") == "Gold"
 
-        # Gold has its own trend/ranging logic in gold_strategy.py
-        if is_gold or regime_model.is_favourable(regime):
-            return self._analyse_and_execute(symbol, kz_name, prop_risk_multiplier)
-        elif regime == "RANGING":
+        # Always check for SMC (Smart Money Concepts) or Gold setups first.
+        # SMC works well in ranges too (sweeps of range highs/lows).
+        smc_result = self._analyse_and_execute(symbol, kz_name, prop_risk_multiplier)
+        if smc_result:
+            return smc_result
+            
+        # If no SMC setup was found, and the market is RANGING, fallback to Mean Reversion
+        if regime == "RANGING":
             return self._analyse_mean_reversion(symbol, kz_name, regime, prop_risk_multiplier)
-        else:
-            logger.info(f"[TradingLoop] {symbol}: Regime={regime} - unfavourable. Skipping.")
-            return None
+            
+        logger.info(f"[TradingLoop] {symbol}: No SMC setup found. Regime={regime} prevents MR fallback. Skipping.")
+        return None
 
     def _analyse_mean_reversion(self, symbol: str, kz_name: str, regime: str, prop_risk_multiplier: float = 1.0) -> Optional[dict]:
         session_tag = f" [{kz_name}]" if kz_name else ""
-        logger.info(f"[TradingLoop] {symbol}: Regime=RANGING. Routing to Mean Reversion.{session_tag}")
+        logger.info(f"[TradingLoop] {symbol}: No SMC setup. Regime=RANGING. Fallback to Mean Reversion.{session_tag}")
         df_15m = _get_ohlcv_with_ws_fallback(symbol, "15m", 250)
         mr_result = get_mr_engine().analyze(symbol, df_15m, regime)
         
