@@ -45,12 +45,10 @@ class BrokerRouter:
     # MAIN EXECUTE
     # ─────────────────────────────────────────────────────────────────────────
 
-    def execute(self, validated: dict, current_price: float,
-                 is_paper: bool = True) -> dict:
+    def execute(self, validated: dict, current_price: float) -> dict:
         """
         Route a validated signal to the correct execution path.
 
-        For paper mode: all instruments use paper_engine.simulate_fill().
         For live mode:  routed to exchange-specific agent.
 
         Pre-execution checks:
@@ -63,12 +61,8 @@ class BrokerRouter:
         symbol   = validated.get("symbol", "UNKNOWN")
         from config.config import get_instrument, get_asset_class
         inst     = get_instrument(symbol)
-        exchange = inst.get("exchange", "paper")
+        exchange = inst.get("exchange", "mt5")
         asset    = get_asset_class(symbol)
-
-        # ── Paper mode: simulate fill, no broker needed ───────────────────
-        if is_paper or exchange in ("paper", "yfinance"):
-            return self._paper_fill(validated, current_price)
 
         # ── Pre-execution checks ──────────────────────────────────────────
         blocked, reason = self._pre_execution_checks(symbol, inst, asset, validated)
@@ -145,10 +139,8 @@ class BrokerRouter:
 
         return False, "OK"
 
-    def close_position(self, symbol: str, is_paper: bool, exchange: str) -> bool:
-        """Route close request to the correct live broker if not paper."""
-        if is_paper or exchange == "paper":
-            return True
+    def close_position(self, symbol: str, exchange: str) -> bool:
+        """Route close request to the correct live broker."""
 
         logger.info(f"[Router] Sending LIVE close command for {symbol} on {exchange}")
         try:
@@ -174,39 +166,6 @@ class BrokerRouter:
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUTION PATHS
     # ─────────────────────────────────────────────────────────────────────────
-
-    def _paper_fill(self, validated: dict, current_price: float) -> dict:
-        """Route to paper engine simulation."""
-        import uuid
-        try:
-            from core.paper_trading import get_paper_engine
-            fill = get_paper_engine().simulate_fill(validated, current_price)
-            if fill.get("status") == "pending":
-                logger.info(f"[Router] Order for {validated['symbol']} pending: {fill.get('reason')}")
-                return {"status": "pending", "reason": fill.get("reason")}
-
-            trade_id = str(uuid.uuid4())[:8].upper()
-
-            from core.position_tracker import positions
-            positions.open({
-                **validated,
-                "trade_id":    trade_id,
-                "entry":       fill["fill_price"],
-                "entry_price": fill["fill_price"],
-                "is_paper":    True,
-                "exchange":    "paper",
-                "signal_id":   validated.get("signal_id"),
-            })
-
-            return {
-                "status":      "paper_filled",
-                "trade_id":    trade_id,
-                "fill_price":  fill["fill_price"],
-                "slippage":    fill["slippage"],
-            }
-        except Exception as e:
-            logger.error(f"[Router] Paper fill failed: {e}")
-            return {"status": "failed", "reason": str(e)}
 
     def _execute_binance(self, validated: dict, current_price: float) -> dict:
         """Route to existing ExecutionAgent Binance path."""
@@ -356,13 +315,12 @@ class BrokerRouter:
     def _execute_mt5(self, validated: dict, current_price: float) -> dict:
         """
         Route forex/gold/crypto to MetaTrader 5.
-        Falls back to paper mode if MT5 is not available (e.g. on AWS/Linux).
         """
         try:
             agent = self._get_mt5()
             if not agent.ensure_connected():
-                logger.warning("[Router] MT5 not available — falling back to paper mode")
-                return self._paper_fill(validated, current_price)
+                logger.warning("[Router] MT5 not available")
+                return {"status": "failed", "reason": "MT5 not connected"}
 
             symbol    = validated["symbol"]
             direction = validated["direction"]
@@ -419,13 +377,11 @@ class BrokerRouter:
                         "mt5_ticket": result["ticket"]}
 
             logger.warning(f"[Router] MT5 order failed: {result.get('reason')}")
-            # Fall back to paper if MT5 execution fails
-            logger.info("[Router] Falling back to paper fill")
-            return self._paper_fill(validated, current_price)
+            return {"status": "failed", "reason": result.get('reason')}
 
         except Exception as e:
             logger.error(f"[Router] MT5 execution error: {e}")
-            return self._paper_fill(validated, current_price)
+            return {"status": "failed", "reason": str(e)}
 
     # ─────────────────────────────────────────────────────────────────────────
     # STATUS

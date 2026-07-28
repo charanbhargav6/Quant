@@ -53,22 +53,19 @@ DB_PATH        = DATABASE_DIR / "crave.db"
 #   ZERODHA_API_KEY       — from kite.zerodha.com/apps
 #   ZERODHA_ACCESS_TOKEN  — refreshed daily at 03:30 UTC via zerodha_agent.py
 #   ZERODHA_REDIRECT_URL  — your app's redirect URL for OAuth flow
-#   ALPACA_PAPER_URL      — https://paper-api.alpaca.markets (stocks paper)
 #   POLYGON_API_KEY       — optional: better US market data than Alpaca
-#   TRADING_MODE          — paper / live (default: paper)
 #   USE_DEEP_REGIME       — True = LSTM Engine, False = XGBoost/Rules (default: False)
 #
 # NEW (Session 10):
 #   PROP_FIRM             — Name of the prop firm (e.g. ftmo, the5ers). Default: ftmo
-#   ACCOUNT_SIZE          — Account size. Must match PAPER_TRADING starting_equity
-#                           in paper mode. Default: 10000
+#   ACCOUNT_SIZE          - Account size. Default: 10000
 # ─────────────────────────────────────────────────────────────────────────────
 
-PROP_FIRM = os.environ.get("PROP_FIRM", "fundingpips").lower()
+PROP_FIRM = os.environ.get("PROP_FIRM", "ftmo").lower()
 try:
-    ACCOUNT_SIZE = float(os.environ.get("ACCOUNT_SIZE", "1000"))
+    ACCOUNT_SIZE = float(os.environ.get("ACCOUNT_SIZE", "10000"))
 except ValueError:
-    ACCOUNT_SIZE = 1000.0
+    ACCOUNT_SIZE = 10000.0
 
 USE_DEEP_REGIME = os.environ.get("USE_DEEP_REGIME", "false").lower() == "true"
 
@@ -81,7 +78,7 @@ NODES = {
         "hostname_patterns": ["DESKTOP", "LAPTOP", "WSL", "CHARAN", "PC"],
         "can_run": [
             "full_bot", "backtest", "ml_training",
-            "paper_trading", "position_monitor", "signal_detection",
+            "position_monitor", "signal_detection",
             "daily_bias", "instrument_scan", "websocket",
         ],
         "db_path": str(DB_PATH),
@@ -92,7 +89,7 @@ NODES = {
         "can_run": [
             "full_bot", "lite_bot", "position_monitor", "signal_detection",
             "daily_bias", "instrument_scan", "websocket",
-            "telegram_interface", "state_sync", "heartbeat", "paper_trading"
+            "telegram_interface", "state_sync", "heartbeat"
         ],
         "db_path": "/data/data/com.termux/files/home/CRAVE/Database/crave.db",
         "thermal_limit_celsius": 42,
@@ -822,9 +819,23 @@ EVENT_SPIKE_THRESHOLDS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DYNAMIC TP, TELEGRAM, PAPER TRADING, STATE SYNC, AWS, LOGGING
-# (unchanged from v10.0 — reproduced for completeness)
 # ─────────────────────────────────────────────────────────────────────────────
+# LLM COUNCIL, DYNAMIC TP, TELEGRAM, STATE SYNC, AWS, LOGGING
+# ─────────────────────────────────────────────────────────────────────────────
+
+LLM_COUNCIL = {
+    "enabled": True,
+    "ollama_url": "http://localhost:11434/api/generate",
+    "default_ollama_model": "qwen2.5:14b",
+    
+    # Model assignment per agent role
+    # Groq = ultra-fast (~1s), Gemini = smart, Ollama = offline backup
+    "Director": "gemini",           # PM/Judge gets smartest model
+    "Quant": "groq",                # Data crunching (fast)
+    "Sentiment": "groq",            # Fast text processing
+    "Risk": "groq",                 # Quick risk checks
+    "DevilsAdvocate": "groq",       # Cross-examination (fast)
+}
 
 DYNAMIC_TP = {
     "check_interval_mins":      15,
@@ -870,7 +881,7 @@ TELEGRAM_COMMANDS = {
     "/temp":       "Phone CPU temperature",
     "/stats":      "Win rate, expectancy, streak",
     "/journal":    "Last 10 closed trades",
-    "/paper":      "Paper trading status + readiness",
+
     "/readiness":  "Run full readiness gate check",
     "/live":       "Request live trading mode",
     "/ml":         "ML model status",
@@ -880,18 +891,6 @@ TELEGRAM_COMMANDS = {
     "/earnings":   "Upcoming earnings blackouts: /earnings AAPL",
     "/portfolio":  "Full portfolio heat by market",
     "/help":       "Show all commands",
-}
-
-PAPER_TRADING = {
-    "enabled":               True,
-    "starting_equity":       ACCOUNT_SIZE,
-    "min_trades_for_live":   30,
-    "min_win_rate":          50.0,
-    "max_wr_deviation_pct":  5.0,
-    "max_dd_deviation_pct":  2.0,
-    "simulate_slippage":     True,
-    "simulate_spread":       True,
-    "readiness_gate_required": True,
 }
 
 STATE_SYNC = {

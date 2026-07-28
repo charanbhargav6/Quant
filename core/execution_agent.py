@@ -335,16 +335,18 @@ class ExecutionAgent:
 
                         if not tp1_hit and live_price >= tp1:
                             trade['tp1_hit'] = True
-                            new_sl = entry  # Move SL to breakeven
+                            # Move SL to lock in 0.2R profit instead of breakeven
+                            risk_dist = abs(entry - sl)
+                            new_sl = entry + (risk_dist * 0.2)
                             if new_sl > sl:
                                 logger.info(
                                     f"[Monitor] TP1 hit {trade['symbol']} "
-                                    f"— SL moved to breakeven {new_sl}"
+                                    f"— SL moved to +0.2R profit at {new_sl}"
                                 )
                                 trade['stop_loss'] = new_sl
                                 self._notify(
                                     f"🟡 TP1 HIT: {trade['symbol']} — 50% closed. "
-                                    f"SL at breakeven."
+                                    f"SL trailing at +0.2R."
                                 )
 
                         if live_price >= tp2:
@@ -378,11 +380,13 @@ class ExecutionAgent:
 
                         if not tp1_hit and live_price <= tp1:
                             trade['tp1_hit'] = True
-                            new_sl = entry
+                            # Move SL to lock in 0.2R profit instead of breakeven
+                            risk_dist = abs(sl - entry)
+                            new_sl = entry - (risk_dist * 0.2)
                             if new_sl < sl:
                                 trade['stop_loss'] = new_sl
                                 self._notify(
-                                    f"🟡 TP1 HIT: {trade['symbol']} short — SL to breakeven."
+                                    f"🟡 TP1 HIT: {trade['symbol']} short — SL trailing at +0.2R."
                                 )
 
                         if live_price <= tp2:

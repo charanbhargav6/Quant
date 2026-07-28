@@ -107,14 +107,13 @@ class JarvisLLM:
             )
             return
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=self._api_key)
-            self._client = genai.GenerativeModel(self._model)
+            from google import genai
+            self._client = genai.Client(api_key=self._api_key)
             logger.info(f"[Jarvis] Connected to Gemini ({self._model}) ✅")
         except ImportError:
             logger.warning(
-                "[Jarvis] google-generativeai not installed. "
-                "Run: pip install google-generativeai"
+                "[Jarvis] google-genai not installed. "
+                "Run: pip install google-genai"
             )
         except Exception as e:
             logger.warning(f"[Jarvis] Gemini connection failed: {e}")
@@ -306,7 +305,10 @@ Respond with ONLY a JSON object, nothing else:
 {{"sentiment": "LABEL", "confidence": 0-100, "key_driver": "one sentence max"}}"""
 
         try:
-            response = self._client.generate_content(prompt)
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt
+            )
             text     = response.text.strip()
 
             # Parse JSON response
@@ -526,7 +528,10 @@ Give one concrete recommendation to improve future trades.
 Be specific, professional, and data-driven. Avoid generic platitudes.
 Use the actual price levels and R-multiple in your analysis."""
 
-                response = self._client.generate_content(prompt)
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=prompt
+                )
                 analysis = response.text.strip()
 
                 # Build full markdown document
@@ -677,7 +682,10 @@ Focus on: which days/sessions/grades to disable, which symbols to focus on.
 Be specific with thresholds (e.g., "Disable B-grade trades if WR < 45%").
 Max 200 words."""
 
-            response = self._client.generate_content(prompt)
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt
+            )
             analysis = response.text.strip()
 
             try:

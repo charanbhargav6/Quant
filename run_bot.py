@@ -113,16 +113,11 @@ def check_env() -> bool:
     return bool(
         os.environ.get("BINANCE_API_KEY") or
         os.environ.get("ALPACA_API_KEY") or
-        os.environ.get("ZERODHA_API_KEY")
+        os.environ.get("ZERODHA_API_KEY") or
+        os.environ.get("MT5_LOGIN")
     )
 
 
-def _paper_status_msg() -> str:
-    try:
-        from core.paper_trading import get_paper_engine
-        return get_paper_engine().get_status_message()
-    except Exception as e:
-        return f"📄 Paper engine not loaded: {e}"
 
 def _regime_available() -> bool:
     try:
@@ -180,14 +175,6 @@ def run_full_bot(node: str, mode: str):
     event_hedge.start()
     trading_loop.start()
 
-    # Dashboard pusher (Supabase — always-on backend)
-    try:
-        from dashboard.supabase_pusher import get_pusher
-        get_pusher().start()
-        logger.info("[Main] Supabase dashboard pusher started.")
-    except Exception as e:
-        logger.warning(f"[Main] Dashboard pusher failed: {e}")
-
     # ── v12 Intelligence Layer ────────────────────────────────────────────
     # News Sentinel — hybrid news scraper (5 sources)
     try:
@@ -225,7 +212,7 @@ def run_full_bot(node: str, mode: str):
     try:
         from wealth.profit_allocator import get_allocator
         allocator = get_allocator()
-        # Set initial equity from MT5 or paper
+        # Set initial equity from MT5
         try:
             from brokers.mt5_agent import get_mt5
             mt5 = get_mt5()
@@ -234,13 +221,12 @@ def run_full_bot(node: str, mode: str):
                 if info:
                     allocator.set_initial_equity(info["equity"])
                     logger.info(f"[Main] 💰 Wealth Manager started (equity=${info['equity']:.2f})")
-        except Exception:
-            from core.paper_trading import get_paper_engine
-            pe = get_paper_engine()
-            allocator.set_initial_equity(pe.get_equity())
-            logger.info(f"[Main] 💰 Wealth Manager started (paper equity=${pe.get_equity():.2f})")
+            else:
+                logger.info(f"[Main] 💰 Wealth Manager started (no MT5 connection)")
+        except Exception as e:
+            logger.warning(f"[Main] Wealth Manager MT5 check failed: {e}")
     except Exception as e:
-        logger.warning(f"[Main] Wealth Manager failed: {e}")
+        logger.warning(f"[Main] Wealth Manager initialization failed: {e}")
 
     # Strategy Evolver — weekly self-improvement loop
     try:
@@ -316,16 +302,7 @@ def run_full_bot(node: str, mode: str):
 
     tg.register_command("/tp_check", _tp_check_handler)
 
-    def _readiness_cmd(args):
-        from core.paper_trading import get_paper_engine
-        ready, report = get_paper_engine().check_readiness()
-        for chunk in [report[i:i+3000] for i in range(0, len(report), 3000)]:
-            tg.send(f"<pre>{chunk}</pre>")
 
-    tg.register_command("/readiness", _readiness_cmd)
-    tg.register_command("/paper", lambda args: (
-        tg.send(_paper_status_msg())
-    ))
 
     def _ml_cmd(args):
         try:
@@ -635,24 +612,6 @@ def run_full_bot(node: str, mode: str):
             db.vacuum()
             logger.info("[Main] Weekly DB maintenance done.")
 
-            try:
-                from core.paper_trading import get_paper_engine
-                pe           = get_paper_engine()
-                ready, report = pe.check_readiness()
-                stats        = pe.get_stats()
-                total_trades = stats.get("total_trades", 0)
-                min_trades   = pe._cfg.get("min_trades_for_live", 30)
-
-                # Removed noisy Telegram alert for weekly readiness per user request
-
-                if ready:
-                    for chunk in [report[i:i+3000]
-                                  for i in range(0, len(report), 3000)]:
-                        tg.send(f"<pre>{chunk}</pre>")
-
-            except Exception as e:
-                logger.warning(f"[Main] Weekly readiness report failed: {e}")
-
     schedule.every().day.at("06:30").do(daily_premarket)
 
     # Removed forced daily_premarket() call on startup to avoid spam.
@@ -717,16 +676,8 @@ def run_full_bot(node: str, mode: str):
     schedule.every().day.at("19:45").do(us_pre_close_check)
 
     # ── Startup notification ──────────────────────────────────────────────
-    mode_str  = "📄 PAPER" if mode == "PAPER" else "💰 LIVE"
+    mode_str  = "💰 LIVE"
     open_pos  = positions.count()
-
-    paper_eq = "$10,000"
-    try:
-        from core.paper_trading import get_paper_engine
-        pe = get_paper_engine()
-        paper_eq = f"${pe.get_equity():,.2f}"
-    except Exception:
-        pass
 
     # Count enabled markets
     from config.config import MARKETS
@@ -807,20 +758,18 @@ def main():
     # ── CLI Arguments ────────────────────────────────────────────────────────
     parser = argparse.ArgumentParser(description="Trading Engine v12.2")
     parser.add_argument("--backtest", action="store_true", help="Run in backtest mode")
-    parser.add_argument("--paper",      action="store_true")
     parser.add_argument("--live",       action="store_true")
     parser.add_argument("--status",     action="store_true")
     parser.add_argument("--setup",      action="store_true")
-    parser.add_argument("--readiness",  action="store_true")
     parser.add_argument("--node",       type=str)
     args = parser.parse_args()
 
     node             = args.node or detect_node()
     has_exchange_keys = check_env()
-    mode = "LIVE" if (args.live and has_exchange_keys) else "PAPER"
+    mode = "LIVE"
 
-    if args.live and not has_exchange_keys:
-        logger.warning("Live requested but no API keys. Defaulting to paper.")
+    if not has_exchange_keys:
+        logger.warning("No API keys found. Engine might not execute trades.")
 
     print_banner(node, mode)
 
@@ -836,11 +785,7 @@ def main():
         run_setup_wizard()
         return
 
-    if args.readiness:
-        from core.paper_trading import get_paper_engine
-        ready, report = get_paper_engine().check_readiness()
-        print(report)
-        return
+
 
     if args.backtest:
         run_backtest_mode()
@@ -927,7 +872,7 @@ def run_setup_wizard():
         print(f"   {market:<12}: {status} (broker: {cfg.get('broker', 'N/A')})")
 
     print("\n✅ Setup check complete.")
-    print("Next: python run_bot.py  (starts in paper trading mode)")
+    print("Next: python run_bot.py  (starts in live trading mode)")
     print("      python run_bot.py --status  (check state)")
     print("      python run_bot.py --backtest  (backtest a symbol)")
 
