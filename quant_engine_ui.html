@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Crave Quant — UI v4</title>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#12151c; --panel2:#181c25; --line:#232833;
+    --text:#e8ebf0; --sub:#8a93a3; --mute:#5b6472;
+    --accent:#3d8bfd; --green:#22c55e; --red:#ef4444; --amber:#f59e0b; --purple:#a78bfa;
+    --sans:-apple-system,'Segoe UI',Roboto,sans-serif; --mono:'SF Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px;}
+  .app{display:grid;grid-template-columns:190px 1fr;min-height:100vh;}
+  .side{background:var(--panel);border-right:1px solid var(--line);padding:18px 0;}
+  .brand{padding:0 18px 16px;font-weight:600;font-size:14px;border-bottom:1px solid var(--line);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .brand .sq{width:24px;height:24px;border-radius:6px;background:var(--purple);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
+  .nav-item{padding:9px 18px;color:var(--sub);cursor:pointer;border-left:2px solid transparent;font-size:12.5px;}
+  .nav-item:hover{color:var(--text);background:var(--panel2);}
+  .nav-item.active{color:var(--text);border-left-color:var(--accent);background:var(--panel2);}
+  .main{padding:0;}
+  .topbar{padding:14px 24px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+  .topbar h1{font-size:16px;margin:0;font-weight:600;}
+  .topright{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--sub);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;}
+  .pill{border:1px solid var(--green);color:var(--green);padding:3px 10px;border-radius:12px;font-size:11.5px;}
+  .killbtn{width:26px;height:26px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:12px;}
+  .content{padding:20px 24px;}
+  .tabpanel{display:none;}
+  .tabpanel.active{display:block;}
+  .pagesub{color:var(--sub);font-size:12px;margin:-8px 0 18px;}
+
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .card .lbl{color:var(--sub);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;}
+  .card .val{font-size:21px;font-weight:600;}
+  .pos{color:var(--green);} .neg{color:var(--red);} .warn{color:var(--amber);}
+
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:16px;overflow:hidden;}
+  .section-h{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+  .section-h h3{margin:0;font-size:13px;font-weight:600;}
+  .section-h p{margin:2px 0 0;font-size:11px;color:var(--sub);}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{text-align:left;color:var(--sub);font-weight:500;padding:8px 16px;border-bottom:1px solid var(--line);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;}
+  td{padding:9px 16px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  tr.clickable{cursor:pointer;}
+  tr.clickable:hover td{background:var(--panel2);}
+  .badge{padding:2px 7px;border-radius:5px;font-size:10.5px;font-weight:500;}
+  .b-green{background:rgba(34,197,94,.15);color:var(--green);}
+  .b-red{background:rgba(239,68,68,.15);color:var(--red);}
+  .b-amber{background:rgba(245,158,11,.15);color:var(--amber);}
+  .b-mute{background:rgba(139,148,163,.15);color:var(--sub);}
+  .b-purple{background:rgba(167,139,250,.15);color:var(--purple);}
+  .b-accent{background:rgba(61,139,253,.15);color:var(--accent);}
+
+  .toggle{width:32px;height:18px;border-radius:10px;background:var(--line);position:relative;cursor:pointer;display:inline-block;}
+  .toggle.on{background:var(--green);}
+  .toggle .dot2{width:14px;height:14px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;}
+  .toggle.on .dot2{left:16px;}
+
+  .barwrap{background:var(--panel2);border-radius:5px;height:7px;overflow:hidden;margin-top:6px;}
+  .barfill{height:100%;}
+  .flagrow{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;}
+  .flagrow:last-child{border-bottom:none;}
+  .flagicon{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;}
+
+  .logline{padding:6px 16px;font-family:var(--mono);font-size:11px;color:var(--sub);border-bottom:1px solid var(--line);}
+  .logline .tag{color:var(--purple);}
+  .logline:last-child{border-bottom:none;}
+
+  .ai-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:13px;margin-bottom:10px;}
+  .ai-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  .confbar{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:6px;width:120px;}
+  .confbar-fill{height:100%;background:var(--purple);}
+  .reason{color:var(--sub);font-size:11.5px;margin-top:7px;line-height:1.5;}
+
+  .gate-metric{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:4px;background:var(--panel2);}
+  .gate-pass{color:var(--green);}
+
+  .exposure-bar{display:flex;height:22px;border-radius:6px;overflow:hidden;}
+  .exposure-seg{display:flex;align-items:center;justify-content:center;font-size:10px;color:#0b0d12;font-weight:600;}
+  .donut{width:110px;height:110px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;}
+  .donut-sm{width:84px;height:84px;}
+  .donut-inner{width:70px;height:70px;border-radius:50%;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .donut-inner-sm{width:52px;height:52px;}
+  .backlink{color:var(--sub);font-size:12px;cursor:pointer;margin-bottom:12px;display:inline-block;}
+  .backlink:hover{color:var(--text);}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="side">
+    <div class="brand"><div class="sq">C</div>Crave quant</div>
+    <div class="nav-item active" data-tab="cc">Command center</div>
+    <div class="nav-item" data-tab="portfolio">Portfolio</div>
+    <div class="nav-item" data-tab="strategies">Strategies</div>
+    <div class="nav-item" data-tab="markets">Markets</div>
+    <div class="nav-item" data-tab="execution">Execution</div>
+    <div class="nav-item" data-tab="risk">Risk</div>
+    <div class="nav-item" data-tab="intel">Intelligence</div>
+    <div class="nav-item" data-tab="jarvis">Jarvis Chat</div>
+    <div class="nav-item" data-tab="optimizer">AI Optimizer</div>
+    <div class="nav-item" data-tab="compliance">Compliance</div>
+    <div class="nav-item" data-tab="accounts">Accounts</div>
+    <div class="nav-item" data-tab="terminal">Terminal</div>
+    <div class="nav-item" data-tab="admin">Admin and ops</div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <h1 id="pagetitle">Command center</h1>
+      <div class="topright">
+        <span id="ping-indicator" style="font-family:var(--mono);font-size:12px;color:var(--sub);letter-spacing:.03em;background:var(--panel2);padding:4px 10px;border-radius:6px;border:1px solid var(--line);">-- ms</span>
+        <span id="ist-clock" style="font-family:var(--mono);font-size:12px;color:var(--sub);letter-spacing:.03em;background:var(--panel2);padding:4px 10px;border-radius:6px;border:1px solid var(--line);">--:--:-- IST</span>
+        <span title="Broker & data feed: all connections live" style="display:flex;align-items:center;gap:5px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2" fill="#22c55e" stroke="none"/></svg>
+          <span style="color:var(--green);font-size:11.5px;">Feed live</span>
+        </span>
+        <span class="pill" title="Auto-trading engine: strategies can open/close trades without manual confirmation">Auto-trading: on</span>
+        <div class="killbtn" title="Emergency stop — halts all new order flow">&#x23FB;</div>
+      </div>
+    </div>
+    <div class="content">
+
+    <!-- ================= COMMAND CENTER ================= -->
+    <div class="tabpanel active" id="cc">
+      <p class="pagesub">Feed icon states: <span style="color:var(--green);">green</span> = broker & data feed live, <span style="color:var(--amber);">amber</span> = degraded / high latency, <span style="color:var(--red);">red</span> = disconnected, no orders will fill.</p>
+      <div class="grid3">
+        <div class="card"><div class="lbl">Total equity</div><div class="val">—</div></div>
+        <div class="card"><div class="lbl">Today's P&L</div><div class="val">—</div></div>
+        <div class="card"><div class="lbl">Open positions</div><div class="val">—</div></div>
+      </div>
+      <div class="section">
+        <div class="section-h"><h3>Alerts</h3></div>
+        <div id="cc-alerts-container">
+          <div class="flagrow"><div class="flagicon" style="background:var(--panel2);color:var(--sub);">?</div>Loading alerts...</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-h"><h3>Top movers by volume</h3></div>
+        <table>
+          <tbody>
+            <tr><td colspan="5" style="color:var(--sub);text-align:center;padding:12px">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= PORTFOLIO ================= -->
+    <div class="tabpanel" id="portfolio">
+      <div class="section">
+        <div class="section-h"><h3>Exposure</h3></div>
+        <div style="padding:16px;display:flex;gap:24px;align-items:center;">
+          <div class="donut" style="background:var(--line);"><div class="donut-inner"><div style="font-size:10px;color:var(--sub);">Exposure</div><div style="font-weight:600;">—</div></div></div>
+          <div style="flex:1;font-size:12px;color:var(--sub);">
+            Loading exposure data...
+          </div>
+        </div>
+        <div id="cashnote" style="display:none;padding:0 16px 14px;font-size:11.5px;color:var(--sub);border-top:1px solid var(--line);">
+          Loading...
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-h"><h3>Accounts</h3></div>
+        <table>
+          <tbody>
+            <tr><td style="color:var(--sub);padding:12px;">Loading accounts...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="section">
+        <div class="section-h"><h3>Capital allocation — vol-targeted, correlation-adjusted</h3></div>
+        <div style="padding:16px;">
+          <div class="exposure-bar" style="background:var(--line)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= STRATEGIES ================= -->
+    <div class="tabpanel" id="strategies">
+      <div id="strategies-list">
+        <div class="section">
+          <div class="section-h"><h3>All strategies</h3><p>Real stats from DB — click a row to see full detail, trades, and market intel</p></div>
+          <div id="strategies-table-body" style="padding:16px;color:var(--sub);font-size:12px;">Loading...</div>
+        </div>
+      </div>
+
+      <div id="strategy-dynamic" style="display:none;">
+        <span class="backlink" onclick="closeStrategy()">&#8249; Back to strategies</span>
+        <div id="strategy-dynamic-content"></div>
+      </div>
+    </div>
+
+    <!-- ================= MARKETS ================= -->
+    <div class="tabpanel" id="markets">
+      <div id="markets-matrix" class="section">
+        <div class="section-h"><h3>Live market matrix</h3><p>Real-time prices from MT5 broker feed</p></div>
+        <div style="padding:16px;color:var(--sub);font-size:12px;">Loading...</div>
+      </div>
+      <div id="markets-news" class="section">
+        <div class="section-h"><h3>Economic calendar</h3><p>High &amp; medium impact events Â· auto-pauses entries 15 min before/after high impact</p></div>
+        <div style="padding:16px;color:var(--sub);font-size:12px;">Loading news...</div>
+      </div>
+    </div>
+
+    <!-- ================= EXECUTION ================= -->
+    <div class="tabpanel" id="execution">
+      <div id="execution-list">
+        <div class="section">
+          <div class="section-h"><h3>Orders</h3><p>Fill rate 96.2% Â· avg slippage 0.4 bps Â· click a row to view the live trade</p></div>
+          <table>
+            <tr class="clickable" onclick="openTrade('eurusd')"><td>Eurusd</td><td>Buy</td><td>1.12050</td><td>1.12250</td><td>50% at 1.12050</td><td><span class="badge b-green">Filled</span></td></tr>
+            <tr class="clickable" onclick="openTrade('gbpusd')"><td>Gbpusd</td><td>Sell</td><td>1.31400</td><td>1.31200</td><td>0%</td><td><span class="badge b-amber">Pending</span></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div id="trade-eurusd" style="display:none;">
+        <span class="backlink" onclick="closeTrade()">â€¹ Back to orders</span>
+        <div class="section">
+          <div class="section-h"><div><h3>Eurusd — Buy</h3><p>Live TradingView chart Â· SL/TP/price overlay from your broker feed, not TradingView's own data</p></div><span class="badge b-green">Filled Â· bot-managed</span></div>
+          <div style="padding:14px 16px;">
+            <div style="border-radius:8px;overflow:hidden;border:1px solid var(--line);height:280px;">
+              <iframe src="https://s.tradingview.com/widgetembed/?symbol=FX%3AEURUSD&interval=15&theme=dark&style=1&hide_top_toolbar=1&hide_legend=0&saveimage=0" style="width:100%;height:100%;border:none;" title="EURUSD chart"></iframe>
+            </div>
+            <p style="font-size:11px;color:var(--sub);margin:6px 0 0;">This is TradingView's real chart for the symbol. The dashed lines below are your actual SL/TP from the broker feed — TradingView doesn't know about them unless your broker is one of TradingView's official trading partners, so they're overlaid as data, not drawn on their chart yet.</p>
+          </div>
+          <div class="grid4" style="padding:0 16px 16px;margin-bottom:0;">
+            <div class="card"><div class="lbl">Entry</div><div class="val" style="font-size:16px;">1.11850</div></div>
+            <div class="card"><div class="lbl">Live price</div><div class="val pos" style="font-size:16px;">1.11962</div></div>
+            <div class="card"><div class="lbl">Pips moved</div><div class="val pos" style="font-size:16px;">+11.2</div></div>
+            <div class="card"><div class="lbl">Distance to SL / TP</div><div class="val" style="font-size:14px;">-36.2 / +28.8</div></div>
+          </div>
+
+          <div class="section-h" style="border-top:1px solid var(--line);"><div><h3>Manual override</h3><p>This trade was opened by Ema 11/15 (auto) — you can close it if your own read disagrees</p></div></div>
+          <div style="padding:14px 16px;display:flex;gap:10px;flex-wrap:wrap;">
+            <button onclick="confirmClose('eurusd')" style="background:var(--red);color:#fff;border:none;padding:9px 16px;border-radius:6px;font-size:12.5px;cursor:pointer;font-weight:500;">Close position now</button>
+            <button style="background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 16px;border-radius:6px;font-size:12.5px;cursor:pointer;">Tighten SL only</button>
+            <button style="background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer;">Open broker platform â†—</button>
+          </div>
+          <div id="close-confirm-eurusd" style="display:none;padding:0 16px 16px;">
+            <div style="background:var(--panel2);border:1px solid var(--amber);border-radius:8px;padding:14px;">
+              <p style="margin:0 0 8px;font-size:12.5px;">Confirm: close Eurusd buy at market (~1.11962), locking in +$112. This overrides the bot and is logged to Compliance with your reason.</p>
+              <input type="text" placeholder="Reason for override (required, logged) e.g. 'CPI print about to invalidate setup'" style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:10px;">
+              <div style="display:flex;gap:8px;">
+                <button style="background:var(--red);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Confirm close</button>
+                <button onclick="confirmClose('eurusd')" style="background:transparent;border:1px solid var(--line);color:var(--sub);padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="trade-gbpusd" style="display:none;">
+        <span class="backlink" onclick="closeTrade()">â€¹ Back to orders</span>
+        <div class="section">
+          <div class="section-h"><div><h3>Gbpusd — Sell</h3><p>Mirrored from Ftmo 100k (mt5) via broker feed</p></div><span class="badge b-amber">Pending</span></div>
+          <div class="grid4" style="padding:16px;margin-bottom:0;">
+            <div class="card"><div class="lbl">Order price</div><div class="val" style="font-size:16px;">1.31400</div></div>
+            <div class="card"><div class="lbl">Live price</div><div class="val" style="font-size:16px;">1.31418</div></div>
+            <div class="card"><div class="lbl">Pips from trigger</div><div class="val warn" style="font-size:16px;">1.8</div></div>
+            <div class="card"><div class="lbl">Status</div><div class="val" style="font-size:14px;">Waiting for fill</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= RISK ================= -->
+    <div class="tabpanel" id="risk">
+      <div class="section">
+        <div style="padding:14px 16px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;"><span>Daily loss</span><span>0.8% of 5%</span></div>
+          <div class="barwrap"><div class="barfill" style="width:16%;background:var(--green);"></div></div>
+        </div>
+        <div style="padding:0 16px 14px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;"><span>Correlation exposure</span><span>62%</span></div>
+          <div class="barwrap"><div class="barfill" style="width:62%;background:var(--amber);"></div></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="flagrow"><div class="flagicon" style="background:rgba(34,197,94,.15);color:var(--green);">âœ“</div>Circuit breakers: armed</div>
+        <div class="flagrow"><div class="flagicon" style="background:rgba(245,158,11,.15);color:var(--amber);">!</div>Ema pullback: 2 of 5 max consecutive losses</div>
+        <div class="flagrow"><div class="flagicon" style="background:rgba(239,68,68,.15);color:var(--red);">!</div>Ema pullback: live win rate 44% vs 61% backtested — flagged for review</div>
+      </div>
+    </div>
+
+    <!-- ================= INTELLIGENCE ================= -->
+    <div class="tabpanel" id="intel">
+      <div class="ai-card"><div class="ai-top"><div>Structure agent: bullish BOS confirmed</div></div></div>
+      <div class="ai-card">
+        <div class="ai-top">
+          <div><span style="color:var(--purple);font-weight:600;">Master AI: buy eurusd</span></div>
+          <span class="badge b-purple">94%</span>
+        </div>
+        <div class="reason">Council vote: 4 of 6 approved Â· trust phase: veto-only Â· shadow scorecard +0.3 sharpe vs baseline. Tied to backtest run #A19 (61% win rate, 1:2.2 RR, 210 samples).</div>
+        <div class="confbar"><div class="confbar-fill" style="width:94%;"></div></div>
+      </div>
+      <div class="section">
+        <div class="section-h"><h3>Council stream</h3></div>
+        <div class="logline">14:22:53 <span class="tag">[Market regime agent]</span> Regime detected as trending for EURUSD (confidence 0.82)</div>
+        <div class="logline">14:22:55 <span class="tag">[Signal agent]</span> Buy signal for EURUSD @ 1.11845 Â· SL 1.11600 Â· TP 1.12050</div>
+        <div class="logline">14:22:58 <span class="tag">[Risk agent]</span> Position size 0.50 lots Â· risk 1.00% Â· value $124.50</div>
+        <div class="logline">14:23:01 <span class="tag">[Execution agent]</span> Order executed Â· buy 0.50 lots EURUSD @ 1.11850</div>
+      </div>
+    </div>
+
+    <!-- ================= JARVIS CHAT ================= -->
+    <div class="tabpanel" id="jarvis">
+      <div class="section">
+        <div class="section-h"><h3>Jarvis Trading Assistant</h3><p>Conversational AI for portfolio context and system status</p></div>
+        <div id="jarvis-chat-log" style="padding:16px;max-height:400px;overflow-y:auto;background:var(--bg);border-bottom:1px solid var(--line);">
+          <div style="margin-bottom:10px;font-size:12.5px;"><strong style="color:var(--purple);">Jarvis:</strong> Hello. I am online and monitoring the CRAVE Quant engine. How can I assist you?</div>
+        </div>
+        <div style="padding:16px;display:flex;gap:10px;">
+          <input type="text" id="jarvis-input" placeholder="Ask Jarvis..." style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:10px;border-radius:6px;font-size:13px;" onkeypress="if(event.key==='Enter') sendJarvisMsg()">
+          <button onclick="sendJarvisMsg()" style="background:var(--accent);color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= AI STRATEGY OPTIMIZER ================= -->
+    <div class="tabpanel" id="optimizer">
+      <div class="section">
+        <div class="section-h"><h3>Strategy Parameter Optimizer</h3><p>AI-proposed adjustments based on recent forward-testing performance</p></div>
+        <div id="optimizer-body" style="padding:16px;">
+          <div style="color:var(--sub);font-size:13px;">Loading optimizer proposals...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= COMPLIANCE ================= -->
+    <div class="tabpanel" id="compliance">
+      <p class="pagesub">This was close to empty before — the point of this tab is to answer "can I prove what happened and did anything break a rule," which is different from Risk (which asks "are we about to lose too much").</p>
+
+      <div class="section"><div style="padding:14px 16px;"><div class="badge b-green" style="font-size:12px;padding:8px 14px;display:inline-block;">âœ“ Chain verified — 1,204 entries</div></div></div>
+
+      <div class="section">
+        <div class="section-h"><h3>Audit log</h3><p>Every order, toggle, and gate decision — searchable, not just a count</p></div>
+        <table>
+          <tr><th>Time</th><th>Event</th><th>Actor</th><th>Account</th></tr>
+          <tr><td>09:14:02</td><td>Order filled — Eurusd buy 0.50 lots</td><td>Ema 11/15 (auto)</td><td>Xm real</td></tr>
+          <tr><td>09:31:47</td><td style="color:var(--amber);">Manual override — position closed early, bot signal disagreed</td><td>You</td><td>Xm real</td></tr>
+          <tr><td>08:40:11</td><td>Strategy toggled live</td><td>You</td><td>Xm real</td></tr>
+          <tr><td>Yesterday 17:02</td><td>Backtest gate re-run — passed</td><td>System</td><td>—</td></tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-h"><h3>Rule checks</h3><p>Trading-rule violations, not P&L risk</p></div>
+        <div class="flagrow"><div class="flagicon" style="background:rgba(34,197,94,.15);color:var(--green);">âœ“</div>Ftmo 100k: no hedging-restriction violations this session</div>
+        <div class="flagrow"><div class="flagicon" style="background:rgba(34,197,94,.15);color:var(--green);">âœ“</div>Ftmo 100k: news-trading restriction respected (blocked during CPI window)</div>
+        <div class="flagrow"><div class="flagicon" style="background:rgba(245,158,11,.15);color:var(--amber);">!</div>Xm real: FIFO close-order rule — 1 partial close this week needs review</div>
+      </div>
+
+      <div class="section">
+        <div class="section-h"><h3>Tax tag — India F&O: business income</h3></div>
+        <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+          <span class="badge b-accent">Capital scope: personal only</span>
+          <button style="background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Export tax report â†“</button>
+        </div>
+      </div>
+    </div> <!-- Close compliance tabpanel -->
+
+    <!-- ================= ACCOUNTS ================= -->
+    <div class="tabpanel" id="accounts">
+      <div id="accounts-list">
+        <div class="section">
+          <div class="section-h"><h3>Accounts</h3><p>Real data from broker APIs &mdash; click any row to view full detail</p></div>
+          <div id="accounts-table-body" style="padding:16px;color:var(--sub);font-size:12px">Connecting to broker...</div>
+        </div>
+        <div class="section" style="margin-top:12px">
+          <div class="section-h"><h3>Add a new account</h3><p>Step-by-step instructions for each broker</p></div>
+          <div id="add-account-instructions" style="padding:16px;color:var(--sub);font-size:12px">Loading...</div>
+        </div>
+      </div>
+      <div id="account-dynamic" style="display:none">
+        <span class="backlink" onclick="closeAccount()">&#8249; Back to accounts</span>
+        <div id="account-dynamic-content"></div>
+      </div>
+    </div>
+
+    <!-- ================= TERMINAL ================= -->
+    <div class="tabpanel" id="terminal">
+      <p class="pagesub">Consolidated real-time view &mdash; live positions, account risk, and market context. All data from MT5 broker ground truth.</p>
+
+      <div class="section" id="terminal-matrix-section">
+        <div class="section-h"><h3>Instruments with open positions</h3><p>Price, bias, and last signal for active symbols</p></div>
+        <table id="terminal-matrix-table">
+          <tr><th>Symbol</th><th>Price</th><th>Bias</th><th>Regime</th><th>Signal</th></tr>
+          <tr><td colspan="5" style="color:var(--sub);text-align:center;padding:12px">Loading live data...</td></tr>
+        </table>
+      </div>
+
+      <div class="grid3">
+        <div class="card"><div class="lbl">Win rate (30d)</div><div class="val" id="term-wr">—</div></div>
+        <div class="card"><div class="lbl">Profit factor</div><div class="val" id="term-pf">—</div></div>
+        <div class="card"><div class="lbl">Expectancy R</div><div class="val pos" id="term-er">—</div></div>
+      </div>
+
+      <div class="section" id="terminal-positions-section">
+        <div class="section-h"><h3>Open positions</h3><p>Live from MT5 broker &mdash; updates every 2s</p></div>
+        <table id="terminal-positions-table">
+          <tr><th>Symbol</th><th>Direction</th><th>Lots</th><th>Entry</th><th>Current</th><th>SL</th><th>TP</th><th>P&amp;L</th></tr>
+          <tr><td colspan="8" style="color:var(--sub);text-align:center;padding:12px">Loading positions...</td></tr>
+        </table>
+      </div>
+
+      <div class="section" id="terminal-risk-section">
+        <div class="section-h"><h3>Account &amp; risk overview</h3><p>Real-time margin and equity from MT5</p></div>
+        <div id="terminal-risk-body" style="padding:14px 16px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-size:12px">
+          <div><div style="color:var(--sub)">Equity</div><div style="font-weight:600;margin-top:3px" id="term-equity">—</div></div>
+          <div><div style="color:var(--sub)">Margin used</div><div style="font-weight:600;margin-top:3px" id="term-margin">—</div></div>
+          <div><div style="color:var(--sub)">Free margin</div><div style="font-weight:600;margin-top:3px" id="term-freemargin">—</div></div>
+          <div><div style="color:var(--sub)">Margin level</div><div style="font-weight:600;margin-top:3px" id="term-marginlevel">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= ADMIN AND OPS ================= -->
+    <div class="tabpanel" id="admin">
+      <div class="section" id="admin-status-section">
+        <div class="section-h"><h3>System status</h3><p>Live connection state, node health, engine config</p></div>
+        <div id="admin-status-body" style="padding:14px 16px;color:var(--sub);font-size:12px">Loading...</div>
+      </div>
+      <div class="section" id="admin-heartbeat-section">
+        <div class="section-h"><h3>Failover &amp; heartbeat</h3></div>
+        <div id="admin-heartbeat-body" style="padding:4px 0">
+          <div class="flagrow"><div class="flagicon" style="background:rgba(167,139,250,.15);color:var(--purple)">i</div>Loading heartbeat...</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-h"><h3>Actions</h3></div>
+        <div style="padding:14px 16px;display:flex;gap:10px;flex-wrap:wrap">
+          <button onclick="if(confirm('Restart paper engine?')) fetch('http://127.0.0.1:8765/api/admin/emergency_stop',{method:'POST'})" style="background:var(--panel2);border:1px solid var(--line);color:var(--amber);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Emergency stop</button>
+          <button onclick="window.open('http://127.0.0.1:8765/api/compliance','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Export audit log</button>
+          <button onclick="window.open('http://127.0.0.1:8765/api/admin','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Raw API debug</button>
+        </div>
+      </div>
+    </div>
+
+    </div>
+  </div>
+</div>
+
+
+<script>
+/* â”€â”€ IST CLOCK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+function tickClock(){
+  const now = new Date();
+  // IST = UTC + 5:30
+  const ist = new Date(now.getTime() + (5*60+30)*60000);
+  const hh = String(ist.getUTCHours()).padStart(2,'0');
+  const mm = String(ist.getUTCMinutes()).padStart(2,'0');
+  const ss = String(ist.getUTCSeconds()).padStart(2,'0');
+  const el = document.getElementById('ist-clock');
+  if(el) el.textContent = `${hh}:${mm}:${ss} IST`;
+}
+tickclock: {
+  tickClock();
+  setInterval(tickClock, 1000);
+}
+
+/* â”€â”€ Navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+document.querySelectorAll('.nav-item').forEach(function(item){
+  item.addEventListener('click', function(){
+    document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
+    document.querySelectorAll('.tabpanel').forEach(function(p){p.classList.remove('active');});
+    item.classList.add('active');
+    document.getElementById(item.dataset.tab).classList.add('active');
+    document.getElementById('pagetitle').textContent = item.textContent;
+    if(item.dataset.tab==='accounts'){ closeAccount(); }
+    if(item.dataset.tab==='strategies'){ closeStrategy(); }
+    if(item.dataset.tab==='execution'){ closeTrade(); }
+  });
+});
+function openAccount(id){
+  document.getElementById('accounts-list').style.display='none';
+  document.getElementById('account-dynamic').style.display='block';
+}
+function closeAccount(){
+  document.getElementById('accounts-list').style.display='block';
+  document.getElementById('account-dynamic').style.display='none';
+  document.getElementById('account-dynamic-content').innerHTML='';
+}
+function openStrategy(id){ document.getElementById('strategies-list').style.display='none'; document.getElementById('strategy-detail-panel').style.display='block'; }
+function closeStrategy(){ document.getElementById('strategies-list').style.display='block'; if(document.getElementById('strategy-detail-panel')) document.getElementById('strategy-detail-panel').style.display='none'; }
+function openTrade(id){ document.getElementById('execution-list').style.display='none'; document.querySelectorAll('#execution [id^="trade-"]').forEach(d=>d.style.display='none'); document.getElementById('trade-'+id).style.display='block'; }
+function closeTrade(){ document.getElementById('execution-list').style.display='block'; document.querySelectorAll('#execution [id^="trade-"]').forEach(d=>d.style.display='none'); }
+function toggleCashNote(){ var n=document.getElementById('cashnote'); n.style.display=(n.style.display==='none')?'block':'none'; }
+function confirmClose(id){ var n=document.getElementById('close-confirm-'+id); n.style.display=(n.style.display==='none')?'block':'none'; }
+
+/* â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+const API = 'http://127.0.0.1:8765';
+const $ = id => document.getElementById(id);
+const fmt  = (n, d=2) => (n==null?'—':(+n>=0?'+':'')+Number(n).toFixed(d));
+const fmtU = (n, d=2) => (n==null?'—':Number(n).toFixed(d));
+const cls  = n => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+const badge = (txt, col) => `<span class="badge b-${col}">${txt}</span>`;
+const impactColor = imp => imp==='high'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
+const impactText  = imp => imp==='high'?'var(--red)':'var(--amber)';
+
+async function api(path){
+  try {
+    const r = await fetch(API + path, {cache:'no-store'});
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+function setConn(conn){
+  const el = document.querySelector('.topright span[title]');
+  if(!el) return;
+  const ok = conn && conn.mt5;
+  el.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${ok?'#22c55e':'#ef4444'}" stroke-width="2.5" stroke-linecap="round"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2" fill="${ok?'#22c55e':'#ef4444'}" stroke="none"/></svg><span style="color:${ok?'var(--green)':'var(--red)'};font-size:11.5px;">${ok?'Feed live':'Disconnected'}</span>`;
+}
+
+/* â”€â”€ COMMAND CENTER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateCC(){
+  const d = await api('/api/command_center');
+  if(!d) return;
+  setConn(d.connection);
+  
+  const pingEl = document.getElementById('ping-indicator');
+  if(pingEl) {
+    if(d.ping_ms !== undefined) {
+      pingEl.textContent = d.ping_ms + ' ms';
+      pingEl.style.color = d.ping_ms < 100 ? 'var(--green)' : d.ping_ms < 300 ? 'var(--amber)' : 'var(--red)';
+    } else {
+      pingEl.textContent = '-- ms';
+      pingEl.style.color = 'var(--sub)';
+    }
+  }
+
+  const cards = document.querySelectorAll('#cc .card .val');
+  if(cards[0]) cards[0].textContent = '$' + fmtU(d.equity);
+  if(cards[1]){ cards[1].textContent = (d.today_pnl>=0?'+$':'-$') + fmtU(Math.abs(d.today_pnl||0)); cards[1].className = 'val ' + cls(d.today_pnl); }
+  if(cards[2]) cards[2].textContent = d.open_positions;
+
+  const alertBox = document.querySelector('#cc .section .flagrow')?.parentElement;
+  if(alertBox && d.alerts){
+    const colorBg = {red:'rgba(239,68,68,.15)', amber:'rgba(245,158,11,.15)', green:'rgba(34,197,94,.15)'};
+    const colorFg = {red:'var(--red)', amber:'var(--amber)', green:'var(--green)'};
+    alertBox.innerHTML = d.alerts.length === 0
+      ? '<div class="flagrow"><div class="flagicon" style="background:rgba(34,197,94,.15);color:var(--green)">&#x2713;</div>All clear — no active alerts</div>'
+      : d.alerts.map(a=>`<div class="flagrow"><div class="flagicon" style="background:${colorBg[a.level]||colorBg.amber};color:${colorFg[a.level]||colorFg.amber}">!</div>${a.text}</div>`).join('');
+  }
+
+  const tbody = document.querySelector('#cc table tbody') || (()=>{
+    const t=document.querySelector('#cc table'); if(!t) return null;
+    let b=t.querySelector('tbody'); if(!b){b=document.createElement('tbody');t.appendChild(b);} return b;
+  })();
+  if(tbody && d.top_movers && d.top_movers.length){
+    tbody.innerHTML = d.top_movers.map((m,i)=>`
+      <tr>
+        <td>${i+1}</td><td>${m.symbol}</td><td>—</td>
+        <td class="${cls(m.day_pnl)}">${m.day_pnl!==0?fmt(m.day_pnl,2):'—'}</td>
+        <td class="${cls(m.day_pnl)}">${m.day_pnl!==0?fmt(m.day_pnl):'—'}</td>
+      </tr>`).join('');
+  } else if(tbody) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--sub);text-align:center;padding:12px">No open positions</td></tr>';
+  }
+}
+
+/* ── PORTFOLIO ───────────────────────────────────────────────────────────── */
+async function updatePortfolio(){
+  const d = await api('/api/portfolio');
+  if(!d) return;
+
+  const at = document.querySelector('#portfolio .section table tbody') || document.querySelector('#portfolio .section table');
+  if(at && d.accounts){
+    at.innerHTML = d.accounts.map(a=>`
+      <tr>
+        <td>${a.name}</td>
+        <td style="text-align:right" class="${cls(a.profit)}">${fmt(a.profit)}</td>
+      </tr>`).join('');
+  }
+
+  const expLegend = document.querySelector('#portfolio .donut + div');
+  const donut = document.querySelector('#portfolio .donut');
+  if(expLegend && d.exposure){
+    const colors = ['var(--accent)','var(--amber)','var(--purple)','var(--green)'];
+    let grad = [], cur = 0;
+    
+    expLegend.innerHTML = d.exposure.map((e,i)=>{
+      grad.push(`${colors[i%colors.length]} ${cur}% ${cur+e.pct}%`);
+      cur += e.pct;
+      return `<div style="display:flex;justify-content:space-between;padding:4px 0;">
+        <span><span style="color:${colors[i%colors.length]}">&#9679;</span> ${e.symbol}</span>
+        <span>${e.pct}%</span>
+      </div>`;
+    }).join('');
+    
+    if(cur < 100) grad.push(`var(--line) ${cur}% 100%`);
+    if(donut) donut.style.background = `conic-gradient(${grad.join(', ')})`;
+    const dt = document.querySelector('#portfolio .donut-inner div:last-child');
+    if(dt) dt.textContent = Math.min(100, cur.toFixed(1)) + '%';
+  }
+
+  const allocBar = document.querySelector('#portfolio .exposure-bar');
+  if(allocBar && d.accounts && d.total_equity){
+    const colors = ['var(--accent)','var(--purple)','var(--green)','var(--amber)'];
+    allocBar.innerHTML = d.accounts.map((a,i)=>{
+      const pct = (a.equity / d.total_equity * 100) || 0;
+      return `<div class="exposure-seg" style="width:${pct}%;background:${colors[i%colors.length]}">${a.name} ${Math.round(pct)}%</div>`;
+    }).join('');
+  }
+}
+
+/* â”€â”€ MARKETS + NEWS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateMarkets(){
+  const d = await api('/api/markets');
+  if(!d) return;
+
+  const sect = document.getElementById('markets-matrix');
+  if(sect){
+    if(!d.matrix || d.matrix.length===0){
+      sect.innerHTML='<div class="section-h"><h3>Live market matrix</h3></div><div style="padding:16px;color:var(--sub)">No MT5 instruments — check connection.</div>';
+    } else {
+      sect.innerHTML = `<div class="section-h"><h3>Live market matrix</h3><p>Real-time prices from MT5 broker feed &middot; updated every 2s</p></div>
+      <table>
+        <tr><th>Symbol</th><th>Label</th><th>Price</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Change%</th><th>Bias</th><th>Regime</th></tr>
+        ${d.matrix.map(m=>`<tr>
+          <td style="font-family:var(--mono)">${m.symbol}</td>
+          <td style="color:var(--sub)">${m.label||m.symbol}</td>
+          <td><strong>${fmtU(m.price,5)}</strong></td>
+          <td style="color:var(--sub);font-size:11px">${fmtU(m.bid,5)}</td>
+          <td style="color:var(--sub);font-size:11px">${fmtU(m.ask,5)}</td>
+          <td style="font-size:11px">${m.spread||'—'}</td>
+          <td class="${cls(m.change)}">${fmt(m.change,3)}%</td>
+          <td class="${m.bias==='bullish'||m.bias==='buy'?'pos':m.bias==='bearish'||m.bias==='sell'?'neg':''}">${m.bias}</td>
+          <td>${m.regime}</td>
+        </tr>`).join('')}
+      </table>`;
+    }
+  }
+
+  // News calendar
+  const newsDiv = document.getElementById('markets-news');
+  if(newsDiv && d.news){
+    if(d.news.length===0){
+      newsDiv.innerHTML='<div class="section-h"><h3>Economic calendar</h3></div><div class="flagrow"><div class="flagicon" style="background:rgba(34,197,94,.15);color:var(--green)">&#x2713;</div>No high/medium impact events this week (or news feed loading...)</div>';
+    } else {
+      newsDiv.innerHTML = `<div class="section-h"><h3>Economic calendar</h3><p>High &amp; medium impact events &middot; entries auto-paused 15 min before/after high impact</p></div>` +
+        d.news.map(ev=>{
+          const soon = ev.soon;
+          const bg = ev.impact==='high' ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.15)';
+          const fg = ev.impact==='high' ? 'var(--red)' : 'var(--amber)';
+          const icon = ev.impact==='high' ? '&#x1F534;' : '!';
+          const timing = ev.diff_min > 0 ? `in ${ev.diff_min}m` : ev.diff_min < -1 ? `${Math.abs(ev.diff_min)}m ago` : 'NOW';
+          return `<div class="flagrow" style="${soon && ev.impact==='high'?'background:rgba(239,68,68,.05);':''}">
+            <div class="flagicon" style="background:${bg};color:${fg};font-size:11px">${icon}</div>
+            <div style="flex:1">
+              <strong>${ev.currency}</strong> &mdash; ${ev.title}
+              <span style="color:var(--sub);margin-left:8px;font-size:11px">${ev.time_ist} &middot; ${timing}</span>
+            </div>
+            ${ev.soon && ev.impact==='high' ? badge('Entries paused','red') : badge(ev.impact,'mute')}
+          </div>`;
+        }).join('');
+    }
+  }
+}
+
+/* ── EXECUTION ───────────────────────────────────────────────────────────── */
+async function updateExecution(){
+  const d = await api('/api/execution');
+  if(!d) return;
+
+  const list = document.getElementById('execution-list');
+  if(!list) return;
+
+  const fs = d.fill_stats || {};
+  let html = '';
+
+  if(!d.orders || d.orders.length===0){
+    html += '<div class="section"><div class="section-h"><h3>Open Orders</h3><p>No open positions on MT5</p></div><div style="padding:16px;color:var(--sub)">No live positions detected. Make sure MT5 is connected and has open trades.</div></div>';
+  } else {
+    html += `<div class="section">
+      <div class="section-h"><h3>Open Orders</h3><p>${d.orders.length} open position${d.orders.length!==1?'s':''} &middot; Fill rate ${fs.fill_rate||'—'}% &middot; click a row for full detail &amp; close option</p></div>
+      <table>
+        <tr><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Current</th><th>SL</th><th>TP</th><th>Strategy</th><th>Pips</th><th>P&amp;L</th><th></th></tr>
+        ${d.orders.map(o=>`<tr class="clickable" onclick="showOrderDetail(${o.id})">
+          <td style="font-family:var(--mono)">${o.symbol}</td>
+          <td class="${o.direction==='buy'?'pos':'neg'}">${(o.direction||'').toUpperCase()}</td>
+          <td>${fmtU(o.volume,2)}</td>
+          <td>${fmtU(o.entry,5)}</td>
+          <td>${fmtU(o.current,5)}</td>
+          <td style="color:var(--red);font-size:11px">${fmtU(o.sl,5)}</td>
+          <td style="color:var(--green);font-size:11px">${fmtU(o.tp,5)}</td>
+          <td>${badge(o.strategy_id||'Unknown','purple')}</td>
+          <td class="${cls(o.pips_moved)}">${fmt(o.pips_moved,1)}</td>
+          <td class="${cls(o.profit)}" style="font-weight:600">${fmt(o.profit,2)}</td>
+          <td>${badge('Open','green')}</td>
+        </tr>`).join('')}
+      </table>
+    </div>`;
+  }
+
+  html += `<div class="section">
+    <div class="section-h"><h3>Closed Trade History</h3><p>Last 50 closed trades directly from MT5 logs</p></div>`;
+    
+  if(d.closed_trades && d.closed_trades.length > 0){
+    html += `<table>
+      <tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>Strategy</th><th>Pips</th><th>P&amp;L %</th></tr>
+      ${d.closed_trades.map(o=>`<tr>
+        <td style="font-size:11px;color:var(--sub)">${(o.close_time||'').slice(0,16)}</td>
+        <td style="font-family:var(--mono)">${o.symbol}</td>
+        <td class="${o.direction==='buy'?'pos':'neg'}">${(o.direction||'').toUpperCase()}</td>
+        <td>${fmtU(o.volume,2)}</td>
+        <td>${fmtU(o.entry,5)}</td>
+        <td>${fmtU(o.exit,5)}</td>
+        <td>${badge(o.strategy_id||'Unknown','mute')}</td>
+        <td class="${cls(o.pips_moved)}">${fmt(o.pips_moved,1)}</td>
+        <td class="${cls(o.profit)}" style="font-weight:600">${fmt(o.profit,2)}%</td>
+      </tr>`).join('')}
+    </table>`;
+  } else {
+    html += `<div style="padding:16px;color:var(--sub)">No closed trades found in the local database. As trades complete, they will appear here.</div>`;
+  }
+  html += `</div>`;
+
+  list.innerHTML = html;
+  window._orders = d.orders;
+}
+
+window.showOrderDetail = function(ticket){
+  const o = (window._orders||[]).find(x=>x.id===ticket);
+  if(!o) return;
+  const existing = document.getElementById('order-detail-modal');
+  if(existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'order-detail-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;box-sizing:border-box;';
+  modal.innerHTML = `<div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;min-width:440px;max-width:580px;width:100%;max-height:90vh;overflow-y:auto;box-sizing:border-box;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div><h3 style="margin:0">${o.symbol} &mdash; ${o.direction.toUpperCase()}</h3><p style="margin:4px 0 0;font-size:11px;color:var(--sub)">Ticket #${o.id} &middot; Opened ${(o.open_time||'').slice(0,16)}</p></div>
+      <button onclick="document.getElementById('order-detail-modal').remove()" style="background:none;border:none;color:var(--sub);font-size:20px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+    <div class="grid4" style="margin-bottom:14px;">
+      <div class="card"><div class="lbl">Entry</div><div class="val" style="font-size:15px">${fmtU(o.entry,5)}</div></div>
+      <div class="card"><div class="lbl">Current</div><div class="val ${cls(o.pips_moved)}" style="font-size:15px">${fmtU(o.current,5)}</div></div>
+      <div class="card"><div class="lbl">P&amp;L $</div><div class="val ${cls(o.profit)}" style="font-size:15px">${fmt(o.profit,2)}</div></div>
+      <div class="card"><div class="lbl">Pips</div><div class="val ${cls(o.pips_moved)}" style="font-size:15px">${fmt(o.pips_moved,1)}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <div style="flex:1;background:var(--panel2);border:1px solid rgba(239,68,68,.4);border-radius:6px;padding:10px;font-size:12px;"><div style="color:var(--sub);margin-bottom:3px">Stop Loss</div><div style="color:var(--red);font-weight:700;font-size:14px">${fmtU(o.sl,5)}</div></div>
+      <div style="flex:1;background:var(--panel2);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;font-size:12px;"><div style="color:var(--sub);margin-bottom:3px">Take Profit</div><div style="color:var(--green);font-weight:700;font-size:14px">${fmtU(o.tp,5)}</div></div>
+      <div style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px;font-size:12px;"><div style="color:var(--sub);margin-bottom:3px">Volume</div><div style="font-weight:700;font-size:14px">${fmtU(o.volume,2)} lots</div></div>
+    </div>
+    <div style="margin-bottom:6px;font-size:12px;color:var(--sub)">Reason for override (required — logged to compliance audit)</div>
+    <input id="modal-reason" type="text" placeholder="e.g. CPI print about to invalidate setup" style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:12px;box-sizing:border-box">
+    <div style="display:flex;gap:8px;">
+      <button onclick="doClosePosition(${o.id})" style="background:var(--red);color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:12.5px;cursor:pointer;font-weight:600">Close position now</button>
+      <button onclick="document.getElementById('order-detail-modal').remove()" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 18px;border-radius:6px;font-size:12.5px;cursor:pointer">Cancel</button>
+    </div>
+    <div style="margin-top:20px; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--panel2); height:300px;">
+      <div id="tv_chart_container_${o.id}" style="width:100%;height:100%;"></div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  let tvSym = o.symbol.replace('=X', '');
+  if(tvSym.includes('BTC')||tvSym.includes('ETH')||tvSym.includes('SOL')) {
+    tvSym = 'BINANCE:'+tvSym.replace(/[^A-Z]/g,'');
+  } else if(tvSym.includes('GC')||tvSym.includes('GOLD')||tvSym.includes('XAU')) {
+    tvSym = 'OANDA:XAUUSD';
+  } else {
+    tvSym = 'FX:' + tvSym;
+  }
+
+  new TradingView.widget({
+    "autosize": true,
+    "symbol": tvSym,
+    "interval": "15",
+    "timezone": "Etc/UTC",
+    "theme": "dark",
+    "style": "1",
+    "locale": "en",
+    "enable_publishing": false,
+    "backgroundColor": "rgba(19, 23, 34, 1)",
+    "gridColor": "rgba(42, 46, 57, 0.06)",
+    "hide_top_toolbar": false,
+    "hide_side_toolbar": false,
+    "hide_legend": true,
+    "save_image": false,
+    "container_id": "tv_chart_container_" + o.id
+  });
+};
+
+window.doClosePosition = async function(ticket){
+  const reason = (document.getElementById('modal-reason')||{}).value || 'Manual override';
+  if(!reason.trim()){ alert('Please enter a reason for the override.'); return; }
+  const r = await fetch(API+'/api/execution/close', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ticket, reason})});
+  const d = await r.json();
+  alert(d.ok ? 'Position #'+ticket+' closed successfully.' : 'Failed: ' + d.error);
+  document.getElementById('order-detail-modal')?.remove();
+  updateExecution();
+};
+
+/* â”€â”€ RISK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateRisk(){
+  const d = await api('/api/risk');
+  if(!d) return;
+  const rp = document.querySelector('#risk');
+  if(!rp) return;
+
+  const dp = d.daily_loss_pct||0, dl = d.daily_loss_limit||4;
+  const cp = d.corr_exposure_pct||0;
+  const dbc = dp>dl*0.8?'var(--red)':dp>dl*0.5?'var(--amber)':'var(--green)';
+
+  const bars = rp.querySelector('.section');
+  if(bars) bars.innerHTML = `
+    <div style="padding:14px 16px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Daily loss &mdash; ${d.prop_firm?d.prop_firm.toUpperCase()+' limit':''}</span><span class="${dp>dl*0.8?'neg':dp>dl*0.5?'warn':''}">${fmtU(dp,2)}% of ${dl}%</span></div>
+      <div class="barwrap"><div class="barfill" style="width:${Math.min(100,dp/dl*100)}%;background:${dbc};"></div></div>
+    </div>
+    <div style="padding:0 16px 14px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Correlation exposure (USD-linked)</span><span class="${cp>70?'neg':cp>50?'warn':''}">${cp}%</span></div>
+      <div class="barwrap"><div class="barfill" style="width:${Math.min(100,cp)}%;background:${cp>70?'var(--red)':cp>50?'var(--amber)':'var(--green)'};"></div></div>
+    </div>`;
+
+  const flagSect = rp.querySelectorAll('.section')[1];
+  if(flagSect && d.flags) flagSect.innerHTML = d.flags.map(f=>`
+    <div class="flagrow">
+      <div class="flagicon" style="background:${f.ok?'rgba(34,197,94,.15)':'rgba(239,68,68,.15)'};color:${f.ok?'var(--green)':'var(--red)'};">${f.ok?'&#x2713;':'!'}</div>
+      ${f.text}
+    </div>`).join('');
+}
+
+/* â”€â”€ INTELLIGENCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateIntel(){
+  const d = await api('/api/intelligence');
+  if(!d) return;
+
+  const stream = document.querySelector('#intel .section .logline')?.parentElement;
+  if(stream){
+    if(!d.council||d.council.length===0){
+      stream.innerHTML='<div class="section-h"><h3>Council stream</h3></div><div class="logline" style="color:var(--mute)">Waiting for engine to start &mdash; council messages will appear here as the bot runs.</div>';
+    } else {
+      stream.innerHTML = '<div class="section-h"><h3>Council stream</h3><p>Live LLM council decisions &middot; newest first</p></div>' +
+        [...d.council].reverse().slice(0,30).map(m=>{
+          let txt = m.text;
+          if (txt.includes('ACCEPTED') || txt.includes('Approved') || txt.includes('PROCEED')) {
+            txt = `<span style="color:var(--green);font-weight:600">${txt}</span>`;
+          } else if (txt.includes('REJECTED') || txt.includes('Blocked') || txt.includes('HALT')) {
+            txt = `<span style="color:var(--red);font-weight:600">${txt}</span>`;
+          }
+          if (txt.includes('Pitch:')) txt = txt.replace('Pitch:', '<strong style="color:var(--text)">Pitch:</strong>');
+          if (txt.includes('Cross-Ex:')) txt = txt.replace('Cross-Ex:', '<strong style="color:var(--text)">Cross-Ex:</strong>');
+          if (txt.includes('Verdict:')) txt = txt.replace('Verdict:', '<strong style="color:var(--purple)">Verdict:</strong>');
+          return `<div class="logline" style="padding:10px 16px;">
+            <div style="margin-bottom:4px;font-size:10.5px;">${m.time} <span class="tag">[${m.agent}]</span></div>
+            <div style="line-height:1.5;color:var(--text);">${txt}</div>
+          </div>`;
+        }).join('');
+    }
+  }
+
+  if(d.signals && d.signals.length>0){
+    const latest = d.signals[0];
+    const existingCard = document.querySelector('#intel .ai-card');
+    if(existingCard){
+      const topDiv = existingCard.querySelector('.ai-top div');
+      const reasonDiv = existingCard.querySelector('.reason');
+      if(topDiv) topDiv.innerHTML = `<span style="color:var(--purple);font-weight:600">Latest signal: ${(latest.direction||'').toUpperCase()} ${latest.symbol}</span>`;
+      if(reasonDiv) reasonDiv.textContent = latest.traded
+        ? `Grade ${latest.grade||'?'} \u00b7 Confidence ${latest.confidence||'?'}% \u00b7 Executed`
+        : `Blocked \u2014 ${latest.skip_reason||'reason not recorded'}`;
+      const confBar = existingCard.querySelector('.confbar-fill');
+      if(confBar) confBar.style.width = (latest.confidence||0) + '%';
+      const badge2 = existingCard.querySelector('.badge');
+      if(badge2) badge2.textContent = (latest.confidence||0)+'%';
+    }
+
+    // Signals list
+    const aiSignals = document.querySelector('#intel .section:last-child');
+    if(aiSignals && aiSignals.textContent.includes('stream')===false){
+      aiSignals.innerHTML = '<div class="section-h"><h3>Recent signals (DB)</h3><p>All generated signals including blocked ones</p></div>' +
+        d.signals.slice(0,12).map(s=>`<div class="logline">${s.time} <span class="tag">[${s.symbol}]</span> ${(s.direction||'').toUpperCase()} &middot; ${s.grade||'?'} &middot; ${s.confidence||'?'}% &middot; ${s.traded ? badge('Executed','green') : badge('Blocked','red')} ${s.skip_reason?`<span style="color:var(--mute);font-size:10.5px">${s.skip_reason}</span>`:''}</div>`).join('');
+    }
+  }
+}
+
+/* ── JARVIS CHAT ───────────────────────────────────────────────────────────── */
+async function sendJarvisMsg(){
+  const inp = document.getElementById('jarvis-input');
+  if(!inp || !inp.value.trim()) return;
+  const msg = inp.value.trim();
+  inp.value = '';
+  
+  const log = document.getElementById('jarvis-chat-log');
+  log.innerHTML += `<div style="margin-bottom:10px;font-size:12.5px;"><strong>You:</strong> ${msg}</div>`;
+  log.scrollTop = log.scrollHeight;
+  
+  const r = await fetch(API+'/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
+  const d = await r.json();
+  
+  log.innerHTML += `<div style="margin-bottom:10px;font-size:12.5px;"><strong style="color:var(--purple);">Jarvis:</strong> ${d.reply || 'Connection error.'}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+async function updateJarvis(){} // Static, event driven
+
+/* ── OPTIMIZER ───────────────────────────────────────────────────────────── */
+async function updateOptimizer(){
+  if(window._optLoaded) return;
+  const d = await api('/api/optimizer/propose');
+  if(!d || !d.proposal) return;
+  window._optLoaded = true;
+  
+  const b = document.getElementById('optimizer-body');
+  const p = d.proposal;
+  b.innerHTML = `
+    <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:16px;">
+      <h4 style="margin:0 0 10px 0;color:var(--text);">${p.strategy} &mdash; Parameter Proposal</h4>
+      <p style="font-size:12.5px;color:var(--sub);margin-bottom:16px;line-height:1.5;">${p.reasoning}</p>
+      
+      <table style="margin-bottom:16px;background:var(--bg);">
+        <tr><th>Parameter</th><th>Current</th><th>Proposed</th></tr>
+        ${p.changes.map(c=>`<tr><td>${c.parameter}</td><td style="color:var(--sub);">${c.old}</td><td style="color:var(--green);font-weight:600;">${c.new}</td></tr>`).join('')}
+      </table>
+      
+      <div style="display:flex;gap:10px;">
+        <button onclick="approveOptimizer('${p.id}')" style="background:var(--green);color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Approve Changes</button>
+        <button onclick="window._optLoaded=false;updateOptimizer()" style="background:transparent;border:1px solid var(--line);color:var(--sub);padding:10px 20px;border-radius:6px;font-size:13px;cursor:pointer;">Dismiss</button>
+      </div>
+    </div>
+  `;
+}
+window.approveOptimizer = async function(id){
+  const r = await fetch(API+'/api/optimizer/approve', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({proposal_id:id})});
+  const d = await r.json();
+  alert(d.message);
+  document.getElementById('optimizer-body').innerHTML = '<div style="color:var(--sub);font-size:13px;">No new proposals at this time.</div>';
+};
+
+/* ── COMPLIANCE ───────────────────────────────────────────────────────────── */
+async function updateCompliance(){
+  const d = await api('/api/compliance');
+  if(!d) return;
+
+  const chainBadge = document.querySelector('#compliance .badge.b-green');
+  if(chainBadge) chainBadge.textContent = 'Chain verified \u2014 ' + d.chain_count + ' entries';
+
+  const table = document.querySelector('#compliance table');
+  if(table && d.audit){
+    table.innerHTML = '<tr><th>Time</th><th>Event</th><th>Actor</th><th>Account</th><th>Grade</th></tr>' +
+      d.audit.map(a=>`<tr>
+        <td style="font-family:var(--mono);font-size:11px">${a.time}</td>
+        <td>${a.event}</td>
+        <td>${a.actor}</td>
+        <td>${a.account}</td>
+        <td>${a.grade!=='—'?badge(a.grade||'','mute'):''}</td>
+      </tr>`).join('');
+  }
+
+  // Rule checks
+  const flagSects = document.querySelectorAll('#compliance .section');
+  const ruleSect = flagSects[flagSects.length-1];
+  if(ruleSect && d.rule_checks){
+    ruleSect.innerHTML = '<div class="section-h"><h3>Rule checks</h3><p>Prop-firm rule violations, not P&amp;L risk</p></div>' +
+      d.rule_checks.map(f=>`<div class="flagrow"><div class="flagicon" style="background:${f.ok?'rgba(34,197,94,.15)':'rgba(239,68,68,.15)'};color:${f.ok?'var(--green)':'var(--red)'};">${f.ok?'&#x2713;':'!'}</div>${f.text}</div>`).join('');
+  }
+}
+
+/* â”€â”€ STRATEGIES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateStrategies(){
+  const d = await api('/api/strategies');
+  if(!d || !d.strategies) return;
+
+  const body = document.getElementById('strategies-table-body');
+  if(!body) return;
+
+  body.innerHTML = `<table>
+    <tr><th>Strategy</th><th>Instruments</th><th>Timeframe</th><th>Win Rate</th><th>Exp R</th><th>Max DD</th><th>Trades (DB)</th><th>Eligible</th></tr>
+    ${d.strategies.map(s=>{
+      let wr='—', rr='—', md='—', trades=s.trades||0;
+      let elig = badge('Loading','mute');
+      if (trades >= 30) {
+        wr = s.win_rate != null ? s.win_rate+'%' : '—';
+        rr = s.expectancy_r != null ? s.expectancy_r+'R' : '—';
+        md = s.max_dd != null ? '$'+s.max_dd : '—';
+        elig = parseFloat(wr) >= 50 ? badge('Live Data','green') : badge('Review Needed','red');
+      } else if (s.static_backtest) {
+        wr = s.static_backtest.win_rate + '%';
+        rr = s.static_backtest.expectancy_r + 'R';
+        md = s.static_backtest.max_dd_pct + '%';
+        elig = badge('Backtest Data','accent');
+      } else {
+        wr = s.win_rate != null ? s.win_rate+'%' : '—';
+        rr = s.expectancy_r != null ? s.expectancy_r+'R' : '—';
+        md = s.max_dd != null ? '$'+s.max_dd : '—';
+        elig = trades > 0 ? badge('Accumulating','amber') : badge('No Data','mute');
+      }
+      return `<tr class="clickable" onclick="openStrategyDetail('${s.id}')">
+        <td><strong>${s.name}</strong> ${s.live_ready ? '<span style="color:var(--green);font-size:10px;margin-left:4px">&#x25CF;</span>':''}</td>
+        <td style="font-size:11px;color:var(--sub)">${(s.instruments||[]).join(', ')}</td>
+        <td style="font-size:11px">${s.timeframe||'—'}</td>
+        <td class="${parseFloat(wr)>=50?'pos':'neg'}">${wr}</td>
+        <td>${rr}</td>
+        <td style="color:var(--red)">${md}</td>
+        <td>${trades}</td>
+        <td>${elig}</td>
+      </tr>`;
+    }).join('')}
+  </table>`;
+
+  // Ensure detail panel exists
+  if(!document.getElementById('strategy-detail-panel')){
+    const panel = document.createElement('div');
+    panel.id = 'strategy-detail-panel';
+    panel.style.display = 'none';
+    document.getElementById('strategies').appendChild(panel);
+  }
+}
+
+window.openStrategyDetail = async function(sid){
+  const listEl = document.getElementById('strategies-list');
+  const panel  = document.getElementById('strategy-detail-panel');
+  if(!listEl || !panel) return;
+
+  // Load both strategy list data and detail
+  const [ds, dd] = await Promise.all([api('/api/strategies'), api('/api/strategies/'+sid+'/detail')]);
+  const s = ds?.strategies?.find(x=>x.id===sid);
+  if(!s){ return; }
+
+  panel.innerHTML = `
+    <span class="backlink" onclick="closeStrategy()">&#8249; Back to strategies</span>
+
+    <div class="section">
+      <div class="section-h">
+        <div><h3>${s.name}</h3><p>${s.timeframe||''} &middot; ${s.style||'Intraday'} &middot; ${s.backtest_period||'—'}</p></div>
+        ${s.trades>=30&&s.win_rate>=50 ? badge('Eligible for real accounts','green') : badge('Accumulating data','amber')}
+      </div>
+      <div style="padding:12px 16px;font-size:12.5px;color:var(--sub);line-height:1.6">${s.description||''}</div>
+    </div>
+
+    <div class="section">
+      <div class="section-h"><div><h3>Live stats (from DB)</h3><p>Based on ${s.trades||0} trades for instruments: ${(s.instruments||[]).join(', ')}</p></div></div>
+      <div style="padding:14px 16px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+        <div><div class="lbl" style="color:var(--sub);font-size:10.5px">Win rate</div>
+          <span class="gate-metric ${s.win_rate>=50?'gate-pass':''}">${s.win_rate!=null?s.win_rate+'%':'—'} ${s.win_rate>=50?'&#x2713;':s.win_rate!=null?'&#x2717;':''}</span></div>
+        <div><div class="lbl" style="color:var(--sub);font-size:10.5px">Avg R exit</div>
+          <span class="gate-metric ${s.avg_rr>=1.5?'gate-pass':''}">${s.avg_rr!=null?s.avg_rr+'R':'—'}</span></div>
+        <div><div class="lbl" style="color:var(--sub);font-size:10.5px">Profit factor</div>
+          <span class="gate-metric ${s.profit_factor>=1.2?'gate-pass':''}">${s.profit_factor||'—'}</span></div>
+        <div><div class="lbl" style="color:var(--sub);font-size:10.5px">Sample size</div>
+          <span class="gate-metric ${s.trades>=100?'gate-pass':''}">${s.trades||0} ${s.trades>=100?'&#x2713;':'(need 100)'}</span></div>
+      </div>
+    </div>
+
+    ${dd?.accounts?.length ? `<div class="section">
+      <div class="section-h"><h3>Accounts running this strategy</h3></div>
+      <table>
+        <tr><th>Account</th><th>Type</th><th>Status</th></tr>
+        ${dd.accounts.map(a=>`<tr><td>${a.name}</td><td>${badge(a.type,'mute')}</td><td>${badge(a.active?'Live':'Paused',a.active?'green':'amber')}</td></tr>`).join('')}
+      </table>
+    </div>` : ''}
+
+    ${dd?.trades?.length ? `<div class="section">
+      <div class="section-h"><h3>Recent trades (DB) &mdash; ${s.instruments.join(', ')}</h3></div>
+      <table>
+        <tr><th>Time</th><th>Account</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>R</th><th>Outcome</th><th>Grade</th></tr>
+        ${dd.trades.map(t=>`<tr>
+          <td style="font-size:11px">${t.time||'—'}</td>
+          <td>${badge(t.account||'?','mute')}</td>
+          <td style="font-family:var(--mono)">${t.symbol||'—'}</td>
+          <td class="${t.direction==='buy'?'pos':'neg'}">${(t.direction||'').toUpperCase()}</td>
+          <td>${fmtU(t.lots,2)}</td>
+          <td>${fmtU(t.entry,5)}</td>
+          <td>${fmtU(t.exit,5)}</td>
+          <td class="${cls(t.pnl_r)}">${t.pnl_r!=null?fmt(t.pnl_r,2)+'R':'—'}</td>
+          <td style="font-size:11px;color:var(--sub)">${t.outcome||'—'}</td>
+          <td>${t.grade?badge(t.grade,'purple'):''}</td>
+        </tr>`).join('')}
+      </table>
+    </div>` : '<div class="section"><div style="padding:14px 16px;color:var(--sub);font-size:12px">No closed trades yet for this strategy\'s instruments.</div></div>'}
+
+    ${dd?.news?.length ? `<div class="section">
+      <div class="section-h"><h3>Market intel &mdash; upcoming events affecting ${s.instruments.join(', ')}</h3></div>
+      ${dd.news.map(ev=>`<div class="flagrow"><div class="flagicon" style="background:${impactColor(ev.impact)};color:${impactText(ev.impact)}">${ev.impact==='high'?'!':'i'}</div>${ev.currency} &mdash; ${ev.title} &middot; ${ev.time_ist}</div>`).join('')}
+    </div>` : ''}`;
+
+  listEl.style.display='none';
+  panel.style.display='block';
+};
+
+/* â”€â”€ ACCOUNTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateAccounts(){
+  const d = await api('/api/accounts');
+  if(!d || !d.accounts) return;
+
+  const body = document.getElementById('accounts-table-body');
+  if(body){
+    const typeCol = t => t==='prop_firm'?badge('Prop firm','purple'):t==='real'?badge('MT5 real','mute'):t==='demo'?badge('MT5 demo','accent'):badge('Paper','accent');
+    body.innerHTML = `<table>
+      <tr><th>Account</th><th>ID</th><th>Type</th><th>Balance</th><th>Equity</th><th>P&amp;L</th><th>Open Pos.</th><th>Margin Lvl</th></tr>
+      ${d.accounts.map(a=>`<tr class="clickable" onclick="loadAccountDetail('${a.id}')">
+        <td><strong>${a.name}</strong></td>
+        <td style="font-family:var(--mono);color:var(--sub)">#${a.id}</td>
+        <td>${typeCol(a.type)}</td>
+        <td>$${fmtU(a.balance)}</td>
+        <td>$${fmtU(a.equity)}</td>
+        <td class="${cls(a.profit)}" style="font-weight:600">${fmt(a.profit)}</td>
+        <td>${a.open_positions||0}</td>
+        <td>${a.margin_level?fmtU(a.margin_level,0)+'%':'—'}</td>
+      </tr>`).join('')}
+    </table>`;
+  }
+
+  // How to add account
+  const howDiv = document.getElementById('add-account-instructions');
+  if(howDiv){
+    const h = await api('/api/accounts/how_to_add');
+    if(h){
+      howDiv.innerHTML = Object.entries(h).map(([broker, info])=>`
+        <div style="margin-bottom:16px;">
+          <div style="font-weight:600;color:var(--text);margin-bottom:6px;text-transform:capitalize">${broker}</div>
+          <ol style="margin:0;padding-left:18px;line-height:1.8">
+            ${info.steps.map(s=>`<li>${s}</li>`).join('')}
+          </ol>
+          ${info.notes?`<div style="margin-top:6px;color:var(--mute);font-size:11px">${info.notes}</div>`:''}
+        </div>`).join('<hr style="border-color:var(--line);margin:12px 0">');
+    }
+  }
+}
+
+window.loadAccountDetail = async function(id){
+  const d = await api('/api/accounts/' + id);
+  if(!d) return;
+  openAccount(id);
+
+  const content = document.getElementById('account-dynamic-content');
+  if(!content) return;
+
+  const info   = d.info || {};
+  const trades = d.trades || (id==='PAPER' ? (d.paper_trades||[]) : (d.live_trades||[]));
+  const exposure = d.exposure || {};
+  const positions = d.positions || [];
+
+  const pct = info.margin_level||0;
+  const dd_pct = info.equity&&info.balance ? Math.max(0,(info.balance-info.equity)/info.balance*100) : 0;
+
+  content.innerHTML = `
+    <div class="grid4">
+      <div class="card"><div class="lbl">Balance</div><div class="val">$${fmtU(info.balance)}</div></div>
+      <div class="card"><div class="lbl">Equity</div><div class="val">$${fmtU(info.equity)}</div></div>
+      <div class="card"><div class="lbl">Drawdown</div><div class="val ${dd_pct>3?'warn':''}">${fmtU(dd_pct,2)}%</div></div>
+      <div class="card"><div class="lbl">Unrealized P&amp;L</div><div class="val ${cls(info.profit)}">${fmt(info.profit)}</div></div>
+    </div>
+
+    ${positions.length ? `<div class="section"><div class="section-h"><h3>Open positions on this account</h3></div>
+      <table>
+        <tr><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>SL</th><th>TP</th><th>P&amp;L</th></tr>
+        ${positions.map(p=>`<tr>
+          <td style="font-family:var(--mono)">${p.symbol||p.mt5_symbol||'—'}</td>
+          <td class="${p.direction==='buy'?'pos':'neg'}">${(p.direction||'').toUpperCase()}</td>
+          <td>${fmtU(p.volume,2)}</td>
+          <td>${fmtU(p.entry_price,5)}</td>
+          <td style="color:var(--red)">${fmtU(p.current_sl,5)}</td>
+          <td style="color:var(--green)">${fmtU(p.current_tp,5)}</td>
+          <td class="${cls(p.profit)}">${fmt(p.profit,2)}</td>
+        </tr>`).join('')}
+      </table>
+    </div>` : ''}
+
+    ${Object.keys(exposure).length ? `<div class="section"><div class="section-h"><h3>Exposure by symbol</h3></div>
+      <div style="padding:14px 16px;">
+        ${Object.entries(exposure).map(([sym,pct])=>`
+          <div style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${sym}</span><span>${pct}%</span></div>
+            <div class="barwrap"><div class="barfill" style="width:${Math.min(100,pct)}%;background:${pct>40?'var(--amber)':'var(--accent)'};"></div></div>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
+
+    ${info.margin!=null ? `<div class="section"><div class="section-h"><h3>Margin &amp; leverage</h3></div>
+      <div style="padding:14px 16px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px;">
+        <div><div style="color:var(--sub)">Margin used</div><div style="font-weight:600;margin-top:3px">$${fmtU(info.margin)}</div></div>
+        <div><div style="color:var(--sub)">Free margin</div><div style="font-weight:600;margin-top:3px">$${fmtU(info.free_margin)}</div></div>
+        <div><div style="color:var(--sub)">Margin level</div><div style="font-weight:600;margin-top:3px;color:${(info.margin_level||999)<150?'var(--red)':(info.margin_level||999)<300?'var(--amber)':'var(--green)'}">${fmtU(info.margin_level,0)}%</div></div>
+      </div>
+    </div>` : ''}
+
+    ${d.strategies ? `<div class="section"><div class="section-h"><h3>Assigned Strategies</h3><p>Toggle strategies for this account</p></div>
+      <div style="padding:14px 16px; display:grid; gap:12px;">
+        ${d.strategies.map(s=>`
+          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); padding:10px 14px; border-radius:6px; border:1px solid var(--line);">
+            <div><strong style="font-size:13px">${s.name}</strong></div>
+            <label class="switch">
+              <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleAccountStrategy('${id}', '${s.id}', this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : ''}
+
+    <div class="section">
+      <div class="section-h"><h3>Trade history (last 30)</h3><p>From SQLite database</p></div>
+      ${trades.length===0 ? '<div style="padding:14px 16px;color:var(--sub);font-size:12px">No closed trades recorded yet.</div>' :
+      `<table>
+        <tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>R</th><th>Outcome</th><th>Grade</th></tr>
+        ${trades.slice(0,30).map(t=>`<tr>
+          <td style="font-size:11px">${(t.close_time||t.open_time||'').slice(0,16)}</td>
+          <td style="font-family:var(--mono)">${t.symbol||'\u2014'}</td>
+          <td class="${t.direction==='buy'?'pos':'neg'}">${(t.direction||'').toUpperCase()}</td>
+          <td>${fmtU(t.lot_size,2)}</td>
+          <td>${fmtU(t.entry_price,5)}</td>
+          <td>${fmtU(t.exit_price,5)}</td>
+          <td class="${cls(t.r_multiple)}">${t.r_multiple!=null?fmt(t.r_multiple,2)+'R':'\u2014'}</td>
+          <td style="font-size:11px;color:var(--sub)">${t.outcome||'\u2014'}</td>
+          <td>${t.grade?badge(t.grade,'purple'):''}</td>
+        </tr>`).join('')}
+      </table>`}
+    </div>`;
+}
+
+window.toggleAccountStrategy = async function(acc_id, strategy_id, enabled){
+  const r = await fetch(API+'/api/accounts/'+acc_id+'/strategies', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({strategy_id: strategy_id, enabled: enabled})
+  });
+  const res = await r.json();
+  if (res.status === 'success') {
+    console.log(`Strategy ${strategy_id} for account ${acc_id} set to ${enabled}`);
+  }
+};;
+async function updateTerminal(){
+  const d = await api('/api/terminal');
+  if(!d) return;
+
+  // Market matrix table
+  const matTable = document.getElementById('terminal-matrix-table');
+  if(matTable){
+    matTable.innerHTML = '<tr><th>Symbol</th><th>Price</th><th>Bias</th><th>Regime</th><th>Signal</th></tr>' +
+      (d.matrix && d.matrix.length ? d.matrix.map(m=>`<tr>
+        <td style="font-family:var(--mono)">${m.symbol}</td>
+        <td><strong>${fmtU(m.price,5)}</strong></td>
+        <td class="${m.bias==='bullish'?'pos':m.bias==='bearish'?'neg':''}"}>${m.bias}</td>
+        <td>${m.regime}</td>
+        <td class="${m.signal==='buy'?'pos':m.signal==='sell'?'neg':''}"}>${m.signal||'—'}</td>
+      </tr>`).join('') :
+      '<tr><td colspan="5" style="color:var(--sub);text-align:center;padding:12px">No open positions — matrix reflects symbols with live trades</td></tr>');
+  }
+
+  // Stat cards with direct IDs
+  if(d.performance){
+    const wrEl = document.getElementById('term-wr'); if(wrEl) wrEl.textContent = d.performance.win_rate||'—';
+    const pfEl = document.getElementById('term-pf'); if(pfEl) pfEl.textContent = d.performance.profit_factor||'—';
+    const erEl = document.getElementById('term-er'); if(erEl) erEl.textContent = d.performance.expectancy_r||'—';
+  }
+
+  // Positions table
+  const posTable = document.getElementById('terminal-positions-table');
+  if(posTable){
+    posTable.innerHTML = '<tr><th>Symbol</th><th>Direction</th><th>Lots</th><th>Entry</th><th>Current</th><th>SL</th><th>TP</th><th>P&amp;L</th></tr>' +
+      (d.positions && d.positions.length ? d.positions.map(p=>`<tr>
+        <td style="font-family:var(--mono)">${p.symbol}</td>
+        <td class="${p.direction==='buy'?'pos':'neg'}">${(p.direction||'').toUpperCase()}</td>
+        <td>${fmtU(p.volume,2)}</td>
+        <td>${fmtU(p.entry,5)}</td>
+        <td>${fmtU(p.current,5)}</td>
+        <td style="color:var(--red)">${p.sl?fmtU(p.sl,5):'<span style="color:var(--mute)">No SL âš </span>'}</td>
+        <td style="color:var(--green)">${p.tp?fmtU(p.tp,5):'<span style="color:var(--mute)">No TP</span>'}</td>
+        <td class="${cls(p.profit)}" style="font-weight:600">${fmt(p.profit)}</td>
+      </tr>`).join('') :
+      '<tr><td colspan="8" style="color:var(--sub);text-align:center;padding:12px">No open positions on MT5</td></tr>');
+  }
+
+  // Account risk using direct IDs
+  if(d.account){
+    const ac = d.account;
+    const mlColor = (ac.margin_level||9999)<150?'var(--red)':(ac.margin_level||9999)<300?'var(--amber)':'var(--green)';
+    const eqEl = document.getElementById('term-equity');     if(eqEl) eqEl.textContent = '$'+fmtU(ac.equity);
+    const mgEl = document.getElementById('term-margin');     if(mgEl) mgEl.textContent = '$'+fmtU(ac.margin);
+    const fmEl = document.getElementById('term-freemargin'); if(fmEl) fmEl.textContent = '$'+fmtU(ac.free_margin);
+    const mlEl = document.getElementById('term-marginlevel');
+    if(mlEl){ mlEl.textContent = fmtU(ac.margin_level,0)+'%'; mlEl.style.color = mlColor; }
+  }
+}
+
+
+
+/* â”€â”€ ADMIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+async function updateAdmin(){
+  const d = await api('/api/admin');
+  if(!d) return;
+
+  const statusBody = document.getElementById('admin-status-body');
+  if(statusBody){
+    const ok = d.connection?.mt5;
+    const nodes = (d.nodes||[]).map(n=>`<span class="badge b-${n.status==='active'?'green':'mute'}">${n.name}: ${n.status}${n.cpu_pct!=null?' &middot; CPU '+n.cpu_pct+'%':''}${n.ram_pct!=null?' &middot; RAM '+n.ram_pct+'%':''}</span>`).join('');
+    statusBody.innerHTML = `
+      <div style="margin-bottom:10px">
+        <div class="${ok?'badge b-green':'badge b-red'}" style="font-size:12px;padding:8px 14px;display:inline-block;margin-bottom:8px">
+          ${ok ? '&#x25CF; MT5 connected &mdash; live data flowing' : '&#x25CF; MT5 disconnected'}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${nodes}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:11.5px;color:var(--sub)">
+        <div>Engine mode: <span style="color:var(--text)">${d.engine_mode||'—'}</span></div>
+        <div>Prop firm: <span style="color:var(--text)">${d.prop_firm||'none'}</span></div>
+        <div>MT5 account: <span style="color:var(--text);font-family:var(--mono)">#${d.mt5_login||'—'}</span></div>
+        <div>Account size: <span style="color:var(--text)">$${d.account_size||'—'}</span></div>
+        <div>DB trades: <span style="color:var(--text)">${d.db_trades||'—'} rows &middot; ${d.db_size_mb||'—'} MB</span></div>
+        <div>Git hash: <span style="color:var(--text);font-family:var(--mono)">${d.git_hash||'—'}</span></div>
+      </div>`;
+  }
+
+  const hbBody = document.getElementById('admin-heartbeat-body');
+  if(hbBody){
+    const ts = (d.heartbeat||'').slice(0,19).replace('T',' ');
+    const secAgo = d.heartbeat ? Math.floor((Date.now() - new Date(d.heartbeat).getTime())/1000) : null;
+    const fresh = secAgo !== null && secAgo < 120;
+    hbBody.innerHTML = `
+      <div class="flagrow">
+        <div class="flagicon" style="background:${fresh?'rgba(34,197,94,.15)':'rgba(239,68,68,.15)'};color:${fresh?'var(--green)':'var(--red)'}">${fresh?'&#x2713;':'!'}</div>
+        Heartbeat: <strong style="margin-left:6px">${ts} UTC</strong>
+        <span style="margin-left:8px;color:var(--sub);font-size:11px">(${secAgo!=null?secAgo+'s ago':'unknown'})</span>
+      </div>
+      <div class="flagrow">
+        <div class="flagicon" style="background:rgba(167,139,250,.15);color:var(--purple)">i</div>
+        If heartbeat is lost &gt;5 min, GitHub Actions watchdog triggers AWS EC2 failover
+      </div>`;
+  }
+}
+
+/* â”€â”€ EMERGENCY STOP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+document.querySelector('.killbtn')?.addEventListener('click', async function(){
+  if(!confirm('EMERGENCY STOP\n\nThis activates the circuit breaker and halts ALL new orders immediately.\nExisting positions stay open and must be closed manually.\n\nContinue?')) return;
+  const r = await fetch(API+'/api/admin/emergency_stop', {method:'POST'});
+  const d = await r.json();
+  alert(d.ok ? 'Emergency stop activated. No new orders will fire.' : 'Failed: ' + (d.error||'unknown error'));
+});
+
+/* â”€â”€ POLL LOOP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+const TABS = {
+  cc:         updateCC,
+  portfolio:  updatePortfolio,
+  markets:    updateMarkets,
+  strategies: updateStrategies,
+  execution:  updateExecution,
+  risk:       updateRisk,
+  intel:      updateIntel,
+  jarvis:     updateJarvis,
+  optimizer:  updateOptimizer,
+  compliance: updateCompliance,
+  accounts:   updateAccounts,
+  terminal:   updateTerminal,
+  admin:      updateAdmin,
+};
+
+function activeTab(){
+  const a = document.querySelector('.nav-item.active');
+  return a ? a.dataset.tab : 'cc';
+}
+
+// Initial load
+(async function(){
+  await updateCC();
+  const tab = activeTab();
+  const fn  = TABS[tab];
+  if(fn && tab !== 'cc') await fn();
+})();
+
+// Active tab every 2s; CC always every 5s
+setInterval(async ()=>{ const f=TABS[activeTab()]; if(f) await f(); }, 2000);
+setInterval(updateCC, 5000);
+</script>
+</body>
+</html>

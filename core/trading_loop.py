@@ -40,6 +40,12 @@ FIXES vs v10.0 (audit-driven):
 import logging
 import time
 import threading
+
+try:
+    from core.terminal_ui import dashboard
+except ImportError:
+    dashboard = None
+
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -161,6 +167,8 @@ def check_mtf_confluence(symbol: str, direction: str, df_1h, df_4h) -> tuple:
         dir_4h, reason_4h = _get_struct_dir(df_4h, "4H")
 
         if dir_1h != "unknown" and dir_1h != target_dir:
+            if "ranging" in reason_1h:
+                return True, "B", f"1H is ranging ({reason_1h}) — downgraded to Grade B"
             return False, None, f"1H structure conflicts ({reason_1h})"
             
         if dir_4h != "unknown" and dir_4h != target_dir:
@@ -216,38 +224,13 @@ class TradingLoop:
         self._trades_today    = 0
         self._last_trade_date = ""
         self._volatile_override = False
-        self._is_paper          = True
 
-        try:
-            from config.config import PAPER_TRADING
-            self._is_paper = PAPER_TRADING.get("enabled", True)
-        except Exception:
-            self._is_paper = True
-
-        # ── FIX: Ensure PropFirmGuard account_size matches paper equity ────
-        # ACCOUNT_SIZE may be set for live (e.g. $100k) while paper starts
-        # at $10k. If mismatched, guard thinks there's a massive drawdown.
         guard_account_size = ACCOUNT_SIZE
-        if self._is_paper:
-            try:
-                from config.config import PAPER_TRADING as _pt
-                paper_equity = float(_pt.get("starting_equity", 10000))
-                if guard_account_size != paper_equity:
-                    logger.warning(
-                        f"[TradingLoop] ACCOUNT_SIZE (${guard_account_size:,.0f}) != "
-                        f"paper starting_equity (${paper_equity:,.0f}). "
-                        f"Using paper equity for PropFirmGuard."
-                    )
-                    guard_account_size = paper_equity
-            except Exception:
-                pass
-
         self.prop_firm_guard = PropFirmGuard(firm=PROP_FIRM, account_size=guard_account_size)
         self.calendar = EconomicCalendar()
 
         logger.info(
-            f"[TradingLoop] Initialised. Mode: "
-            f"{'📄 PAPER' if self._is_paper else '💰 LIVE'}"
+            f"[TradingLoop] Initialised. Mode: 💰 LIVE"
         )
 
     def start(self):
@@ -303,7 +286,7 @@ class TradingLoop:
                             
                             try:
                                 from brokers.broker_router import get_router
-                                get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                                get_router().close_position(symbol, pos.get("exchange", ""))
                             except Exception as e:
                                 logger.error(f"[TradingLoop] Stale position live close error: {e}")
                             
@@ -348,7 +331,7 @@ class TradingLoop:
                     logger.info(f"[TradingLoop] SL HIT for {symbol} @ {hit_price}")
                     try:
                         from brokers.broker_router import get_router
-                        get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                        get_router().close_position(symbol, pos.get("exchange", ""))
                     except Exception as e:
                         logger.error(f"[TradingLoop] SL hit live close error: {e}")
                     positions.close(
@@ -362,7 +345,7 @@ class TradingLoop:
                     logger.info(f"[TradingLoop] TP HIT for {symbol} @ {hit_price}")
                     try:
                         from brokers.broker_router import get_router
-                        get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                        get_router().close_position(symbol, pos.get("exchange", ""))
                     except Exception as e:
                         logger.error(f"[TradingLoop] TP hit live close error: {e}")
                     positions.close(
@@ -378,7 +361,7 @@ class TradingLoop:
                     
                     try:
                         from brokers.broker_router import get_router
-                        get_router().close_position(symbol, self._is_paper, pos.get("exchange", ""))
+                        get_router().close_position(symbol, pos.get("exchange", ""))
                     except Exception as e:
                         logger.error(f"[TradingLoop] Exit signal live close error: {e}")
                     
@@ -696,7 +679,6 @@ class TradingLoop:
                 "reason": mr_result["reason"],
                 "grade": "B",
                 "risk_pct": final_risk,
-                "is_paper": self._is_paper,
                 "exchange": self._get_exchange_for(symbol),
                 "node": self._get_node_name(),
                 "order_type": "market",
@@ -817,10 +799,13 @@ class TradingLoop:
         if bias_dir in ("BUY", "SELL"):
             expected_dir = "buy" if bias_dir == "BUY" else "sell"
             if direction != expected_dir:
-                self._log_signal(symbol, "skip",
-                                 f"Bias conflict: bias={bias_dir} signal={direction}",
-                                 confidence, grade_str, context, df_1h=df_15m)
-                return None
+                if grade_str in ("Grade A+", "A+", "A", "Grade A") and confidence >= 80:
+                    logger.info(f"[TradingLoop] {symbol}: High confidence {grade_str} overrides bias conflict (bias={bias_dir}, signal={direction})")
+                else:
+                    self._log_signal(symbol, "skip",
+                                     f"Bias conflict: bias={bias_dir} signal={direction}",
+                                     confidence, grade_str, context, df_1h=df_15m)
+                    return None
         elif bias_dir == "NO_TRADE":
             # Bias explicitly says don't trade this instrument today
             if not bias_engine.is_tradeable_today(symbol, direction):
@@ -992,7 +977,6 @@ class TradingLoop:
 
         validated["grade"]     = grade
         validated["risk_pct"]  = risk_pct
-        validated["is_paper"]  = self._is_paper
         validated["exchange"]  = self._get_exchange_for(symbol)
         validated["node"]      = self._get_node_name()
 
@@ -1029,7 +1013,7 @@ class TradingLoop:
         logger.info(
             f"[TradingLoop] SIGNAL: {symbol} {direction.upper()} "
             f"grade={grade} conf={confidence}% risk={risk_pct:.2f}% "
-            f"{'[PAPER]' if self._is_paper else '[LIVE]'}"
+            f"[LIVE]"
         )
 
         # Generate signal_id BEFORE execution so it can be stored in position
@@ -1070,8 +1054,30 @@ class TradingLoop:
             else:
                 logger.info(
                     f"[TradingLoop] ✅ COUNCIL APPROVED: {symbol} {direction.upper()} "
-                    f"({council_result['approvals']}/6 approve)"
+                    f"({council_result.get('approvals', 6)}/6 approve)"
                 )
+                
+                # Apply dynamic SL/TP adjustments from the Director
+                sl_mult = council_result.get("sl_multiplier", 1.0)
+                tp_mult = council_result.get("tp_multiplier", 1.0)
+                
+                if sl_mult != 1.0 or tp_mult != 1.0:
+                    entry = validated.get("limit_price") or current_price
+                    sl = validated["stop_loss"]
+                    
+                    sl_dist = abs(entry - sl)
+                    new_sl_dist = sl_dist * sl_mult
+                    
+                    if direction in ("buy", "long"):
+                        validated["stop_loss"] = entry - new_sl_dist
+                        validated["take_profit_1"] = entry + (new_sl_dist * tp_mult)
+                        validated["take_profit_2"] = entry + (new_sl_dist * tp_mult * 1.5)
+                    else:
+                        validated["stop_loss"] = entry + new_sl_dist
+                        validated["take_profit_1"] = entry - (new_sl_dist * tp_mult)
+                        validated["take_profit_2"] = entry - (new_sl_dist * tp_mult * 1.5)
+                        
+                    logger.info(f"[TradingLoop] Council adjusted risk: SLx{sl_mult} TPx{tp_mult}")
         except Exception as e:
             logger.debug(f"[TradingLoop] Council gate skipped: {e}")
 
@@ -1108,72 +1114,16 @@ class TradingLoop:
     def _execute(self, validated: dict, current_price: float) -> dict:
         """
         Route to broker_router which handles:
-          - Paper mode simulation (all instruments)
           - Exchange routing (Binance / Alpaca / Zerodha)
           - Market-specific pre-checks (earnings, circuit breakers, PDT)
           - Share vs unit sizing (stocks need shares, not lot_size)
         """
         try:
             from brokers.broker_router import get_router
-            return get_router().execute(validated, current_price,
-                                        is_paper=self._is_paper)
+            return get_router().execute(validated, current_price)
         except Exception as e:
             logger.error(f"[TradingLoop] Router error: {e}")
-            # Fallback to original paths
-            if self._is_paper:
-                return self._paper_execute(validated, current_price)
             return self._live_execute(validated, current_price)
-
-    def _paper_execute(self, validated: dict, current_price: float) -> dict:
-        """
-        FIX M4: Slippage now owned exclusively by paper_engine.simulate_fill().
-        Old code duplicated slippage with a flat pip_size*2 formula for all
-        assets. paper_engine uses asset-class-aware slippage (crypto != forex).
-        """
-        symbol    = validated["symbol"]
-        direction = validated["direction"]
-        trade_id  = validated.get("trade_id") or str(uuid.uuid4())[:8].upper()
-        signal_id = validated.get("signal_id")
-
-        # FIX M4: delegate all slippage logic to paper_engine
-        try:
-            from core.paper_trading import get_paper_engine
-            fill_data  = get_paper_engine().simulate_fill(validated, current_price)
-            fill_price = fill_data["fill_price"]
-        except Exception:
-            fill_price = current_price   # fallback
-
-        from core.position_tracker import positions
-        positions.open({
-            **validated,
-            "trade_id":    trade_id,
-            "entry":       fill_price,
-            "entry_price": fill_price,
-            "is_paper":    True,
-            "exchange":    "paper",
-            "signal_id":   signal_id,   # FIX: enables ML backfill
-        })
-
-        try:
-            from interfaces.telegram_interface import tg
-            tg.send_trade_open({
-                **validated,
-                "trade_id":    trade_id,
-                "entry_price": fill_price,
-                "current_sl":  validated["stop_loss"],
-                "tp1_price":   validated.get("take_profit_1"),
-                "current_tp":  validated.get("take_profit_2"),
-                "is_paper":    True,
-            })
-        except Exception:
-            pass
-
-        logger.info(
-            f"[TradingLoop] 📄 PAPER FILLED: {symbol} {direction.upper()} "
-            f"@ {fill_price} | ID={trade_id}"
-        )
-        return {"status": "paper_filled", "trade_id": trade_id,
-                "fill_price": fill_price}
 
     def _live_execute(self, validated: dict, current_price: float) -> dict:
         try:
@@ -1192,17 +1142,8 @@ class TradingLoop:
 
     def _get_current_equity(self) -> float:
         """
-        FIX 4: Now reads compounded paper equity, not fixed starting equity.
-        Without this, position sizes were identical on trade #1 and trade #100
-        even if paper equity had grown 20% - no compounding benefit.
+        Get equity from live broker account.
         """
-        if self._is_paper:
-            try:
-                from core.paper_trading import get_paper_engine
-                return get_paper_engine().get_equity()
-            except Exception:
-                from config.config import PAPER_TRADING
-                return float(PAPER_TRADING.get("starting_equity", 10000))
 
         # Live mode: read from broker
         try:
@@ -1304,6 +1245,11 @@ class TradingLoop:
                 signal_time = datetime.now(timezone.utc).isoformat(),
                 features    = features,
             )
+            
+            if dashboard:
+                d_dir = "buy" if context.get("Macro_Trend") == "Bullish" else "sell"
+                st = "EXECUTED" if status == "traded" else "SKIPPED"
+                dashboard.add_signal(symbol, d_dir, grade, st)
 
         except Exception as e:
             logger.debug(f"[TradingLoop] Signal log error: {e}")

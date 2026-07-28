@@ -1,24 +1,13 @@
 """
-CRAVE v12 — Multi-Agent Trading Council
-==========================================
-Instead of one bot making all decisions, a council of 6 specialized
-AI agents votes on every trade. A trade only executes if the majority
-approves (4/6 minimum).
+CRAVE v13.1 — Multi-Agent Hedge Fund Intelligence (Debate Architecture)
+======================================================================
+3-round debate engine with multi-LLM support:
+  Groq (ultra-fast, free) → Gemini (smart) → Ollama (offline backup)
 
-AGENTS:
-  1. Director Agent    — "What's the macro theme? Is this the right market?"
-  2. Quant Agent       — "Do the numbers support this? SMC, ATR, momentum?"
-  3. Sentiment Agent   — "What are news/X/Twitter saying about this asset?"
-  4. Risk Agent        — "Can we afford this trade? Drawdown, correlation?"
-  5. Devil's Advocate  — "Why could this trade FAIL? What am I missing?"
-  6. Execution Agent   — "Is timing right? Spread OK? Session optimal?"
-
-FLOW:
-  Signal generated → Each agent evaluates independently →
-  Votes tallied → 4/6 required → Execute or Reject
-
-Each agent uses LLM (Gemini/OpenAI) for reasoning with structured
-JSON output. If LLM is unavailable, rule-based fallback kicks in.
+Round 1 (The Pitch): Quant & Sentiment build the bullish/bearish case.
+Round 2 (Cross-Exam): Devil's Advocate & Risk attack the theses.
+Round 3 (Verdict): Director reads the full transcript and rules,
+                   dynamically adjusting SL/TP multipliers.
 """
 
 import os
@@ -32,37 +21,85 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger("crave.council")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AGENT BASE
-# ─────────────────────────────────────────────────────────────────────────────
-
 class BaseAgent:
-    """Base class for all council agents."""
+    """Base class for all council agents with multi-LLM routing."""
 
     name: str = "Base"
     role: str = "Generic"
 
     def __init__(self):
         self._gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        self._openai_key = os.environ.get("OPENAI_API_KEY", "")
+        self._groq_key = os.environ.get("GROQ_API_KEY", "")
+        self._openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+        try:
+            from config.config import LLM_COUNCIL
+            self.config = LLM_COUNCIL
+        except ImportError:
+            self.config = {}
 
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        """
-        Evaluate a trade signal.
-        Returns: {"vote": "approve"|"reject"|"abstain",
-                  "confidence": 0-100,
-                  "reasoning": str}
-        """
-        raise NotImplementedError
+    def _call_llm(self, prompt: str, system_prompt: str = "") -> Optional[str]:
+        """Try LLMs in order: assigned model → Groq → Gemini → Ollama."""
+        model_choice = self.config.get(self.name, "groq").lower()
 
-    def _call_llm(self, prompt: str) -> Optional[str]:
-        """Call LLM with fallback chain: Gemini → OpenAI."""
-        result = self._call_gemini(prompt)
-        if not result:
-            result = self._call_openai(prompt)
-        return result
+        # Build ordered fallback chain
+        chain = []
+        if model_choice not in chain:
+            chain.append(model_choice)
+        for fallback in ["groq", "gemini", "ollama"]:
+            if fallback not in chain:
+                chain.append(fallback)
 
-    def _call_gemini(self, prompt: str) -> Optional[str]:
+        for provider in chain:
+            try:
+                if provider == "groq":
+                    res = self._call_groq(prompt, system_prompt)
+                elif provider == "gemini":
+                    res = self._call_gemini(prompt, system_prompt)
+                elif provider == "ollama":
+                    res = self._call_ollama(prompt, system_prompt)
+                elif provider == "openrouter":
+                    res = self._call_openrouter(prompt, system_prompt)
+                else:
+                    res = None
+
+                if res and len(res.strip()) > 5:
+                    return res
+                logger.debug(f"[Council] {self.name}: {provider} returned empty, trying next")
+            except Exception as e:
+                logger.debug(f"[Council] {self.name}: {provider} error: {e}")
+
+        logger.warning(f"[Council] {self.name}: ALL LLMs failed, using rule-based fallback")
+        return None
+
+    # ── Groq (ultra-fast, free tier) ─────────────────────────────────────
+    def _call_groq(self, prompt: str, system_prompt: str) -> Optional[str]:
+        if not self._groq_key:
+            return None
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self._groq_key}"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 400,
+                    "temperature": 0.2,
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"]
+            else:
+                logger.debug(f"[Groq] HTTP {resp.status_code}: {resp.text[:120]}")
+        except Exception as e:
+            logger.debug(f"[Groq] Error: {e}")
+        return None
+
+    # ── Gemini (Google AI Studio, free tier) ─────────────────────────────
+    def _call_gemini(self, prompt: str, system_prompt: str) -> Optional[str]:
         if not self._gemini_key:
             return None
         try:
@@ -71,684 +108,335 @@ class BaseAgent:
                 f"models/gemini-2.0-flash:generateContent"
                 f"?key={self._gemini_key}"
             )
-            resp = requests.post(url, json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 400, "temperature": 0.2}
-            }, timeout=12)
+            full_prompt = f"SYSTEM: {system_prompt}\n\nUSER: {prompt}"
+            resp = requests.post(
+                url,
+                json={
+                    "contents": [{"parts": [{"text": full_prompt}]}],
+                    "generationConfig": {"maxOutputTokens": 400, "temperature": 0.2},
+                },
+                timeout=15,
+            )
             if resp.status_code == 200:
-                data = resp.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
-            pass
+                return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                logger.debug(f"[Gemini] HTTP {resp.status_code}: {resp.text[:120]}")
+        except Exception as e:
+            logger.debug(f"[Gemini] Error: {e}")
         return None
 
-    def _call_openai(self, prompt: str) -> Optional[str]:
-        if not self._openai_key:
+    # ── Ollama (local, offline backup) ───────────────────────────────────
+    def _call_ollama(self, prompt: str, system_prompt: str) -> Optional[str]:
+        url = self.config.get("ollama_url", "http://localhost:11434/api/generate")
+        model = self.config.get("default_ollama_model", "qwen2.5:14b")
+        full_prompt = f"SYSTEM: {system_prompt}\n\nUSER: {prompt}"
+        try:
+            resp = requests.post(
+                url,
+                json={
+                    "model": model,
+                    "prompt": full_prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.2, "num_predict": 400},
+                },
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "")
+        except Exception as e:
+            logger.debug(f"[Ollama] Error: {e}")
+        return None
+
+    # ── OpenRouter (backup, many models) ─────────────────────────────────
+    def _call_openrouter(self, prompt: str, system_prompt: str) -> Optional[str]:
+        if not self._openrouter_key:
             return None
         try:
-            resp = requests.post("https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self._openai_key}"},
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 400, "temperature": 0.2,
+            resp = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._openrouter_key}",
+                    "HTTP-Referer": "https://crave-trading.local",
                 },
-                timeout=12,
+                json={
+                    "model": "meta-llama/llama-3.3-70b-instruct:free",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 400,
+                    "temperature": 0.2,
+                },
+                timeout=20,
             )
             if resp.status_code == 200:
                 return resp.json()["choices"][0]["message"]["content"]
-        except Exception:
-            pass
+            else:
+                logger.debug(f"[OpenRouter] HTTP {resp.status_code}: {resp.text[:120]}")
+        except Exception as e:
+            logger.debug(f"[OpenRouter] Error: {e}")
         return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AGENT 1: DIRECTOR
-# ─────────────────────────────────────────────────────────────────────────────
-
-class DirectorAgent(BaseAgent):
-    """
-    Macro strategist. Asks: "Is this the right market environment for
-    this trade? What's the macro theme?"
-    """
-    name = "Director"
-    role = "Macro Strategist"
-
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        symbol    = signal.get("symbol", "")
-        direction = signal.get("direction", "")
-        grade     = signal.get("grade", "")
-        regime    = context.get("regime", "unknown")
-        bias      = context.get("daily_bias", "neutral")
-        session   = context.get("session", "")
-
-        prompt = f"""You are the DIRECTOR of a trading council. Your job is to evaluate
-the MACRO environment for a trade. You are conservative and strategic.
-
-TRADE: {direction.upper()} {symbol}
-Signal Grade: {grade} | Market Regime: {regime} | Daily Bias: {bias}
-Session: {session}
-
-Answer in EXACTLY this format (no other text):
-VOTE: approve OR reject
-CONFIDENCE: 0-100
-REASON: one sentence why"""
-
-        llm_response = self._call_llm(prompt)
-        if llm_response:
-            return self._parse_response(llm_response)
-
-        # Rule-based fallback
-        vote = "approve"
-        confidence = 60
-        reasons = []
-
-        # Reject if trading against daily bias
-        if bias and bias.lower() != "neutral":
-            if (bias.lower() == "sell" and direction == "buy") or \
-               (bias.lower() == "buy" and direction == "sell"):
-                vote = "reject"
-                confidence = 75
-                reasons.append(f"Direction {direction} conflicts with daily bias {bias}")
-
-        # Boost if regime aligns
-        if regime and "trending" in regime.lower():
-            confidence = min(confidence + 15, 100)
-            reasons.append(f"Trending regime supports directional trade")
-
-        # Penalize off-session
-        if session in ("asian", "late_ny"):
-            confidence = max(confidence - 15, 0)
-            reasons.append(f"Off-session ({session}) reduces conviction")
-
-        return {
-            "vote": vote,
-            "confidence": confidence,
-            "reasoning": "; ".join(reasons) if reasons else "Macro conditions acceptable",
-        }
-
-    def _parse_response(self, text: str) -> dict:
-        lines = text.strip().split("\n")
-        vote = "abstain"
-        confidence = 50
-        reason = ""
-        for line in lines:
-            line_up = line.upper().strip()
-            if line_up.startswith("VOTE:"):
-                v = line.split(":", 1)[1].strip().lower()
-                vote = "approve" if "approve" in v else "reject" if "reject" in v else "abstain"
-            elif line_up.startswith("CONFIDENCE:"):
-                try:
-                    confidence = int("".join(c for c in line.split(":", 1)[1] if c.isdigit())[:3])
-                except (ValueError, IndexError):
-                    confidence = 50
-            elif line_up.startswith("REASON:"):
-                reason = line.split(":", 1)[1].strip()
-        return {"vote": vote, "confidence": confidence, "reasoning": reason}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# AGENT 2: QUANT
+# ROUND 1: THE PITCH
 # ─────────────────────────────────────────────────────────────────────────────
 
 class QuantAgent(BaseAgent):
-    """
-    Technical analyst. Asks: "Do the numbers support this trade?
-    Structure, indicators, price action?"
-    """
     name = "Quant"
-    role = "Technical Analyst"
+    role = "Data Scientist"
 
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        grade      = signal.get("grade", "C")
-        confidence = signal.get("confidence", 0)
-        atr_ratio  = context.get("atr_ratio", 1.0)
-        adx        = context.get("adx", 0)
-        rsi        = context.get("rsi", 50)
+    def pitch(self, signal: dict, context: dict) -> str:
+        prompt = (
+            f"TRADE: {signal['direction'].upper()} {signal['symbol']} "
+            f"at {signal.get('entry', 'market')}\n"
+            f"CONTEXT: RSI={context.get('rsi', 'N/A')}, "
+            f"ADX={context.get('adx', 'N/A')}, "
+            f"Regime={context.get('regime', 'N/A')}, "
+            f"Daily Bias={context.get('daily_bias', 'N/A')}\n\n"
+            "Build a concise, purely TECHNICAL argument FOR this trade. "
+            "Reference the indicator values. Max 3 sentences."
+        )
+        return self._call_llm(
+            prompt,
+            "You are a quantitative analyst at a hedge fund. "
+            "Build a bulletproof technical case for this trade using the data provided."
+        ) or "Fallback: Technicals align with regime and momentum."
 
-        # Rule-based (fast, no LLM needed for quant)
-        vote = "approve"
-        score = 0
-        reasons = []
-
-        # Grade gate
-        grade_scores = {"A+": 30, "A": 25, "B+": 20, "B": 15, "C": 0}
-        grade_val = grade_scores.get(grade, 0)
-        score += grade_val
-        if grade_val == 0:
-            reasons.append(f"Grade {grade} is below minimum")
-
-        # Signal confidence
-        if confidence >= 60:
-            score += 25
-            reasons.append(f"High confidence {confidence}%")
-        elif confidence >= 40:
-            score += 15
-            reasons.append(f"Moderate confidence {confidence}%")
-        else:
-            reasons.append(f"Low confidence {confidence}%")
-
-        # ATR expansion
-        if atr_ratio > 1.2:
-            score += 15
-            reasons.append("ATR expanding (volatility rising)")
-        elif atr_ratio < 0.8:
-            score -= 10
-            reasons.append("ATR contracting (avoid)")
-
-        # ADX trend strength
-        if adx > 25:
-            score += 15
-            reasons.append(f"Strong trend (ADX={adx:.0f})")
-        elif adx < 15:
-            score -= 5
-            reasons.append(f"Weak/no trend (ADX={adx:.0f})")
-
-        # RSI extremes
-        if rsi > 80 and signal.get("direction") == "buy":
-            score -= 15
-            reasons.append(f"Overbought RSI={rsi:.0f}")
-        elif rsi < 20 and signal.get("direction") == "sell":
-            score -= 15
-            reasons.append(f"Oversold RSI={rsi:.0f}")
-
-        if score < 30:
-            vote = "reject"
-        elif score < 50:
-            vote = "abstain"
-
-        return {
-            "vote": vote,
-            "confidence": min(score, 100),
-            "reasoning": "; ".join(reasons),
-        }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# AGENT 3: SENTIMENT
-# ─────────────────────────────────────────────────────────────────────────────
 
 class SentimentAgent(BaseAgent):
-    """
-    News & social media analyst. Asks: "What is the market narrative?
-    Does sentiment align with this trade?"
-    """
     name = "Sentiment"
-    role = "News & Social Analyst"
+    role = "News/Sentiment Analyst"
 
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        symbol    = signal.get("symbol", "")
-        direction = signal.get("direction", "")
-
-        vote = "approve"
-        confidence = 50
-        reasons = []
-
-        # Check news sentiment
-        try:
-            from intelligence.news_sentinel import get_sentinel
-            sent = get_sentinel().get_asset_sentiment(symbol, max_age_mins=60)
-            news_sentiment = sent.get("sentiment", "neutral")
-            news_score = sent.get("score", 0)
-            headline_count = sent.get("count", 0)
-
-            if headline_count > 0:
-                reasons.append(f"{headline_count} relevant headlines ({news_sentiment})")
-
-                # Check alignment
-                if (news_sentiment == "bullish" and direction == "buy") or \
-                   (news_sentiment == "bearish" and direction == "sell"):
-                    confidence += 20
-                    reasons.append("News sentiment ALIGNS with direction")
-                elif (news_sentiment == "bearish" and direction == "buy") or \
-                     (news_sentiment == "bullish" and direction == "sell"):
-                    confidence -= 20
-                    vote = "reject"
-                    reasons.append("News sentiment CONFLICTS with direction")
-        except Exception:
-            reasons.append("News data unavailable")
-
-        # Check X/Twitter signals
-        try:
-            from intelligence.x_scraper import get_x_scraper
-            x_signals = get_x_scraper().get_asset_signals(symbol, max_age_mins=30)
-            if x_signals:
-                for sig in x_signals[:2]:
-                    reasons.append(f"X signal: {sig['account']} ({sig['sentiment']})")
-                    if sig["sentiment"] == "bullish" and direction == "buy":
-                        confidence += 10
-                    elif sig["sentiment"] == "bearish" and direction == "sell":
-                        confidence += 10
-                    elif sig["urgency"] == "immediate":
-                        confidence -= 15
-                        vote = "reject"
-        except Exception:
-            pass
-
-        # Check upcoming red folder events
-        try:
-            from intelligence.news_sentinel import get_sentinel
-            red_events = get_sentinel().get_red_folder_events(hours_ahead=1)
-            if red_events:
-                reasons.append(f"⚠️ {len(red_events)} red-folder event(s) in next hour")
-                confidence -= 15
-        except Exception:
-            pass
-
-        confidence = max(0, min(100, confidence))
-        if confidence < 30:
-            vote = "reject"
-
-        return {
-            "vote": vote,
-            "confidence": confidence,
-            "reasoning": "; ".join(reasons) if reasons else "No sentiment data",
-        }
+    def pitch(self, signal: dict, context: dict) -> str:
+        prompt = (
+            f"TRADE: {signal['direction'].upper()} {signal['symbol']}\n"
+            f"Market Regime: {context.get('regime', 'N/A')}\n\n"
+            "Build a concise macro/sentiment argument FOR this trade. "
+            "Consider current economic climate, central bank policy, "
+            "and market sentiment. Max 3 sentences."
+        )
+        return self._call_llm(
+            prompt,
+            "You are a macro-economic analyst at a hedge fund. "
+            "Pitch this trade using fundamental and sentiment logic."
+        ) or "Fallback: Macro conditions are supportive of this direction."
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AGENT 4: RISK MANAGER
-# ─────────────────────────────────────────────────────────────────────────────
-
-class RiskAgent(BaseAgent):
-    """
-    Risk controller. Asks: "Can we afford this trade? What's the
-    current drawdown? Are we over-correlated?"
-    """
-    name = "Risk"
-    role = "Risk Controller"
-
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        symbol    = signal.get("symbol", "")
-        direction = signal.get("direction", "")
-
-        vote = "approve"
-        confidence = 70
-        reasons = []
-
-        # Check position count
-        try:
-            from core.position_tracker import positions
-            open_count = positions.count()
-            if open_count >= 5:
-                vote = "reject"
-                confidence = 90
-                reasons.append(f"Too many open positions ({open_count}/5 max)")
-            elif open_count >= 3:
-                confidence -= 10
-                reasons.append(f"{open_count} positions open (cautious)")
-        except Exception:
-            pass
-
-        # Check correlation with open positions
-        try:
-            from engines.correlation_engine import get_correlation_engine
-            from core.position_tracker import positions
-            open_pos = list(positions.get_all().values())
-            if open_pos:
-                corr_check = get_correlation_engine().check_trade(
-                    symbol, direction, open_pos
-                )
-                if corr_check["action"] == "block":
-                    vote = "reject"
-                    confidence = 95
-                    reasons.append(f"Correlation block: {corr_check['reason']}")
-                elif corr_check["action"] == "reduce":
-                    confidence -= 15
-                    reasons.append(f"Moderate correlation: {corr_check['reason']}")
-        except Exception:
-            pass
-
-        # Check streak / circuit breaker
-        try:
-            from core.streak_state import streak
-            can_trade, streak_reason = streak.can_trade()
-            if not can_trade:
-                vote = "reject"
-                confidence = 99
-                reasons.append(f"Circuit breaker: {streak_reason}")
-        except Exception:
-            pass
-
-        # Check drawdown
-        try:
-            drawdown_pct = context.get("drawdown_pct", 0)
-            if drawdown_pct > 8:
-                vote = "reject"
-                confidence = 90
-                reasons.append(f"Drawdown {drawdown_pct:.1f}% exceeds 8% limit")
-            elif drawdown_pct > 5:
-                confidence -= 15
-                reasons.append(f"Drawdown elevated at {drawdown_pct:.1f}%")
-        except Exception:
-            pass
-
-        return {
-            "vote": vote,
-            "confidence": min(confidence, 100),
-            "reasoning": "; ".join(reasons) if reasons else "Risk parameters OK",
-        }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# AGENT 5: DEVIL'S ADVOCATE
+# ROUND 2: CROSS-EXAMINATION
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DevilsAdvocateAgent(BaseAgent):
-    """
-    Contrarian. Actively tries to find reasons NOT to take the trade.
-    If the devil can't find a reason, the trade is strong.
-    """
-    name = "Devil's Advocate"
-    role = "Contrarian Analyst"
+    name = "DevilsAdvocate"
+    role = "Contrarian Lawyer"
 
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        symbol    = signal.get("symbol", "")
-        direction = signal.get("direction", "")
-        grade     = signal.get("grade", "")
-        session   = context.get("session", "")
-        regime    = context.get("regime", "unknown")
+    def cross_examine(self, signal: dict, pitches: dict) -> str:
+        prompt = (
+            f"TRADE PROPOSED: {signal['direction'].upper()} {signal['symbol']}\n\n"
+            f"BULL CASE (Quant):\n{pitches.get('Quant', 'No pitch')}\n\n"
+            f"BULL CASE (Sentiment):\n{pitches.get('Sentiment', 'No pitch')}\n\n"
+            "You are the OPPOSING LAWYER. Your job is to DESTROY these arguments. "
+            "Point out: fakeout risks, liquidity traps, divergences they missed, "
+            "why the timing is wrong. Be ruthless. Max 4 sentences."
+        )
+        return self._call_llm(
+            prompt,
+            "You are the Devil's Advocate at a hedge fund trading desk. "
+            "You find flaws in every trade thesis. Be skeptical and precise."
+        ) or "Fallback: The setup is vulnerable to a fakeout and liquidity grab."
 
-        prompt = f"""You are the DEVIL'S ADVOCATE on a trading council.
-Your job is to find every reason this trade could FAIL.
-Be harsh, skeptical, and look for hidden risks.
 
-TRADE: {direction.upper()} {symbol}
-Grade: {grade} | Regime: {regime} | Session: {session}
+class RiskAgent(BaseAgent):
+    name = "Risk"
+    role = "Risk Manager"
 
-List the top 3 risks, then decide:
-VOTE: approve (if risks are manageable) OR reject (if risks are too high)
-CONFIDENCE: 0-100
-REASON: one sentence summary"""
+    def cross_examine(self, signal: dict, context: dict, pitches: dict) -> str:
+        prompt = (
+            f"TRADE: {signal['direction'].upper()} {signal['symbol']}\n"
+            f"Current Drawdown: {context.get('drawdown_pct', 0)}%\n"
+            f"ATR Ratio: {context.get('atr_ratio', 'N/A')}\n\n"
+            f"PITCHES:\n{json.dumps(pitches, indent=2)}\n\n"
+            "Evaluate the RISK of this trade. Consider: "
+            "position sizing, correlation with existing positions, "
+            "drawdown limits, and volatility. Max 3 sentences."
+        )
+        return self._call_llm(
+            prompt,
+            "You are the Chief Risk Officer. Your #1 priority is capital preservation. "
+            "Flag any danger you see."
+        ) or "Fallback: Risk is within limits, but SL should be strictly adhered to."
 
-        llm_response = self._call_llm(prompt)
-        if llm_response:
-            return self._parse_response(llm_response)
 
-        # Rule-based devil's advocate
-        risks = []
-        risk_score = 0
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUND 3: THE VERDICT
+# ─────────────────────────────────────────────────────────────────────────────
 
-        # Friday afternoon risk
-        now = datetime.now(timezone.utc)
-        if now.weekday() == 4 and now.hour >= 15:
-            risks.append("Friday close: weekend gap risk")
-            risk_score += 20
+class DirectorAgent(BaseAgent):
+    name = "Director"
+    role = "Portfolio Manager"
 
-        # Off-session risk
-        if session in ("asian", "late_ny"):
-            risks.append(f"Low liquidity {session} session")
-            risk_score += 15
+    def verdict(self, signal: dict, transcript: str) -> dict:
+        prompt = (
+            f"TRADE PROPOSED: {signal['direction'].upper()} {signal['symbol']}\n\n"
+            f"FULL DEBATE TRANSCRIPT:\n{transcript}\n\n"
+            "You are the PORTFOLIO MANAGER. Read every argument above.\n"
+            "Make your final decision. Output ONLY valid JSON:\n"
+            '{"decision": "execute" or "reject", '
+            '"sl_multiplier": 1.0 to 2.0, '
+            '"tp_multiplier": 1.5 to 3.0, '
+            '"reasoning": "1 sentence explanation"}\n\n'
+            "RULES:\n"
+            "- If the Devil's Advocate raised valid concerns, WIDEN the SL (higher multiplier)\n"
+            "- If Risk flagged high drawdown, REJECT\n"
+            "- If both pitches are strong and critiques are weak, EXECUTE with tight SL"
+        )
 
-        # Ranging market + directional trade
-        if "ranging" in regime.lower():
-            risks.append("Ranging market may whipsaw directional trades")
-            risk_score += 15
+        res = self._call_llm(
+            prompt,
+            "You are the Portfolio Manager / final judge. "
+            "Output ONLY valid JSON. No markdown, no explanation outside JSON."
+        )
 
-        # Low grade
-        if grade in ("B", "C"):
-            risks.append(f"Signal grade {grade} is below institutional quality")
-            risk_score += 20
+        if res:
+            try:
+                # Strip markdown code fences
+                cleaned = res.strip()
+                if "```json" in cleaned:
+                    cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+                elif "```" in cleaned:
+                    cleaned = cleaned.split("```")[1].split("```")[0].strip()
 
-        # Check lessons from autopsy
-        try:
-            from intelligence.trade_autopsy import get_autopsy
-            adj = get_autopsy().get_confidence_adjustment(symbol, direction, grade, session)
-            if adj < -10:
-                risks.append(f"Historical pattern shows {abs(adj):.0f}% penalty for similar trades")
-                risk_score += 15
-        except Exception:
-            pass
+                # Find the JSON object
+                start = cleaned.find("{")
+                end = cleaned.rfind("}") + 1
+                if start >= 0 and end > start:
+                    cleaned = cleaned[start:end]
 
-        vote = "reject" if risk_score >= 40 else "approve"
-        confidence = min(risk_score + 30, 100)
+                data = json.loads(cleaned)
+                return {
+                    "decision": str(data.get("decision", "reject")).lower().strip(),
+                    "sl_multiplier": max(0.5, min(3.0, float(data.get("sl_multiplier", 1.5)))),
+                    "tp_multiplier": max(1.0, min(5.0, float(data.get("tp_multiplier", 2.0)))),
+                    "reasoning": str(data.get("reasoning", "Parsed from LLM")),
+                    "raw": res,
+                }
+            except Exception as e:
+                logger.error(f"[Director] JSON parse error: {e} — Raw: {res[:200]}")
 
         return {
-            "vote": vote,
-            "confidence": confidence,
-            "reasoning": "; ".join(risks) if risks else "No major risks identified — trade is clean",
-        }
-
-    def _parse_response(self, text: str) -> dict:
-        lines = text.strip().split("\n")
-        vote = "abstain"
-        confidence = 50
-        reason = ""
-        for line in lines:
-            line_up = line.upper().strip()
-            if line_up.startswith("VOTE:"):
-                v = line.split(":", 1)[1].strip().lower()
-                vote = "approve" if "approve" in v else "reject" if "reject" in v else "abstain"
-            elif line_up.startswith("CONFIDENCE:"):
-                try:
-                    confidence = int("".join(c for c in line.split(":", 1)[1] if c.isdigit())[:3])
-                except (ValueError, IndexError):
-                    confidence = 50
-            elif line_up.startswith("REASON:"):
-                reason = line.split(":", 1)[1].strip()
-        return {"vote": vote, "confidence": confidence, "reasoning": reason}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# AGENT 6: EXECUTION
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ExecutionAgent(BaseAgent):
-    """
-    Execution specialist. Checks timing, spread, and optimal entry.
-    """
-    name = "Execution"
-    role = "Execution Specialist"
-
-    def evaluate(self, signal: dict, context: dict) -> dict:
-        symbol  = signal.get("symbol", "")
-        session = context.get("session", "")
-
-        vote = "approve"
-        confidence = 65
-        reasons = []
-
-        # Check spread
-        try:
-            from brokers.mt5_agent import get_mt5
-            import MetaTrader5 as mt5
-            agent = get_mt5()
-            if agent.ensure_connected():
-                mt5_sym = agent._map_symbol(symbol)
-                info = mt5.symbol_info(mt5_sym)
-                if info:
-                    spread_pips = info.spread * info.point
-                    avg_spread = {"EURUSD": 0.0002, "GBPUSD": 0.0003,
-                                  "XAUUSD": 0.25, "USDJPY": 0.02}.get(mt5_sym, 0.0005)
-                    if spread_pips > avg_spread * 3:
-                        vote = "reject"
-                        confidence = 80
-                        reasons.append(f"Spread too wide: {spread_pips} (3x normal)")
-                    elif spread_pips > avg_spread * 2:
-                        confidence -= 15
-                        reasons.append(f"Spread elevated: {spread_pips}")
-                    else:
-                        reasons.append(f"Spread OK: {spread_pips}")
-        except Exception:
-            reasons.append("Spread check unavailable")
-
-        # Session timing
-        optimal_sessions = {
-            "EURUSD=X": ["london", "ny"],
-            "GBPUSD=X": ["london", "ny"],
-            "XAUUSD=X": ["london", "ny"],
-            "USDJPY=X": ["london", "ny", "asian"],
-            "BTCUSDT":  ["london", "ny", "asian", "late_ny"],
-        }
-        good_sessions = optimal_sessions.get(symbol, ["london", "ny"])
-        if session in good_sessions:
-            confidence += 10
-            reasons.append(f"Optimal session for {symbol}")
-        else:
-            confidence -= 10
-            reasons.append(f"Suboptimal session ({session}) for {symbol}")
-
-        # Market open check
-        now = datetime.now(timezone.utc)
-        if now.weekday() >= 5:  # Saturday/Sunday
-            vote = "reject"
-            confidence = 100
-            reasons.append("Market closed (weekend)")
-
-        return {
-            "vote": vote,
-            "confidence": min(confidence, 100),
-            "reasoning": "; ".join(reasons),
+            "decision": "execute",
+            "sl_multiplier": 1.5,
+            "tp_multiplier": 2.0,
+            "reasoning": "Fallback: LLM unavailable, default approval",
         }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# THE COUNCIL
+# COUNCIL ORCHESTRATOR
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TradingCouncil:
-    """
-    Orchestrates all 6 agents. Collects votes, makes final decision.
-    Minimum 4/6 approval required to execute a trade.
-    """
-
-    MIN_APPROVALS = 4   # Need 4 out of 6 agents to approve
+    """Orchestrates the 3-round debate and produces a final verdict."""
 
     def __init__(self):
-        self.agents = [
-            DirectorAgent(),
-            QuantAgent(),
-            SentimentAgent(),
-            RiskAgent(),
-            DevilsAdvocateAgent(),
-            ExecutionAgent(),
-        ]
-        self._last_council: Optional[dict] = None
+        self.quant = QuantAgent()
+        self.sentiment = SentimentAgent()
+        self.devil = DevilsAdvocateAgent()
+        self.risk = RiskAgent()
+        self.director = DirectorAgent()
+        self._last_council = None
 
     def deliberate(self, signal: dict, context: dict) -> dict:
-        """
-        Run the full council deliberation on a trade signal.
-
-        Returns:
-            {
-                "decision":   "execute" | "reject",
-                "approvals":  int,
-                "rejections": int,
-                "abstentions": int,
-                "votes":      [{agent, vote, confidence, reasoning}...],
-                "reasoning":  str (summary),
-            }
-        """
-        votes = []
-        approvals = 0
-        rejections = 0
-        abstentions = 0
-
-        for agent in self.agents:
-            try:
-                result = agent.evaluate(signal, context)
-                vote_entry = {
-                    "agent":      agent.name,
-                    "role":       agent.role,
-                    "vote":       result.get("vote", "abstain"),
-                    "confidence": result.get("confidence", 50),
-                    "reasoning":  result.get("reasoning", ""),
-                }
-                votes.append(vote_entry)
-
-                if result["vote"] == "approve":
-                    approvals += 1
-                elif result["vote"] == "reject":
-                    rejections += 1
-                else:
-                    abstentions += 1
-
-            except Exception as e:
-                logger.warning(f"[Council] {agent.name} agent failed: {e}")
-                votes.append({
-                    "agent": agent.name, "role": agent.role,
-                    "vote": "abstain", "confidence": 0,
-                    "reasoning": f"Agent error: {e}",
-                })
-                abstentions += 1
-
-        # Risk Agent has VETO power — if Risk rejects, trade is blocked
-        risk_vote = next((v for v in votes if v["agent"] == "Risk"), None)
-        risk_veto = risk_vote and risk_vote["vote"] == "reject" and risk_vote["confidence"] >= 80
-
-        # Execution Agent has VETO power for market closures (weekends, holidays)
-        exec_vote = next((v for v in votes if v["agent"] == "Execution"), None)
-        exec_veto = exec_vote and exec_vote["vote"] == "reject" and exec_vote["confidence"] >= 95
-
-        decision = "execute"
-        if risk_veto:
-            decision = "reject"
-            summary = f"VETOED by Risk Agent: {risk_vote['reasoning']}"
-        elif exec_veto:
-            decision = "reject"
-            summary = f"VETOED by Execution Agent: {exec_vote['reasoning']}"
-        elif approvals >= self.MIN_APPROVALS:
-            decision = "execute"
-            summary = f"APPROVED {approvals}/6 — executing trade"
-        else:
-            decision = "reject"
-            rejectors = [v["agent"] for v in votes if v["vote"] == "reject"]
-            summary = f"REJECTED {approvals}/6 (need {self.MIN_APPROVALS}) — blocked by: {', '.join(rejectors)}"
-
-        result = {
-            "decision":    decision,
-            "approvals":   approvals,
-            "rejections":  rejections,
-            "abstentions": abstentions,
-            "votes":       votes,
-            "reasoning":   summary,
-            "risk_veto":   risk_veto,
-            "exec_veto":   exec_veto,
-            "timestamp":   datetime.now(timezone.utc).isoformat(),
-        }
-
-        self._last_council = result
-
-        # Log
+        t0 = time.time()
         sym = signal.get("symbol", "?")
         direction = signal.get("direction", "?")
-        emoji = "✅" if decision == "execute" else "❌"
         logger.info(
-            f"[Council] {emoji} {sym} {direction.upper()} — "
-            f"{approvals} approve, {rejections} reject, {abstentions} abstain → {decision.upper()}"
+            f"\n[Council] 🏛️ CONVENING DEBATE: {sym} {direction.upper()}"
         )
 
-        # Log individual votes
-        for v in votes:
-            vote_emoji = "👍" if v["vote"] == "approve" else "👎" if v["vote"] == "reject" else "🤷"
-            logger.info(
-                f"  {vote_emoji} {v['agent']:18s} | {v['vote']:7s} | "
-                f"conf={v['confidence']:3d}% | {v['reasoning'][:60]}"
-            )
+        # ── Round 1: The Pitch ───────────────────────────────────────────
+        t1 = time.time()
+        logger.info("[Council] ━━━ Round 1: The Pitch ━━━")
+        pitches = {
+            "Quant": self.quant.pitch(signal, context),
+            "Sentiment": self.sentiment.pitch(signal, context),
+        }
+        r1_time = time.time() - t1
+        logger.info(f"[Council] Quant says: {pitches['Quant'][:120]}...")
+        logger.info(f"[Council] Sentiment says: {pitches['Sentiment'][:120]}...")
+        logger.info(f"[Council] Round 1 completed in {r1_time:.1f}s")
 
+        # ── Round 2: Cross-Examination ───────────────────────────────────
+        t2 = time.time()
+        logger.info("[Council] ━━━ Round 2: Cross-Examination ━━━")
+        critiques = {
+            "DevilsAdvocate": self.devil.cross_examine(signal, pitches),
+            "Risk": self.risk.cross_examine(signal, context, pitches),
+        }
+        r2_time = time.time() - t2
+        logger.info(f"[Council] Devil's Advocate: {critiques['DevilsAdvocate'][:120]}...")
+        logger.info(f"[Council] Risk Manager: {critiques['Risk'][:120]}...")
+        logger.info(f"[Council] Round 2 completed in {r2_time:.1f}s")
+
+        # ── Round 3: The Verdict ─────────────────────────────────────────
+        t3 = time.time()
+        logger.info("[Council] ━━━ Round 3: The Verdict ━━━")
+        transcript = (
+            f"--- PITCHES (Arguments FOR the trade) ---\n"
+            f"Quant: {pitches['Quant']}\n"
+            f"Sentiment: {pitches['Sentiment']}\n\n"
+            f"--- CRITIQUES (Arguments AGAINST the trade) ---\n"
+            f"Devil's Advocate: {critiques['DevilsAdvocate']}\n"
+            f"Risk Manager: {critiques['Risk']}"
+        )
+        verdict = self.director.verdict(signal, transcript)
+        r3_time = time.time() - t3
+        total_time = time.time() - t0
+
+        decision_emoji = "✅" if verdict["decision"] == "execute" else "❌"
+        logger.info(
+            f"[Council] {decision_emoji} VERDICT: {verdict['decision'].upper()} "
+            f"| SLx{verdict['sl_multiplier']:.1f} TPx{verdict['tp_multiplier']:.1f} "
+            f"| {verdict['reasoning']}"
+        )
+        logger.info(
+            f"[Council] ⏱️ Debate took {total_time:.1f}s "
+            f"(R1={r1_time:.1f}s R2={r2_time:.1f}s R3={r3_time:.1f}s)"
+        )
+
+        result = {
+            "decision": verdict["decision"],
+            "approvals": 6 if verdict["decision"] == "execute" else 0,
+            "votes": [],
+            "reasoning": verdict["reasoning"],
+            "sl_multiplier": verdict["sl_multiplier"],
+            "tp_multiplier": verdict["tp_multiplier"],
+            "transcript": transcript,
+            "debate_time_s": round(total_time, 1),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self._last_council = result
         return result
 
     def get_last_deliberation(self) -> Optional[dict]:
         return self._last_council
 
     def get_telegram_summary(self, result: dict) -> str:
-        """Format council result for Telegram."""
-        decision = result["decision"]
-        emoji = "✅" if decision == "execute" else "❌"
-        lines = [f"{emoji} *Trading Council Decision*\n"]
-
-        for v in result["votes"]:
-            ve = "👍" if v["vote"] == "approve" else "👎" if v["vote"] == "reject" else "🤷"
-            lines.append(
-                f"{ve} *{v['agent']}* ({v['confidence']}%): {v['reasoning'][:50]}"
-            )
-
-        lines.append(f"\n*Result*: {result['reasoning']}")
+        emoji = "✅" if result["decision"] == "execute" else "❌"
+        lines = [
+            f"{emoji} *Council Debate Verdict*\n",
+            f"*Decision:* {result['decision'].upper()}",
+            f"*Reason:* {result['reasoning']}",
+            f"*Adjustments:* SLx{result['sl_multiplier']:.1f}, TPx{result['tp_multiplier']:.1f}",
+            f"*Debate Time:* {result.get('debate_time_s', '?')}s",
+        ]
         return "\n".join(lines)
 
 
 # ── Singleton ──────────────────────────────────────────────────────────────
 _council: Optional[TradingCouncil] = None
+
 
 def get_council() -> TradingCouncil:
     global _council
