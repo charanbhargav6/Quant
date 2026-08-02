@@ -1,0 +1,46 @@
+{
+  "trade_id": "472784BC",
+  "symbol": "SOLUSDT",
+  "direction": "sell",
+  "r_multiple": 2.724,
+  "outcome": "take_profit",
+  "entry_time": "2026-07-24T07:59:30.738409+00:00",
+  "close_time": "2026-07-24T13:59:26.602272+00:00",
+  "context": {
+    "day_of_week": "Friday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A+",
+    "confidence": 80
+  },
+  "llm_analysis": "Strong winner (+2.72R). Entry timing was good.",
+  "lessons": [
+    {
+      "type": "winning_grade",
+      "description": "Strong win with grade A+ on SOLUSDT (+2.72R)",
+      "applies_to": {
+        "symbol": "SOLUSDT",
+        "direction": "sell",
+        "session": "london"
+      },
+      "confidence_adjustment": 5,
+      "weight": 0.8,
+      "created_at": "2026-07-24T13:59:27.525310+00:00"
+    },
+    {
+      "type": "big_win",
+      "description": "Big win on SOLUSDT sell (+2.72R) during london",
+      "applies_to": {
+        "symbol": "SOLUSDT",
+        "direction": "sell",
+        "session": "london"
+      },
+      "confidence_adjustment": 8,
+      "weight": 1.0,
+      "created_at": "2026-07-24T13:59:27.525310+00:00"
+    }
+  ],
+  "analyzed_at": "2026-07-24T13:59:27.525310+00:00"
+}

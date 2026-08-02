@@ -83,13 +83,13 @@ class JarvisLLM:
     def __init__(self):
         self._api_key = os.environ.get("GEMINI_API_KEY", "")
         
-        self._model = "gemini-1.5-flash"
+        self._model = "gemini-flash-latest"
         try:
             hw_path = Path(CRAVE_ROOT) / "config" / "hardware.json"
             if hw_path.exists():
                 with open(hw_path, "r", encoding="utf-8") as f:
                     hw = json.load(f)
-                    self._model = hw.get("api_routing", {}).get("models", {}).get("gemini", "gemini-1.5-flash")
+                    self._model = hw.get("api_routing", {}).get("models", {}).get("gemini", "gemini-flash-latest")
         except Exception:
             pass
             

@@ -208,8 +208,8 @@ class ExecutionAgent:
                     "sl":           round(sl_price, 5),
                     "tp":           round(tp2_price, 5),
                     "deviation":    20,
-                    "magic":        999001,
-                    "comment":      "CRAVE v9.1",
+                    "magic":        999000,
+                    "comment":      validated.get("reason", "Crave AI")[:31],
                     "type_time":    mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
@@ -323,6 +323,39 @@ class ExecutionAgent:
                             live_atr = trade.get('atr_at_open') or (entry * 0.001)
                     except Exception:
                         live_atr = trade.get('atr_at_open') or (entry * 0.001)
+
+                    # -- POST TRADE AI COUNCIL CHECK --
+                    try:
+                        last_check = trade.get('last_council_check', 0)
+                        # Check council every 30 minutes (1800 seconds)
+                        if time.time() - last_check > 1800:
+                            trade['last_council_check'] = time.time()
+                            from intelligence.agent_council import get_council
+                            
+                            council = get_council()
+                            eval_result = council.evaluate_open_trade({
+                                "symbol": trade['symbol'],
+                                "direction": direction,
+                                "entry": entry,
+                                "sl": sl,
+                                "tp": tp2,
+                                "live_price": live_price,
+                                "pnl_r": (live_price - entry) / abs(entry - sl) if direction in ('buy','long') else (entry - live_price) / abs(entry - sl)
+                            }, {})
+                            
+                            if eval_result.get("action") == "close":
+                                logger.info(f"[Monitor] Council overriding to CLOSE {trade['symbol']}")
+                                completed.append(trade)
+                                self._notify(f"🤖 COUNCIL CLOSE: {trade['symbol']} | Reason: {eval_result.get('reasoning')}")
+                                continue
+                            elif eval_result.get("action") == "extend_tp":
+                                tp_mult = eval_result.get("tp_multiplier", 1.5)
+                                risk = abs(entry - sl)
+                                new_tp = entry + (risk * tp_mult) if direction in ('buy','long') else entry - (risk * tp_mult)
+                                trade['tp2'] = new_tp
+                                self._notify(f"🤖 COUNCIL TP EXTENDED: {trade['symbol']} -> {new_tp} | Reason: {eval_result.get('reasoning')}")
+                    except Exception as e:
+                        logger.debug(f"[Monitor] Council trade check failed: {e}")
 
                     if direction in ('buy', 'long'):
                         if live_price <= sl:

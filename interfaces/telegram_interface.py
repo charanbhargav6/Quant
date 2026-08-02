@@ -116,29 +116,34 @@ class TelegramInterface:
         if not self._token or not self._chat_id:
             logger.info(f"[TG→LOG] {text[:100]}")
             return False
-        try:
-            resp = requests.post(
-                f"{self._base}/sendMessage",
-                json={
-                    "chat_id":    self._chat_id,
-                    "text":       text,
-                    "parse_mode": parse_mode,
-                },
-                timeout=10,
-            )
-            if not resp.ok:
-                logger.warning(
-                    f"[Telegram] Send failed: {resp.status_code} "
-                    f"{resp.text[:80]}"
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    f"{self._base}/sendMessage",
+                    json={
+                        "chat_id":    self._chat_id,
+                        "text":       text,
+                        "parse_mode": parse_mode,
+                    },
+                    timeout=10,
                 )
+                if not resp.ok:
+                    logger.warning(
+                        f"[Telegram] Send failed: {resp.status_code} "
+                        f"{resp.text[:80]}"
+                    )
+                    return False
+                return True
+            except requests.exceptions.ConnectionError:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                logger.debug("[Telegram] Network unavailable — message dropped.")
                 return False
-            return True
-        except requests.exceptions.ConnectionError:
-            logger.debug("[Telegram] Network unavailable — message dropped.")
-            return False
-        except Exception as e:
-            logger.warning(f"[Telegram] Send error: {e}")
-            return False
+            except Exception as e:
+                logger.warning(f"[Telegram] Send error: {e}")
+                return False
+        return False
 
     def send(self, text: str, parse_mode: str = "HTML") -> bool:
         """
@@ -159,6 +164,7 @@ class TelegramInterface:
             # Queue full (50 pending) — drop oldest, add new
             try:
                 self._send_queue.get_nowait()
+                self._send_queue.task_done()  # Fix queue leak
                 self._send_queue.put_nowait((text, parse_mode))
             except Exception:
                 pass
@@ -452,8 +458,28 @@ class TelegramInterface:
 
     def _cmd_positions(self, args: str):
         try:
+            from brokers.mt5_agent import get_mt5_agent
             from core.position_tracker import positions
-            self.send(positions.get_summary_message())
+            
+            mt5 = get_mt5_agent()
+            live_pos = mt5.get_positions() if mt5 else []
+            
+            out_msg = ""
+            if mt5 and mt5.ensure_connected():
+                if live_pos:
+                    lines = ["📊 <b>LIVE POSITIONS (MT5)</b>\n"]
+                    for p in live_pos:
+                        d = "🟢 Long" if p['direction'] in ('buy','long') else "🔴 Short"
+                        lines.append(
+                            f"{d} <b>{p['symbol']}</b> ({p['volume']} lots)\n"
+                            f"Entry: {p['entry_price']}\n"
+                            f"Live PNL: ${p['profit']:.2f}\n"
+                        )
+                    out_msg = "\n".join(lines) + "\n\n"
+            
+            # Always append internal tracker positions (which includes Paper trades)
+            out_msg += positions.get_summary_message()
+            self.send(out_msg)
         except Exception as e:
             self.send(f"❌ Positions error: {e}")
 

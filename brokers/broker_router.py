@@ -314,70 +314,108 @@ class BrokerRouter:
 
     def _execute_mt5(self, validated: dict, current_price: float) -> dict:
         """
-        Route forex/gold/crypto to MetaTrader 5.
+        Route forex/gold/crypto to MetaTrader 5 across all active accounts.
         """
         try:
             agent = self._get_mt5()
-            if not agent.ensure_connected():
-                logger.warning("[Router] MT5 not available")
-                return {"status": "failed", "reason": "MT5 not connected"}
+            
+            from core.database_manager import DatabaseManager
+            db = DatabaseManager()
+            accounts = db.get_accounts()
+            active_accounts = [a for a in accounts if a["status"] == "connected"]
+            
+            # If no DB accounts, fallback to single .env account
+            if not active_accounts:
+                active_accounts = [{"login": None, "password": None, "server": None, "strategies_enabled": '["all"]'}]
 
-            symbol    = validated["symbol"]
-            direction = validated["direction"]
-            entry     = validated.get("entry", current_price)
-            sl        = validated["stop_loss"]
-            tp        = validated.get("take_profit_2") or validated.get("take_profit")
+            strategy_id = validated.get("node", "")
+            first_success_trade_id = None
+            any_success = False
+            last_error = "MT5 not connected"
 
-            # Calculate lot size using MT5's tick value for accurate sizing
-            equity   = agent.get_account_info()
-            eq_value = equity["equity"] if equity else 10000
-            risk_pct = validated.get("risk_pct", 1.0)
+            for acc in active_accounts:
+                # Check if this strategy is enabled for this account
+                import json
+                try:
+                    enabled = json.loads(acc.get("strategies_enabled", '["all"]'))
+                except:
+                    enabled = ["all"]
+                
+                # If not "all" and not explicitly enabled, skip this account
+                if "all" not in enabled and strategy_id not in enabled:
+                    logger.debug(f"[Router] Strategy {strategy_id} not enabled for account {acc.get('login')}, skipping.")
+                    continue
+                
+                # Connect to this specific account
+                if not agent.connect(login=acc.get("login"), password=acc.get("password"), server=acc.get("server")):
+                    logger.warning(f"[Router] MT5 login failed for account {acc.get('login')}")
+                    continue
 
-            lot_size = agent.calculate_lot_size(
-                crave_symbol=symbol,
-                equity=eq_value,
-                risk_pct=risk_pct,
-                entry=entry,
-                sl=sl,
-            )
+                symbol    = validated["symbol"]
+                direction = validated["direction"]
+                entry     = validated.get("entry", current_price)
+                sl        = validated["stop_loss"]
+                tp        = validated.get("take_profit_2") or validated.get("take_profit")
 
-            result = agent.place_order(
-                crave_symbol=symbol,
-                direction=direction,
-                lot_size=lot_size,
-                sl=sl,
-                tp=tp,
-                comment=f"CRAVE {validated.get('grade', '?')}",
-            )
+                equity   = agent.get_account_info()
+                eq_value = equity["equity"] if equity else 10000
+                risk_pct = validated.get("risk_pct", 1.0)
 
-            if result.get("status") == "filled":
-                import uuid
-                trade_id = str(uuid.uuid4())[:8].upper()
-
-                from core.position_tracker import positions
-                positions.open({
-                    **validated,
-                    "trade_id":     trade_id,
-                    "entry":        result["fill_price"],
-                    "entry_price":  result["fill_price"],
-                    "lot_size":     result["volume"],
-                    "is_paper":     False,
-                    "exchange":     "mt5",
-                    "mt5_ticket":   result["ticket"],
-                    "signal_id":    validated.get("signal_id"),
-                })
-
-                logger.info(
-                    f"[Router] MT5 FILLED ✅ | {symbol} {direction.upper()} "
-                    f"| Lot: {result['volume']} | Price: {result['fill_price']} "
-                    f"| Ticket: {result['ticket']}"
+                lot_size = agent.calculate_lot_size(
+                    crave_symbol=symbol,
+                    equity=eq_value,
+                    risk_pct=risk_pct,
+                    entry=entry,
+                    sl=sl,
                 )
-                return {"status": "filled", "trade_id": trade_id,
-                        "fill_price": result["fill_price"],
-                        "mt5_ticket": result["ticket"]}
 
-            logger.warning(f"[Router] MT5 order failed: {result.get('reason')}")
-            return {"status": "failed", "reason": result.get('reason')}
+                result = agent.place_order(
+                    crave_symbol=symbol,
+                    direction=direction,
+                    lot_size=lot_size,
+                    sl=sl,
+                    tp=tp,
+                    comment=f"CRAVE {validated.get('grade', '?')}",
+                )
+
+                if result.get("status") == "filled":
+                    import uuid
+                    trade_id = str(uuid.uuid4())[:8].upper()
+
+                    from core.position_tracker import positions
+                    positions.open({
+                        **validated,
+                        "trade_id":     trade_id,
+                        "entry":        result["fill_price"],
+                        "entry_price":  result["fill_price"],
+                        "lot_size":     result["volume"],
+                        "is_paper":     False,
+                        "exchange":     "mt5",
+                        "mt5_ticket":   result["ticket"],
+                        "signal_id":    validated.get("signal_id"),
+                        "account_login": acc.get("login")
+                    })
+
+                    logger.info(
+                        f"[Router] MT5 FILLED ✅ | {symbol} {direction.upper()} "
+                        f"| Acc: {acc.get('login')} | Lot: {result['volume']} "
+                        f"| Price: {result['fill_price']} | Ticket: {result['ticket']}"
+                    )
+                    any_success = True
+                    if not first_success_trade_id:
+                        first_success_trade_id = trade_id
+                        first_fill_price = result["fill_price"]
+                        first_ticket = result["ticket"]
+                else:
+                    last_error = result.get("reason", "unknown error")
+                    logger.warning(f"[Router] MT5 order failed on acc {acc.get('login')}: {last_error}")
+
+            if any_success:
+                return {"status": "filled", "trade_id": first_success_trade_id,
+                        "fill_price": first_fill_price,
+                        "mt5_ticket": first_ticket}
+            else:
+                return {"status": "failed", "reason": last_error}
 
         except Exception as e:
             logger.error(f"[Router] MT5 execution error: {e}")

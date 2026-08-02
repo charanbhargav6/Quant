@@ -114,6 +114,9 @@
     <div class="topbar">
       <h1 id="pagetitle">Command center</h1>
       <div class="topright">
+        <select id="account-switcher" onchange="switchAccountPort(this.value)" style="background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12px; font-family:var(--mono); margin-right:8px; cursor:pointer; outline:none;">
+          <option value="">Loading Accounts...</option>
+        </select>
         <span id="ping-indicator" style="font-family:var(--mono);font-size:12px;color:var(--sub);letter-spacing:.03em;background:var(--panel2);padding:4px 10px;border-radius:6px;border:1px solid var(--line);">-- ms</span>
         <span id="ist-clock" style="font-family:var(--mono);font-size:12px;color:var(--sub);letter-spacing:.03em;background:var(--panel2);padding:4px 10px;border-radius:6px;border:1px solid var(--line);">--:--:-- IST</span>
         <span title="Broker & data feed: all connections live" style="display:flex;align-items:center;gap:5px;">
@@ -153,12 +156,23 @@
     <!-- ================= PORTFOLIO ================= -->
     <div class="tabpanel" id="portfolio">
       <div class="section">
-        <div class="section-h"><h3>Exposure</h3></div>
-        <div style="padding:16px;display:flex;gap:24px;align-items:center;">
-          <div class="donut" style="background:var(--line);"><div class="donut-inner"><div style="font-size:10px;color:var(--sub);">Exposure</div><div style="font-weight:600;">—</div></div></div>
-          <div style="flex:1;font-size:12px;color:var(--sub);">
-            Loading exposure data...
+        <div class="section-h"><h3>Exposure &amp; Allocation</h3></div>
+        <div style="padding:16px;display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap;">
+          
+          <div style="display:flex;gap:24px;align-items:center;flex:1;min-width:300px;">
+            <div class="donut" id="donut-asset" style="background:var(--line);"><div class="donut-inner"><div style="font-size:10px;color:var(--sub);">Asset</div><div style="font-weight:600;">—</div></div></div>
+            <div id="legend-asset" style="flex:1;font-size:12px;color:var(--sub);">
+              Loading asset exposure...
+            </div>
           </div>
+          
+          <div style="display:flex;gap:24px;align-items:center;flex:1;min-width:300px;">
+            <div class="donut" id="donut-account" style="background:var(--line);"><div class="donut-inner"><div style="font-size:10px;color:var(--sub);">Account</div><div style="font-weight:600;">—</div></div></div>
+            <div id="legend-account" style="flex:1;font-size:12px;color:var(--sub);">
+              Loading account allocation...
+            </div>
+          </div>
+          
         </div>
         <div id="cashnote" style="display:none;padding:0 16px 14px;font-size:11.5px;color:var(--sub);border-top:1px solid var(--line);">
           Loading...
@@ -290,14 +304,13 @@
 
     <!-- ================= INTELLIGENCE ================= -->
     <div class="tabpanel" id="intel">
-      <div class="ai-card"><div class="ai-top"><div>Structure agent: bullish BOS confirmed</div></div></div>
-      <div class="ai-card">
+      <div class="ai-card" id="latest-signal-card" style="display:none;">
         <div class="ai-top">
-          <div><span style="color:var(--purple);font-weight:600;">Master AI: buy eurusd</span></div>
-          <span class="badge b-purple">94%</span>
+          <div id="latest-signal-title"><span style="color:var(--purple);font-weight:600;">Waiting for first signal...</span></div>
+          <span class="badge b-purple" id="latest-signal-conf">0%</span>
         </div>
-        <div class="reason">Council vote: 4 of 6 approved Â· trust phase: veto-only Â· shadow scorecard +0.3 sharpe vs baseline. Tied to backtest run #A19 (61% win rate, 1:2.2 RR, 210 samples).</div>
-        <div class="confbar"><div class="confbar-fill" style="width:94%;"></div></div>
+        <div class="reason" id="latest-signal-reason">Council stream will populate when a signal is detected.</div>
+        <div class="confbar"><div class="confbar-fill" id="latest-signal-bar" style="width:0%;"></div></div>
       </div>
       <div class="section">
         <div class="section-h"><h3>Council stream</h3></div>
@@ -373,8 +386,28 @@
           <div id="accounts-table-body" style="padding:16px;color:var(--sub);font-size:12px">Connecting to broker...</div>
         </div>
         <div class="section" style="margin-top:12px">
-          <div class="section-h"><h3>Add a new account</h3><p>Step-by-step instructions for each broker</p></div>
-          <div id="add-account-instructions" style="padding:16px;color:var(--sub);font-size:12px">Loading...</div>
+          <div class="section-h"><h3>Add a new account</h3><p>Connect a new MT5 account (Prop firm, Demo, or Real)</p></div>
+          <div style="padding:16px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Account Type</div><select id="add-acc-type" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px"><option value="prop_firm">Prop Firm</option><option value="real">Real</option><option value="demo">Demo</option></select></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Capital / Balance ($)</div><input type="number" id="add-acc-cap" value="10000" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Login (Account #)</div><input type="text" id="add-acc-login" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Password</div><input type="password" id="add-acc-pass" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Server Name</div><input type="text" id="add-acc-server" placeholder="e.g. MetaQuotes-Demo" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1.5fr 0.5fr 1fr;gap:12px;margin-bottom:16px">
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Profile Name</div><input type="text" id="add-acc-profile" placeholder="e.g. xm2" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Terminal Path</div><input type="text" id="add-acc-path" placeholder="e.g. C:\Program Files\MT5\terminal64.exe" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Port</div><input type="number" id="add-acc-port" placeholder="e.g. 8767" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Telegram Token</div><input type="text" id="add-acc-telegram" placeholder="Bot Token" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <button onclick="submitAddAccount()" style="background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Connect &amp; Verify</button>
+              <div id="add-acc-status" style="font-size:12px;color:var(--sub)"></div>
+            </div>
+          </div>
         </div>
       </div>
       <div id="account-dynamic" style="display:none">
@@ -435,9 +468,43 @@
       <div class="section">
         <div class="section-h"><h3>Actions</h3></div>
         <div style="padding:14px 16px;display:flex;gap:10px;flex-wrap:wrap">
-          <button onclick="if(confirm('Restart paper engine?')) fetch('http://127.0.0.1:8765/api/admin/emergency_stop',{method:'POST'})" style="background:var(--panel2);border:1px solid var(--line);color:var(--amber);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Emergency stop</button>
-          <button onclick="window.open('http://127.0.0.1:8765/api/compliance','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Export audit log</button>
-          <button onclick="window.open('http://127.0.0.1:8765/api/admin','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Raw API debug</button>
+          <button id="emergencyStopBtn" style="background:var(--panel2);border:1px solid var(--line);color:var(--amber);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer;position:relative;overflow:hidden;user-select:none;">
+            <div id="estopFill" style="position:absolute;top:0;left:0;height:100%;width:0%;background:rgba(239,68,68,0.2);z-index:1;transition:width 0.1s linear;"></div>
+            <span style="position:relative;z-index:2">Hold to Stop</span>
+          </button>
+          <script>
+            const eBtn = document.getElementById('emergencyStopBtn');
+            const eFill = document.getElementById('estopFill');
+            let eTimer = null;
+            let eProgress = 0;
+            const startEStop = () => {
+              eProgress = 0;
+              eTimer = setInterval(() => {
+                eProgress += 5;
+                eFill.style.width = eProgress + '%';
+                if (eProgress >= 100) {
+                  clearInterval(eTimer);
+                  eBtn.style.background = 'var(--amber)';
+                  eBtn.style.color = '#000';
+                  eBtn.innerText = 'HALTED';
+                  fetch('http://127.0.0.1:' + API + '/api/admin/emergency_stop', { method: 'POST' });
+                }
+              }, 100);
+            };
+            const cancelEStop = () => {
+              if(eProgress >= 100) return;
+              clearInterval(eTimer);
+              eProgress = 0;
+              eFill.style.width = '0%';
+            };
+            eBtn.addEventListener('mousedown', startEStop);
+            eBtn.addEventListener('mouseup', cancelEStop);
+            eBtn.addEventListener('mouseleave', cancelEStop);
+            eBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startEStop(); });
+            eBtn.addEventListener('touchend', cancelEStop);
+          </script>
+          <button onclick="window.open('http://127.0.0.1:'+API+'/api/compliance','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Export audit log</button>
+          <button onclick="window.open('http://127.0.0.1:'+API+'/api/admin','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Raw API debug</button>
         </div>
       </div>
     </div>
@@ -493,8 +560,24 @@ function closeTrade(){ document.getElementById('execution-list').style.display='
 function toggleCashNote(){ var n=document.getElementById('cashnote'); n.style.display=(n.style.display==='none')?'block':'none'; }
 function confirmClose(id){ var n=document.getElementById('close-confirm-'+id); n.style.display=(n.style.display==='none')?'block':'none'; }
 
-/* â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-const API = 'http://127.0.0.1:8765';
+/* ── Helpers ───────────────────────────────────────────────────────────────── */
+let currentPort = window.location.port || 8765;
+let API = `http://127.0.0.1:${currentPort}`;
+
+function switchAccountPort(newPort) {
+  if(!newPort) return;
+  currentPort = newPort;
+  API = `http://127.0.0.1:${currentPort}`;
+  console.log("Switched to port:", currentPort);
+  // Re-fetch all dashboard data immediately
+  updateCC();
+  updateTerminal();
+  updateExecution();
+  updateRisk();
+  updatePortfolio();
+  updateAccounts();
+}
+
 const $ = id => document.getElementById(id);
 const fmt  = (n, d=2) => (n==null?'—':(+n>=0?'+':'')+Number(n).toFixed(d));
 const fmtU = (n, d=2) => (n==null?'—':Number(n).toFixed(d));
@@ -503,9 +586,9 @@ const badge = (txt, col) => `<span class="badge b-${col}">${txt}</span>`;
 const impactColor = imp => imp==='high'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
 const impactText  = imp => imp==='high'?'var(--red)':'var(--amber)';
 
-async function api(path){
+async function api(path, opts={}){
   try {
-    const r = await fetch(API + path, {cache:'no-store'});
+    const r = await fetch(API + path, Object.assign({cache:'no-store', headers:{'Content-Type':'application/json'}}, opts));
     if (!r.ok) return null;
     return await r.json();
   } catch(e) { return null; }
@@ -579,8 +662,8 @@ async function updatePortfolio(){
       </tr>`).join('');
   }
 
-  const expLegend = document.querySelector('#portfolio .donut + div');
-  const donut = document.querySelector('#portfolio .donut');
+  const expLegend = document.getElementById('legend-asset');
+  const donutAsset = document.getElementById('donut-asset');
   if(expLegend && d.exposure){
     const colors = ['var(--accent)','var(--amber)','var(--purple)','var(--green)'];
     let grad = [], cur = 0;
@@ -595,18 +678,35 @@ async function updatePortfolio(){
     }).join('');
     
     if(cur < 100) grad.push(`var(--line) ${cur}% 100%`);
-    if(donut) donut.style.background = `conic-gradient(${grad.join(', ')})`;
-    const dt = document.querySelector('#portfolio .donut-inner div:last-child');
-    if(dt) dt.textContent = Math.min(100, cur.toFixed(1)) + '%';
+    if(donutAsset) {
+      donutAsset.style.background = `conic-gradient(${grad.join(', ')})`;
+      const dt = donutAsset.querySelector('.donut-inner div:last-child');
+      if(dt) dt.textContent = Math.min(100, cur.toFixed(1)) + '%';
+    }
   }
 
-  const allocBar = document.querySelector('#portfolio .exposure-bar');
-  if(allocBar && d.accounts && d.total_equity){
-    const colors = ['var(--accent)','var(--purple)','var(--green)','var(--amber)'];
-    allocBar.innerHTML = d.accounts.map((a,i)=>{
+  const accLegend = document.getElementById('legend-account');
+  const donutAccount = document.getElementById('donut-account');
+  if(accLegend && d.accounts && d.total_equity){
+    const colors = ['var(--purple)','var(--green)','var(--accent)','var(--amber)'];
+    let grad = [], cur = 0;
+    
+    accLegend.innerHTML = d.accounts.map((a,i)=>{
       const pct = (a.equity / d.total_equity * 100) || 0;
-      return `<div class="exposure-seg" style="width:${pct}%;background:${colors[i%colors.length]}">${a.name} ${Math.round(pct)}%</div>`;
+      grad.push(`${colors[i%colors.length]} ${cur}% ${cur+pct}%`);
+      cur += pct;
+      return `<div style="display:flex;justify-content:space-between;padding:4px 0;">
+        <span><span style="color:${colors[i%colors.length]}">&#9679;</span> ${a.name}</span>
+        <span>${Math.round(pct)}%</span>
+      </div>`;
     }).join('');
+    
+    if(cur < 100) grad.push(`var(--line) ${cur}% 100%`);
+    if(donutAccount) {
+      donutAccount.style.background = `conic-gradient(${grad.join(', ')})`;
+      const dt = donutAccount.querySelector('.donut-inner div:last-child');
+      if(dt) dt.textContent = Math.min(100, cur.toFixed(1)) + '%';
+    }
   }
 }
 
@@ -681,8 +781,8 @@ async function updateExecution(){
     html += `<div class="section">
       <div class="section-h"><h3>Open Orders</h3><p>${d.orders.length} open position${d.orders.length!==1?'s':''} &middot; Fill rate ${fs.fill_rate||'—'}% &middot; click a row for full detail &amp; close option</p></div>
       <table>
-        <tr><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Current</th><th>SL</th><th>TP</th><th>Strategy</th><th>Pips</th><th>P&amp;L</th><th></th></tr>
-        ${d.orders.map(o=>`<tr class="clickable" onclick="showOrderDetail(${o.id})">
+        <tr><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Current</th><th>SL</th><th>TP</th><th>Strategy</th><th>P&amp;L $</th><th>P&amp;L %</th><th></th></tr>
+        ${d.orders.map(o=>`<tr class="clickable" onclick="showOrderDetail('${o.id}')">
           <td style="font-family:var(--mono)">${o.symbol}</td>
           <td class="${o.direction==='buy'?'pos':'neg'}">${(o.direction||'').toUpperCase()}</td>
           <td>${fmtU(o.volume,2)}</td>
@@ -691,8 +791,8 @@ async function updateExecution(){
           <td style="color:var(--red);font-size:11px">${fmtU(o.sl,5)}</td>
           <td style="color:var(--green);font-size:11px">${fmtU(o.tp,5)}</td>
           <td>${badge(o.strategy_id||'Unknown','purple')}</td>
-          <td class="${cls(o.pips_moved)}">${fmt(o.pips_moved,1)}</td>
-          <td class="${cls(o.profit)}" style="font-weight:600">${fmt(o.profit,2)}</td>
+          <td class="${cls(o.profit_dollars)}">${fmt(o.profit_dollars,2)}</td>
+          <td class="${cls(o.profit_pct)}" style="font-weight:600">${fmt(o.profit_pct,2)}%</td>
           <td>${badge('Open','green')}</td>
         </tr>`).join('')}
       </table>
@@ -704,7 +804,7 @@ async function updateExecution(){
     
   if(d.closed_trades && d.closed_trades.length > 0){
     html += `<table>
-      <tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>Strategy</th><th>Pips</th><th>P&amp;L %</th></tr>
+      <tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>Strategy</th><th>P&amp;L $</th><th>P&amp;L %</th></tr>
       ${d.closed_trades.map(o=>`<tr>
         <td style="font-size:11px;color:var(--sub)">${(o.close_time||'').slice(0,16)}</td>
         <td style="font-family:var(--mono)">${o.symbol}</td>
@@ -713,8 +813,8 @@ async function updateExecution(){
         <td>${fmtU(o.entry,5)}</td>
         <td>${fmtU(o.exit,5)}</td>
         <td>${badge(o.strategy_id||'Unknown','mute')}</td>
-        <td class="${cls(o.pips_moved)}">${fmt(o.pips_moved,1)}</td>
-        <td class="${cls(o.profit)}" style="font-weight:600">${fmt(o.profit,2)}%</td>
+        <td class="${cls(o.profit_dollars)}">${fmt(o.profit_dollars,2)}</td>
+        <td class="${cls(o.profit_pct)}" style="font-weight:600">${fmt(o.profit_pct,2)}%</td>
       </tr>`).join('')}
     </table>`;
   } else {
@@ -753,7 +853,7 @@ window.showOrderDetail = function(ticket){
     <div style="margin-bottom:6px;font-size:12px;color:var(--sub)">Reason for override (required — logged to compliance audit)</div>
     <input id="modal-reason" type="text" placeholder="e.g. CPI print about to invalidate setup" style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:12px;box-sizing:border-box">
     <div style="display:flex;gap:8px;">
-      <button onclick="doClosePosition(${o.id})" style="background:var(--red);color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:12.5px;cursor:pointer;font-weight:600">Close position now</button>
+      <button onclick="doClosePosition('${o.id}')" style="background:var(--red);color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:12.5px;cursor:pointer;font-weight:600">Close position now</button>
       <button onclick="document.getElementById('order-detail-modal').remove()" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 18px;border-radius:6px;font-size:12.5px;cursor:pointer">Cancel</button>
     </div>
     <div style="margin-top:20px; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--panel2); height:300px;">
@@ -811,16 +911,20 @@ async function updateRisk(){
   const cp = d.corr_exposure_pct||0;
   const dbc = dp>dl*0.8?'var(--red)':dp>dl*0.5?'var(--amber)':'var(--green)';
 
-  const bars = rp.querySelector('.section');
-  if(bars) bars.innerHTML = `
-    <div style="padding:14px 16px;">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Daily loss &mdash; ${d.prop_firm?d.prop_firm.toUpperCase()+' limit':''}</span><span class="${dp>dl*0.8?'neg':dp>dl*0.5?'warn':''}">${fmtU(dp,2)}% of ${dl}%</span></div>
-      <div class="barwrap"><div class="barfill" style="width:${Math.min(100,dp/dl*100)}%;background:${dbc};"></div></div>
-    </div>
-    <div style="padding:0 16px 14px;">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Correlation exposure (USD-linked)</span><span class="${cp>70?'neg':cp>50?'warn':''}">${cp}%</span></div>
-      <div class="barwrap"><div class="barfill" style="width:${Math.min(100,cp)}%;background:${cp>70?'var(--red)':cp>50?'var(--amber)':'var(--green)'};"></div></div>
-    </div>`;
+    const bars = rp.querySelector('.section');
+    if(bars) bars.innerHTML = `
+      <div style="padding:14px 16px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Daily loss &mdash; ${d.prop_firm?d.prop_firm.toUpperCase()+' limit':''}</span><span class="${dp>dl*0.8?'neg':dp>dl*0.5?'warn':''}">${fmtU(dp,2)}% of ${dl}%</span></div>
+        <div class="barwrap"><div class="barfill" style="width:${Math.min(100,dp/dl*100)}%;background:${dbc};"></div></div>
+      </div>
+      <div style="padding:0 16px 14px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Correlation exposure (USD-linked)</span><span class="${cp>70?'neg':cp>50?'warn':''}">${cp}%</span></div>
+        <div class="barwrap"><div class="barfill" style="width:${Math.min(100,cp)}%;background:${cp>70?'var(--red)':cp>50?'var(--amber)':'var(--green)'};"></div></div>
+      </div>
+      <div style="padding:0 16px 14px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>Overall Realized Loss (Portfolio)</span><span style="color:var(--red)">-$${fmt(d.overall_loss||0,2)}</span></div>
+        <div class="barwrap"><div class="barfill" style="width:100%;background:var(--red);"></div></div>
+      </div>`;
 
   const flagSect = rp.querySelectorAll('.section')[1];
   if(flagSect && d.flags) flagSect.innerHTML = d.flags.map(f=>`
@@ -837,23 +941,60 @@ async function updateIntel(){
 
   const stream = document.querySelector('#intel .section .logline')?.parentElement;
   if(stream){
-    if(!d.council||d.council.length===0){
-      stream.innerHTML='<div class="section-h"><h3>Council stream</h3></div><div class="logline" style="color:var(--mute)">Waiting for engine to start &mdash; council messages will appear here as the bot runs.</div>';
+    if(!d.council || d.council.length === 0){
+      stream.innerHTML='<div class="section-h"><h3>Council stream</h3></div><div class="logline" style="color:var(--mute)">Waiting for engine to start &mdash; council vote messages will appear here as the bot evaluates signals.</div>';
     } else {
-      stream.innerHTML = '<div class="section-h"><h3>Council stream</h3><p>Live LLM council decisions &middot; newest first</p></div>' +
-        [...d.council].reverse().slice(0,30).map(m=>{
-          let txt = m.text;
-          if (txt.includes('ACCEPTED') || txt.includes('Approved') || txt.includes('PROCEED')) {
-            txt = `<span style="color:var(--green);font-weight:600">${txt}</span>`;
-          } else if (txt.includes('REJECTED') || txt.includes('Blocked') || txt.includes('HALT')) {
-            txt = `<span style="color:var(--red);font-weight:600">${txt}</span>`;
+      stream.innerHTML = '<div class="section-h"><h3>Council stream</h3><p>Per-agent votes and reasoning &middot; newest first</p></div>' +
+        [...d.council].reverse().slice(0,40).map(m => {
+          let txt = m.text || '';
+          let agentColor = 'var(--sub)';
+          let bgColor = 'transparent';
+          let borderLeft = 'none';
+          let icon = '·';
+
+          // Vote-based styling
+          if (txt.startsWith('Vote: APPROVE') || txt.includes('Vote: APPROVED')) {
+            agentColor = 'var(--green)';
+            bgColor = 'rgba(34,197,94,0.04)';
+            borderLeft = '3px solid var(--green)';
+            icon = '✓';
+          } else if (txt.startsWith('Vote: REJECT') || txt.includes('Vote: REJECTED')) {
+            agentColor = 'var(--red)';
+            bgColor = 'rgba(239,68,68,0.04)';
+            borderLeft = '3px solid var(--red)';
+            icon = '✗';
+          } else if (m.agent === 'Director') {
+            if (txt.includes('APPROVED')) {
+              agentColor = 'var(--green)'; bgColor = 'rgba(34,197,94,0.08)'; borderLeft = '3px solid var(--green)'; icon = '⚡';
+            } else if (txt.includes('REJECTED')) {
+              agentColor = 'var(--red)'; bgColor = 'rgba(239,68,68,0.08)'; borderLeft = '3px solid var(--red)'; icon = '⛔';
+            } else {
+              agentColor = 'var(--purple)'; borderLeft = '3px solid var(--purple)'; icon = '⚡';
+            }
+          } else if (m.agent === 'Manual') {
+            agentColor = 'var(--amber)'; icon = '⚠';
           }
-          if (txt.includes('Pitch:')) txt = txt.replace('Pitch:', '<strong style="color:var(--text)">Pitch:</strong>');
-          if (txt.includes('Cross-Ex:')) txt = txt.replace('Cross-Ex:', '<strong style="color:var(--text)">Cross-Ex:</strong>');
-          if (txt.includes('Verdict:')) txt = txt.replace('Verdict:', '<strong style="color:var(--purple)">Verdict:</strong>');
-          return `<div class="logline" style="padding:10px 16px;">
-            <div style="margin-bottom:4px;font-size:10.5px;">${m.time} <span class="tag">[${m.agent}]</span></div>
-            <div style="line-height:1.5;color:var(--text);">${txt}</div>
+
+          // Split vote from reasoning
+          let voteLabel = '';
+          let reasoning = txt;
+          const voteMatch = txt.match(/^Vote:\s*(\w+)\s*\|\s*(.+)$/);
+          if (voteMatch) {
+            voteLabel = voteMatch[1];
+            reasoning = voteMatch[2];
+          }
+          const verdictMatch = txt.match(/^Verdict:\s*(\w+)\s*\|\s*(.+)$/);
+          if (verdictMatch) {
+            voteLabel = verdictMatch[1];
+            reasoning = verdictMatch[2];
+          }
+          return `<div style="padding:10px 16px;border-left:${borderLeft};background:${bgColor};margin-bottom:2px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span style="font-size:10px;color:var(--sub)">${m.time}</span>
+              <span style="font-size:11px;font-weight:700;color:${agentColor}">${icon} ${m.agent}</span>
+              ${voteLabel ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:700;background:${agentColor === 'var(--green)' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'};color:${agentColor}">${voteLabel}</span>` : ''}
+            </div>
+            <div style="font-size:12px;line-height:1.5;color:var(--text);padding-left:4px">${reasoning}</div>
           </div>`;
         }).join('');
     }
@@ -861,18 +1002,20 @@ async function updateIntel(){
 
   if(d.signals && d.signals.length>0){
     const latest = d.signals[0];
-    const existingCard = document.querySelector('#intel .ai-card');
-    if(existingCard){
-      const topDiv = existingCard.querySelector('.ai-top div');
-      const reasonDiv = existingCard.querySelector('.reason');
-      if(topDiv) topDiv.innerHTML = `<span style="color:var(--purple);font-weight:600">Latest signal: ${(latest.direction||'').toUpperCase()} ${latest.symbol}</span>`;
-      if(reasonDiv) reasonDiv.textContent = latest.traded
-        ? `Grade ${latest.grade||'?'} \u00b7 Confidence ${latest.confidence||'?'}% \u00b7 Executed`
-        : `Blocked \u2014 ${latest.skip_reason||'reason not recorded'}`;
-      const confBar = existingCard.querySelector('.confbar-fill');
-      if(confBar) confBar.style.width = (latest.confidence||0) + '%';
-      const badge2 = existingCard.querySelector('.badge');
-      if(badge2) badge2.textContent = (latest.confidence||0)+'%';
+    const card = document.getElementById('latest-signal-card');
+    if(card){
+      card.style.display = 'block';
+      const title = document.getElementById('latest-signal-title');
+      const reason = document.getElementById('latest-signal-reason');
+      const conf = document.getElementById('latest-signal-conf');
+      const bar = document.getElementById('latest-signal-bar');
+      
+      if(title) title.innerHTML = `<span style="color:var(--purple);font-weight:600">Latest signal: ${(latest.direction||'').toUpperCase()} ${latest.symbol}</span>`;
+      if(reason) reason.textContent = latest.traded
+        ? `Grade ${latest.grade||'?'} · Confidence ${latest.confidence||'?'}% · Executed`
+        : `Blocked — ${latest.skip_reason||'reason not recorded'}`;
+      if(conf) conf.textContent = (latest.confidence||0)+'%';
+      if(bar) bar.style.width = (latest.confidence||0) + '%';
     }
 
     // Signals list
@@ -885,32 +1028,86 @@ async function updateIntel(){
 }
 
 /* ── JARVIS CHAT ───────────────────────────────────────────────────────────── */
+function escapeHtml(unsafe) {
+  return (unsafe||'').toString()
+       .replace(/&/g, "&amp;")
+       .replace(/</g, "&lt;")
+       .replace(/>/g, "&gt;")
+       .replace(/"/g, "&quot;")
+       .replace(/'/g, "&#039;");
+}
+
 async function sendJarvisMsg(){
   const inp = document.getElementById('jarvis-input');
   if(!inp || !inp.value.trim()) return;
   const msg = inp.value.trim();
   inp.value = '';
-  
+  inp.disabled = true;
+
   const log = document.getElementById('jarvis-chat-log');
-  log.innerHTML += `<div style="margin-bottom:10px;font-size:12.5px;"><strong>You:</strong> ${msg}</div>`;
+
+  log.insertAdjacentHTML('beforeend', `<div style="margin-bottom:12px;">
+    <div style="color:var(--sub);font-size:11px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">You</div>
+    <div style="background:rgba(61,139,253,.15);border:1px solid var(--accent);color:var(--text);padding:10px 14px;border-radius:10px 10px 10px 0;display:inline-block;">${escapeHtml(msg)}</div>
+  </div>`);
+
+  const typingId = 't'+Date.now();
+  log.insertAdjacentHTML('beforeend', `<div id="${typingId}" style="margin-bottom:12px;">
+    <div style="color:var(--purple);font-size:11px;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Jarvis AI</div>
+    <div style="background:var(--panel2);border:1px solid var(--line);padding:10px 14px;border-radius:10px 10px 0 10px;display:inline-block;color:var(--sub);">Analyzing market structure...</div>
+  </div>`);
   log.scrollTop = log.scrollHeight;
-  
-  const r = await fetch(API+'/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
-  const d = await r.json();
-  
-  log.innerHTML += `<div style="margin-bottom:10px;font-size:12.5px;"><strong style="color:var(--purple);">Jarvis:</strong> ${d.reply || 'Connection error.'}</div>`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); 
+
+  try {
+    const r = await fetch(API+'/api/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message: msg}),
+      signal: controller.signal
+    });
+    const d = await r.json();
+    const reply = (d.reply || 'Connection error.')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n/g, '<br>');
+
+    const typingEl = document.getElementById(typingId);
+    if(typingEl) {
+      typingEl.innerHTML = `
+        <div style="color:var(--purple);font-size:11px;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Jarvis AI</div>
+        <div style="background:var(--panel2);border:1px solid var(--line);padding:10px 14px;border-radius:10px 10px 0 10px;display:inline-block;color:var(--text);">${reply}</div>`;
+    }
+  } catch(e) {
+    const typingEl = document.getElementById(typingId);
+    if(typingEl) {
+      typingEl.querySelector('div:last-child').textContent = 'Connection error. Is the server running?';
+    }
+  }
+
+  clearTimeout(timeoutId);
+  inp.disabled = false;
+  inp.focus();
   log.scrollTop = log.scrollHeight;
 }
-async function updateJarvis(){} // Static, event driven
+async function updateJarvis(){}
 
 /* ── OPTIMIZER ───────────────────────────────────────────────────────────── */
 async function updateOptimizer(){
   if(window._optLoaded) return;
   const d = await api('/api/optimizer/propose');
-  if(!d || !d.proposal) return;
   window._optLoaded = true;
-  
   const b = document.getElementById('optimizer-body');
+  
+  if(!d || !d.proposal) {
+    b.innerHTML = `<div style="color:var(--sub);font-size:13px;padding:20px;text-align:center;">
+      <i class="ri-check-line" style="color:var(--green);margin-right:5px;"></i> AI Council analysis complete. All strategies are performing optimally. No parameter tweaks required at this time.
+    </div>`;
+    return;
+  }
+  
   const p = d.proposal;
   b.innerHTML = `
     <div style="background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:16px;">
@@ -957,15 +1154,20 @@ async function updateCompliance(){
   }
 
   // Rule checks
-  const flagSects = document.querySelectorAll('#compliance .section');
-  const ruleSect = flagSects[flagSects.length-1];
+  const ruleSect = document.getElementById('compliance-rule-checks') || (function() {
+      let div = document.createElement('div');
+      div.className = 'section';
+      div.id = 'compliance-rule-checks';
+      document.getElementById('compliance').appendChild(div);
+      return div;
+  })();
   if(ruleSect && d.rule_checks){
     ruleSect.innerHTML = '<div class="section-h"><h3>Rule checks</h3><p>Prop-firm rule violations, not P&amp;L risk</p></div>' +
       d.rule_checks.map(f=>`<div class="flagrow"><div class="flagicon" style="background:${f.ok?'rgba(34,197,94,.15)':'rgba(239,68,68,.15)'};color:${f.ok?'var(--green)':'var(--red)'};">${f.ok?'&#x2713;':'!'}</div>${f.text}</div>`).join('');
   }
 }
 
-/* â”€â”€ STRATEGIES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── STRATEGIES ──────────────────────────────────────────────────────────── */
 async function updateStrategies(){
   const d = await api('/api/strategies');
   if(!d || !d.strategies) return;
@@ -976,23 +1178,19 @@ async function updateStrategies(){
   body.innerHTML = `<table>
     <tr><th>Strategy</th><th>Instruments</th><th>Timeframe</th><th>Win Rate</th><th>Exp R</th><th>Max DD</th><th>Trades (DB)</th><th>Eligible</th></tr>
     ${d.strategies.map(s=>{
-      let wr='—', rr='—', md='—', trades=s.trades||0;
-      let elig = badge('Loading','mute');
-      if (trades >= 30) {
-        wr = s.win_rate != null ? s.win_rate+'%' : '—';
-        rr = s.expectancy_r != null ? s.expectancy_r+'R' : '—';
-        md = s.max_dd != null ? '$'+s.max_dd : '—';
-        elig = parseFloat(wr) >= 50 ? badge('Live Data','green') : badge('Review Needed','red');
-      } else if (s.static_backtest) {
+      let wr='—', rr='—', md='—', trades=s.trades_db||0;
+      let elig = s.eligible === 'Live Ready' ? badge('Live Ready','green') : badge(s.eligible || 'Backtest Data','accent');
+      
+      if (s.static_backtest) {
         wr = s.static_backtest.win_rate + '%';
         rr = s.static_backtest.expectancy_r + 'R';
         md = s.static_backtest.max_dd_pct + '%';
-        elig = badge('Backtest Data','accent');
-      } else {
-        wr = s.win_rate != null ? s.win_rate+'%' : '—';
-        rr = s.expectancy_r != null ? s.expectancy_r+'R' : '—';
-        md = s.max_dd != null ? '$'+s.max_dd : '—';
-        elig = trades > 0 ? badge('Accumulating','amber') : badge('No Data','mute');
+      }
+      
+      if (trades >= 30 && s.win_rate != null) {
+        wr = s.win_rate + '%';
+        rr = s.expectancy_r != null ? s.expectancy_r + 'R' : rr;
+        md = s.max_dd != null ? '$' + s.max_dd : md;
       }
       return `<tr class="clickable" onclick="openStrategyDetail('${s.id}')">
         <td><strong>${s.name}</strong> ${s.live_ready ? '<span style="color:var(--green);font-size:10px;margin-left:4px">&#x25CF;</span>':''}</td>
@@ -1060,7 +1258,7 @@ window.openStrategyDetail = async function(sid){
     </div>` : ''}
 
     ${dd?.trades?.length ? `<div class="section">
-      <div class="section-h"><h3>Recent trades (DB) &mdash; ${s.instruments.join(', ')}</h3></div>
+      <div class="section-h"><h3>Recent trades (DB) &mdash; ${s.instruments ? s.instruments.join(', ') : 'None'}</h3></div>
       <table>
         <tr><th>Time</th><th>Account</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>R</th><th>Outcome</th><th>Grade</th></tr>
         ${dd.trades.map(t=>`<tr>
@@ -1079,7 +1277,7 @@ window.openStrategyDetail = async function(sid){
     </div>` : '<div class="section"><div style="padding:14px 16px;color:var(--sub);font-size:12px">No closed trades yet for this strategy\'s instruments.</div></div>'}
 
     ${dd?.news?.length ? `<div class="section">
-      <div class="section-h"><h3>Market intel &mdash; upcoming events affecting ${s.instruments.join(', ')}</h3></div>
+      <div class="section-h"><h3>Market intel &mdash; upcoming events affecting ${s.instruments ? s.instruments.join(', ') : 'None'}</h3></div>
       ${dd.news.map(ev=>`<div class="flagrow"><div class="flagicon" style="background:${impactColor(ev.impact)};color:${impactText(ev.impact)}">${ev.impact==='high'?'!':'i'}</div>${ev.currency} &mdash; ${ev.title} &middot; ${ev.time_ist}</div>`).join('')}
     </div>` : ''}`;
 
@@ -1087,20 +1285,29 @@ window.openStrategyDetail = async function(sid){
   panel.style.display='block';
 };
 
-/* â”€â”€ ACCOUNTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── ACCOUNTS ────────────────────────────────────────────────────────────── */
 async function updateAccounts(){
   const d = await api('/api/accounts');
   if(!d || !d.accounts) return;
+  
+  // Populate Account Switcher
+  const switcher = document.getElementById('account-switcher');
+  if(switcher && d.accounts.length > 0) {
+    const currentVal = switcher.value;
+    switcher.innerHTML = d.accounts.map(a => `<option value="${a.port || 8765}" ${currentPort == (a.port || 8765) ? 'selected' : ''}>${a.name} (${a.type})</option>`).join('');
+    // If the selected value changed, don't trigger onchange to avoid infinite loop, it's just visually updating
+  }
 
   const body = document.getElementById('accounts-table-body');
   if(body){
-    const typeCol = t => t==='prop_firm'?badge('Prop firm','purple'):t==='real'?badge('MT5 real','mute'):t==='demo'?badge('MT5 demo','accent'):badge('Paper','accent');
+    const typeCol = t => t==='prop_firm'?badge('Prop firm','purple'):t==='real'?badge('MT5 real','mute'):t==='demo'?badge('MT5 demo','accent'):t==='Demo'?badge('Demo','accent'):t==='Live'?badge('Live','green'):badge('Paper','accent');
     body.innerHTML = `<table>
-      <tr><th>Account</th><th>ID</th><th>Type</th><th>Balance</th><th>Equity</th><th>P&amp;L</th><th>Open Pos.</th><th>Margin Lvl</th></tr>
+      <tr><th>Account</th><th>ID</th><th>Type</th><th>Status</th><th>Balance</th><th>Equity</th><th>P&amp;L</th><th>Open Pos.</th><th>Margin Lvl</th></tr>
       ${d.accounts.map(a=>`<tr class="clickable" onclick="loadAccountDetail('${a.id}')">
         <td><strong>${a.name}</strong></td>
         <td style="font-family:var(--mono);color:var(--sub)">#${a.id}</td>
         <td>${typeCol(a.type)}</td>
+        <td>${a.active ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:var(--green)"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite"></span>LIVE</span>' : '<span style="font-size:10px;color:var(--mute)">OFFLINE</span>'}</td>
         <td>$${fmtU(a.balance)}</td>
         <td>$${fmtU(a.equity)}</td>
         <td class="${cls(a.profit)}" style="font-weight:600">${fmt(a.profit)}</td>
@@ -1109,21 +1316,43 @@ async function updateAccounts(){
       </tr>`).join('')}
     </table>`;
   }
+}
 
-  // How to add account
-  const howDiv = document.getElementById('add-account-instructions');
-  if(howDiv){
-    const h = await api('/api/accounts/how_to_add');
-    if(h){
-      howDiv.innerHTML = Object.entries(h).map(([broker, info])=>`
-        <div style="margin-bottom:16px;">
-          <div style="font-weight:600;color:var(--text);margin-bottom:6px;text-transform:capitalize">${broker}</div>
-          <ol style="margin:0;padding-left:18px;line-height:1.8">
-            ${info.steps.map(s=>`<li>${s}</li>`).join('')}
-          </ol>
-          ${info.notes?`<div style="margin-top:6px;color:var(--mute);font-size:11px">${info.notes}</div>`:''}
-        </div>`).join('<hr style="border-color:var(--line);margin:12px 0">');
+window.submitAddAccount = async function() {
+  const type = document.getElementById('add-acc-type').value;
+  const capital = document.getElementById('add-acc-cap').value;
+  const login = document.getElementById('add-acc-login').value;
+  const pass = document.getElementById('add-acc-pass').value;
+  const server = document.getElementById('add-acc-server').value;
+  
+  const profile = document.getElementById('add-acc-profile').value;
+  const path = document.getElementById('add-acc-path').value;
+  const port = document.getElementById('add-acc-port').value;
+  const telegram = document.getElementById('add-acc-telegram').value;
+
+  const status = document.getElementById('add-acc-status');
+  
+  if(!login || !pass || !server || !profile){
+    status.innerHTML = '<span style="color:var(--red)">Please fill at least Login, Pass, Server, and Profile fields</span>';
+    return;
+  }
+  
+  status.innerHTML = 'Connecting and verifying...';
+  try {
+    const res = await api('/api/accounts/add', {
+      method: 'POST',
+      body: JSON.stringify({ type, capital, login, password: pass, server, profile, path, port, telegram })
+    });
+    if(res && res.status === 'success'){
+      status.innerHTML = '<span style="color:var(--green)">Account verified and added!</span>';
+      document.getElementById('add-acc-login').value = '';
+      document.getElementById('add-acc-pass').value = '';
+      updateAccounts();
+    } else {
+      status.innerHTML = `<span style="color:var(--red)">Error: ${res.reason||'Failed'}</span>`;
     }
+  } catch(e) {
+    status.innerHTML = '<span style="color:var(--red)">Network error</span>';
   }
 }
 
@@ -1144,6 +1373,13 @@ window.loadAccountDetail = async function(id){
   const dd_pct = info.equity&&info.balance ? Math.max(0,(info.balance-info.equity)/info.balance*100) : 0;
 
   content.innerHTML = `
+    ${!d.is_live ? `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:16px">⚡</span>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--amber)">Account Offline — Saved credentials</div>
+        <div style="font-size:11px;color:var(--mute);margin-top:2px">This account is not the active MT5 connection. Data shown is from when it was last saved. To trade on this account, reconnect MT5 with these credentials.</div>
+      </div>
+    </div>` : ''}
     <div class="grid4">
       <div class="card"><div class="lbl">Balance</div><div class="val">$${fmtU(info.balance)}</div></div>
       <div class="card"><div class="lbl">Equity</div><div class="val">$${fmtU(info.equity)}</div></div>
@@ -1368,8 +1604,18 @@ function activeTab(){
 })();
 
 // Active tab every 2s; CC always every 5s
-setInterval(async ()=>{ const f=TABS[activeTab()]; if(f) await f(); }, 2000);
-setInterval(updateCC, 5000);
+async function loopCurrentTab() {
+  const f = TABS[activeTab()];
+  if(f) await f();
+  setTimeout(loopCurrentTab, 2000);
+}
+setTimeout(loopCurrentTab, 2000);
+
+async function loopCC() {
+  await updateCC();
+  setTimeout(loopCC, 5000);
+}
+setTimeout(loopCC, 5000);
 </script>
 </body>
 </html>

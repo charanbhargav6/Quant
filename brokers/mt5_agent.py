@@ -70,31 +70,43 @@ class MT5Agent:
         self._login = int(os.environ.get("MT5_LOGIN", "0"))
         self._password = os.environ.get("MT5_PASSWORD", "")
         self._server = os.environ.get("MT5_SERVER", "MetaQuotes-Demo")
+        self._last_connect_attempt = 0.0  # cooldown to prevent blocking
 
     # ─────────────────────────────────────────────────────────────────────────
     # CONNECTION
     # ─────────────────────────────────────────────────────────────────────────
 
-    def connect(self) -> bool:
+    def connect(self, login: int = None, password: str = None, server: str = None) -> bool:
         """Initialize MT5 terminal and login."""
         try:
             import MetaTrader5 as mt5
             self._mt5 = mt5
 
-            if not mt5.initialize():
+            terminal_path = os.environ.get("MT5_TERMINAL_PATH")
+            if terminal_path and os.path.exists(terminal_path):
+                init_ok = mt5.initialize(path=terminal_path)
+            else:
+                init_ok = mt5.initialize()
+
+            if not init_ok:
                 logger.error(f"[MT5] initialize() failed: {mt5.last_error()}")
                 return False
 
+            # Use provided or fallback to init env vars
+            use_login = login if login else self._login
+            use_password = password if password else self._password
+            use_server = server if server else self._server
+
             # Login if credentials provided
-            if self._login and self._password:
+            if use_login and use_password:
                 authorized = mt5.login(
-                    login=self._login,
-                    password=self._password,
-                    server=self._server,
+                    login=int(use_login),
+                    password=str(use_password),
+                    server=str(use_server),
                 )
                 if not authorized:
-                    logger.error(f"[MT5] login failed: {mt5.last_error()}")
-                    mt5.shutdown()
+                    logger.error(f"[MT5] login failed for {use_login}: {mt5.last_error()}")
+                    # Don't shutdown completely, just return False so we can try next account
                     return False
 
             info = mt5.account_info()
@@ -140,9 +152,14 @@ class MT5Agent:
             return False
 
     def ensure_connected(self) -> bool:
-        """Reconnect if disconnected."""
+        """Reconnect if disconnected — with a 30s cooldown to prevent blocking Flask."""
         if self.is_connected():
             return True
+        now = time.time()
+        if now - self._last_connect_attempt < 30.0:
+            # Still in cooldown from last failed attempt — return False immediately
+            return False
+        self._last_connect_attempt = now
         logger.info("[MT5] Reconnecting...")
         return self.connect()
 
@@ -317,16 +334,16 @@ class MT5Agent:
     # POSITION MANAGEMENT
     # ─────────────────────────────────────────────────────────────────────────
 
-    def modify_sl(self, ticket: int, new_sl: float, new_tp: float = None) -> bool:
-        """Modify the SL (and optionally TP) of an open position."""
+    def modify_sl(self, ticket: int, new_sl: float, new_tp: float = None) -> tuple[bool, float, float]:
+        """Modify the SL (and optionally TP) of an open position. Returns (success, actual_sl, actual_tp)."""
         if not self.ensure_connected():
-            return False
+            return False, 0.0, 0.0
 
         mt5 = self._mt5
         position = mt5.positions_get(ticket=ticket)
         if not position:
             logger.warning(f"[MT5] Position {ticket} not found for SL modification")
-            return False
+            return False, 0.0, 0.0
 
         pos = position[0]
         sym_info = mt5.symbol_info(pos.symbol)
@@ -342,12 +359,19 @@ class MT5Agent:
 
         result = mt5.order_send(request)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            logger.info(f"[MT5] SL modified ✅ | Ticket: {ticket} | New SL: {new_sl}")
-            return True
+            # Immediate Verification: query the broker again
+            time.sleep(0.1) # Brief pause for broker sync
+            verified_pos = mt5.positions_get(ticket=ticket)
+            if verified_pos:
+                actual_sl = verified_pos[0].sl
+                actual_tp = verified_pos[0].tp
+                logger.info(f"[MT5] SL modified ✅ | Ticket: {ticket} | Verified SL: {actual_sl}")
+                return True, actual_sl, actual_tp
+            return True, new_sl, new_tp
         else:
             reason = result.comment if result else "Unknown"
             logger.warning(f"[MT5] SL modify failed: {reason}")
-            return False
+            return False, 0.0, 0.0
 
     def close_position(self, ticket: int = None, crave_symbol: str = None,
                        volume: float = None) -> bool:
@@ -446,6 +470,50 @@ class MT5Agent:
                 "magic":       pos.magic,
                 "comment":     pos.comment,
             })
+        return result
+
+    def get_closed_trades(self, days: int = 30) -> List[dict]:
+        """Get history of closed trades directly from MT5 deals."""
+        if not self.ensure_connected():
+            return []
+            
+        mt5 = self._mt5
+        from datetime import timedelta
+        fro = datetime.now(timezone.utc) - timedelta(days=days)
+        to = datetime.now(timezone.utc) + timedelta(days=1)
+        
+        deals = mt5.history_deals_get(fro, to)
+        if deals is None:
+            return []
+            
+        result = []
+        for d in deals:
+            # We look for OUT deals (entry == 1) which represent closed positions
+            if d.entry == 1:
+                crave_sym = REVERSE_SYMBOL_MAP.get(d.symbol, d.symbol)
+                # If an OUT deal is a BUY type, it means it closed a SHORT position.
+                trade_dir = "sell" if d.type == mt5.DEAL_TYPE_BUY else "buy"
+                
+                result.append({
+                    "ticket":      d.ticket,
+                    "position_id": d.position_id,
+                    "symbol":      crave_sym,
+                    "mt5_symbol":  d.symbol,
+                    "direction":   trade_dir,
+                    "volume":      d.volume,
+                    "entry_price": 0.0, # Without matching the IN deal, we just store 0
+                    "exit_price":  d.price,
+                    "profit":      d.profit,
+                    "commission":  d.commission,
+                    "fee":         d.fee,
+                    "swap":        d.swap,
+                    "close_time":  datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat(),
+                    "magic":       d.magic,
+                    "comment":     d.comment
+                })
+                
+        # Sort by latest first
+        result.sort(key=lambda x: x["close_time"], reverse=True)
         return result
 
     def get_account_info(self) -> Optional[dict]:

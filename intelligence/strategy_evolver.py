@@ -696,7 +696,7 @@ Be concise. List 3-5 actionable recommendations."""
                 import requests
                 url = (
                     f"https://generativelanguage.googleapis.com/v1beta/"
-                    f"models/gemini-2.0-flash:generateContent"
+                    f"models/gemini-flash-latest:generateContent"
                     f"?key={self._gemini_key}"
                 )
                 resp = requests.post(url, json={

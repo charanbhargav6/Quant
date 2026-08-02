@@ -1,0 +1,21 @@
+{
+  "trade_id": "D215AA2F",
+  "symbol": "GBPUSD=X",
+  "direction": "sell",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-22T05:51:52.007000+00:00",
+  "close_time": "2026-07-24T07:43:59.618333+00:00",
+  "context": {
+    "day_of_week": "Wednesday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 45
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-24T07:44:00.055270+00:00"
+}

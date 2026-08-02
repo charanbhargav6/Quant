@@ -1,0 +1,21 @@
+{
+  "trade_id": "7A12982B",
+  "symbol": "EURUSD=X",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-29T20:25:55.695278+00:00",
+  "close_time": "2026-07-30T02:47:02.349724+00:00",
+  "context": {
+    "day_of_week": "Wednesday",
+    "session": "late_ny",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 45
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-30T02:47:09.463005+00:00"
+}

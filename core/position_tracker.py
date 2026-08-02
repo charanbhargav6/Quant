@@ -182,9 +182,15 @@ class PositionTracker:
         # Sync SL to MT5 if this is an MT5 position
         if pos.get("exchange") == "mt5" and pos.get("mt5_ticket"):
             try:
-                from brokers.mt5_agent import get_mt5
-                mt5 = get_mt5()
-                mt5.modify_sl(pos["mt5_ticket"], new_sl)
+                from brokers.broker_factory import get_broker
+                broker = get_broker()
+                success, actual_sl, actual_tp = broker.modify_sl(pos["mt5_ticket"], new_sl)
+                if success:
+                    with self._lock:
+                        pos = self._positions.get(trade_id)
+                        if pos:
+                            pos["current_sl"] = actual_sl
+                            self._save()
             except Exception as e:
                 logger.warning(f"[Positions] MT5 SL sync failed: {e}")
 

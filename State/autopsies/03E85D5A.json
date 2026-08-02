@@ -1,0 +1,21 @@
+{
+  "trade_id": "03E85D5A",
+  "symbol": "BTCUSDT",
+  "direction": "buy",
+  "r_multiple": -1.0,
+  "outcome": "stop_loss",
+  "entry_time": "2026-07-20T08:29:16.222632+00:00",
+  "close_time": "2026-07-20T08:38:05.068235+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 80
+  },
+  "llm_analysis": "Significant loss (-1.00R). Review entry conditions.",
+  "lessons": [],
+  "analyzed_at": "2026-07-20T08:38:06.334858+00:00"
+}

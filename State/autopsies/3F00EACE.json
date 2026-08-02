@@ -1,0 +1,21 @@
+{
+  "trade_id": "3F00EACE",
+  "symbol": "EURUSD=X",
+  "direction": "sell",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-27T13:14:50.840328+00:00",
+  "close_time": "2026-07-28T02:50:58.398418+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "ny",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 55
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-28T02:50:58.947072+00:00"
+}

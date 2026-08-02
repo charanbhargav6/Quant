@@ -1,0 +1,21 @@
+{
+  "trade_id": "F89C42EC",
+  "symbol": "BTCUSDT",
+  "direction": "buy",
+  "r_multiple": -0.19,
+  "outcome": "exit_signal",
+  "entry_time": "2026-07-20T08:13:50.137533+00:00",
+  "close_time": "2026-07-20T08:28:54.414466+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 80
+  },
+  "llm_analysis": "Breakeven/small loss (-0.19R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-20T08:28:55.351038+00:00"
+}

@@ -191,20 +191,6 @@ class UniversalScanner:
                 f"{len(scored)} assets scored, top 5: {top_str}"
             )
 
-            # Notify via Telegram
-            try:
-                from interfaces.telegram_interface import tg
-                lines = ["🔭 *Universe Scan Complete*\n"]
-                for i, s in enumerate(top_n[:8], 1):
-                    lines.append(
-                        f"{i}. `{s['symbol']}` — Score: {s['composite_score']:.1f} "
-                        f"| ATR: {s['atr_score']:.0f} ADX: {s['adx_score']:.0f} "
-                        f"Mom: {s['momentum_score']:.0f}"
-                    )
-                tg.send("\n".join(lines))
-            except Exception:
-                pass
-
             self._last_scan = time.time()
 
         except Exception as e:

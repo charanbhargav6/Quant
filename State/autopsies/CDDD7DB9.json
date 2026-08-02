@@ -1,0 +1,21 @@
+{
+  "trade_id": "CDDD7DB9",
+  "symbol": "SOLUSDT",
+  "direction": "buy",
+  "r_multiple": -1.0,
+  "outcome": "stop_loss",
+  "entry_time": "2026-07-21T07:24:13.781418+00:00",
+  "close_time": "2026-07-22T03:01:10.801663+00:00",
+  "context": {
+    "day_of_week": "Tuesday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B+",
+    "confidence": 40
+  },
+  "llm_analysis": "Significant loss (-1.00R). Review entry conditions.",
+  "lessons": [],
+  "analyzed_at": "2026-07-22T03:01:18.482921+00:00"
+}

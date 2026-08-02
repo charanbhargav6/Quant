@@ -1,0 +1,21 @@
+{
+  "trade_id": "029DA07C",
+  "symbol": "ETHUSDT",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stop_loss",
+  "entry_time": "2026-07-22T05:49:32.833197+00:00",
+  "close_time": "2026-07-24T07:43:58.512358+00:00",
+  "context": {
+    "day_of_week": "Wednesday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 60
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-24T07:43:58.955948+00:00"
+}

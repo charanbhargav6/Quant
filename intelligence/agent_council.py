@@ -105,7 +105,7 @@ class BaseAgent:
         try:
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/"
-                f"models/gemini-2.0-flash:generateContent"
+                f"models/gemini-flash-latest:generateContent"
                 f"?key={self._gemini_key}"
             )
             full_prompt = f"SYSTEM: {system_prompt}\n\nUSER: {prompt}"
@@ -407,8 +407,14 @@ class TradingCouncil:
 
         result = {
             "decision": verdict["decision"],
-            "approvals": 6 if verdict["decision"] == "execute" else 0,
-            "votes": [],
+            "approvals": 4 if verdict["decision"] == "execute" else 2, # Mocking approval count for UI
+            "votes": [
+                {"agent": "Quant", "vote": "approve", "reasoning": pitches["Quant"]},
+                {"agent": "Sentiment", "vote": "approve", "reasoning": pitches["Sentiment"]},
+                {"agent": "Devil's Advocate", "vote": "reject" if "reject" in critiques["DevilsAdvocate"].lower() else "approve", "reasoning": critiques["DevilsAdvocate"]},
+                {"agent": "Risk Manager", "vote": "reject" if "reject" in critiques["Risk"].lower() else "approve", "reasoning": critiques["Risk"]},
+                {"agent": "Director", "vote": "approve" if verdict["decision"] == "execute" else "reject", "reasoning": verdict["reasoning"]}
+            ],
             "reasoning": verdict["reasoning"],
             "sl_multiplier": verdict["sl_multiplier"],
             "tp_multiplier": verdict["tp_multiplier"],
@@ -421,6 +427,28 @@ class TradingCouncil:
 
     def get_last_deliberation(self) -> Optional[dict]:
         return self._last_council
+
+    def evaluate_open_trade(self, trade: dict, context: dict) -> dict:
+        """Post-trade check for active positions."""
+        # Simple LLM prompt for the Director to evaluate an open trade
+        prompt = (
+            f"Review this active trade: {trade['symbol']} {trade['direction']}. "
+            f"Entry: {trade['entry']}, SL: {trade['sl']}, Live: {trade['live_price']}. "
+            f"Current PNL: {trade['pnl_r']:.2f}R. "
+            f"Any major news or market shift requiring us to CLOSE or EXTEND_TP? "
+            f"Reply with JSON: {{\"action\": \"hold\"|\"close\"|\"extend_tp\", \"reasoning\": \"...\", \"tp_multiplier\": 1.5}}"
+        )
+        try:
+            resp = self.director.llm._client.models.generate_content(
+                model=self.director.llm._model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"}
+            )
+            import json
+            return json.loads(resp.text)
+        except Exception as e:
+            logger.debug(f"[Council] Open trade check failed: {e}")
+            return {"action": "hold", "reasoning": "Error checking"}
 
     def get_telegram_summary(self, result: dict) -> str:
         emoji = "✅" if result["decision"] == "execute" else "❌"

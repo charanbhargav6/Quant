@@ -1,0 +1,21 @@
+{
+  "trade_id": "5908635E",
+  "symbol": "XAUUSD=X",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-28T02:52:19.267542+00:00",
+  "close_time": "2026-07-29T11:08:03.927631+00:00",
+  "context": {
+    "day_of_week": "Tuesday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 75
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-29T11:08:21.934727+00:00"
+}

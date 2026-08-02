@@ -1,0 +1,21 @@
+{
+  "trade_id": "EE16B54A",
+  "symbol": "BTCUSDT",
+  "direction": "buy",
+  "r_multiple": -1.0,
+  "outcome": "stop_loss",
+  "entry_time": "2026-07-27T13:07:45.951771+00:00",
+  "close_time": "2026-07-28T02:50:57.864996+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "ny",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A+",
+    "confidence": 80
+  },
+  "llm_analysis": "Significant loss (-1.00R). Review entry conditions.",
+  "lessons": [],
+  "analyzed_at": "2026-07-28T02:50:58.654130+00:00"
+}

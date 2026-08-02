@@ -1,0 +1,21 @@
+{
+  "trade_id": "C124F8D4",
+  "symbol": "BTCUSDT",
+  "direction": "buy",
+  "r_multiple": -0.06,
+  "outcome": "exit_signal",
+  "entry_time": "2026-07-20T08:38:13.534047+00:00",
+  "close_time": "2026-07-20T08:44:48.370206+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 80
+  },
+  "llm_analysis": "Breakeven/small loss (-0.06R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-20T08:44:49.562981+00:00"
+}

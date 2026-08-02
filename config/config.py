@@ -31,11 +31,14 @@ ML_DIR       = ENGINE_ROOT / "ml"  # Fixed: was broken nested path
 for _d in [STATE_DIR, DATABASE_DIR, LOGS_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
-STATE_FILE     = STATE_DIR / "crave_state.json"
-POSITIONS_FILE = STATE_DIR / "crave_positions.json"
-BIAS_FILE      = STATE_DIR / "crave_bias.json"
-JOURNAL_FILE   = STATE_DIR / "crave_journal.json"
-DB_PATH        = DATABASE_DIR / "crave.db"
+profile = os.environ.get("CRAVE_PROFILE")
+profile_suffix = f"_{profile}" if profile else ""
+
+STATE_FILE     = STATE_DIR / f"crave_state{profile_suffix}.json"
+POSITIONS_FILE = STATE_DIR / f"crave_positions{profile_suffix}.json"
+BIAS_FILE      = STATE_DIR / f"crave_bias{profile_suffix}.json"
+JOURNAL_FILE   = STATE_DIR / f"crave_journal{profile_suffix}.json"
+DB_PATH        = DATABASE_DIR / f"crave{profile_suffix}.db"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENVIRONMENT VARIABLES — full documented list
@@ -59,7 +62,16 @@ DB_PATH        = DATABASE_DIR / "crave.db"
 # NEW (Session 10):
 #   PROP_FIRM             — Name of the prop firm (e.g. ftmo, the5ers). Default: ftmo
 #   ACCOUNT_SIZE          - Account size. Default: 10000
+#
+# NEW (Binance Integration):
+#   BROKER_TYPE           — MT5 (default) or BINANCE
+#   BINANCE_API_KEY       — Binance API Key
+#   BINANCE_API_SECRET    — Binance Secret Key
 # ─────────────────────────────────────────────────────────────────────────────
+
+BROKER_TYPE = os.environ.get("BROKER_TYPE", "MT5").upper()
+BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY", "")
+BINANCE_API_SECRET = os.environ.get("BINANCE_API_SECRET", "")
 
 PROP_FIRM = os.environ.get("PROP_FIRM", "ftmo").lower()
 try:
@@ -152,18 +164,18 @@ INSTRUMENTS = {
         "pip_size": 0.001, "enabled": False,
     },
 
-    # ── Crypto (Binance Futures) ───────────────────────────────────────────
+    # ── Crypto (MT5 / XM Demo) ───────────────────────────────────────────
     "BTCUSDT": {
         "label": "Bitcoin", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
         "lot_size_type": "units", "currencies": ["BTC"],
         "pip_size": 0.1, "funding_check": True, "enabled": True,
     },
     "ETHUSDT": {
         "label": "Ethereum", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
         "lot_size_type": "units", "currencies": ["ETH"],
         "pip_size": 0.01, "funding_check": True, "enabled": True,
     },

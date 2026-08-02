@@ -1,0 +1,21 @@
+{
+  "trade_id": "A811CA4B",
+  "symbol": "SOLUSDT",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-20T08:29:03.998763+00:00",
+  "close_time": "2026-07-20T13:45:53.623246+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B+",
+    "confidence": 40
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-20T13:45:53.634248+00:00"
+}
