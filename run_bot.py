@@ -43,7 +43,16 @@ sys.path.insert(0, str(ENGINE_ROOT))
 # ── Load secrets: .env ───────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv
-    load_dotenv(ENGINE_ROOT / ".env")
+    
+    profile = None
+    if "--profile" in sys.argv:
+        idx = sys.argv.index("--profile")
+        if idx + 1 < len(sys.argv):
+            profile = sys.argv[idx + 1]
+            os.environ["CRAVE_PROFILE"] = profile
+            
+    env_file = f".env.{profile}" if profile else ".env"
+    load_dotenv(ENGINE_ROOT / env_file)
 except ImportError:
     print("Run: pip install python-dotenv")
 
@@ -174,6 +183,9 @@ def run_full_bot(node: str, mode: str):
     dynamic_tp.start()
     event_hedge.start()
     trading_loop.start()
+    
+    from engines.jarvis_manager import jarvis_manager
+    jarvis_manager.start()
 
     # ── v12 Intelligence Layer ────────────────────────────────────────────
     # News Sentinel — hybrid news scraper (5 sources)
@@ -214,15 +226,15 @@ def run_full_bot(node: str, mode: str):
         allocator = get_allocator()
         # Set initial equity from MT5
         try:
-            from brokers.mt5_agent import get_mt5
-            mt5 = get_mt5()
-            if mt5.connect():
-                info = mt5.get_account_info()
+            from brokers.broker_factory import get_broker
+            broker = get_broker()
+            if broker.connect():
+                info = broker.get_account_info()
                 if info:
                     allocator.set_initial_equity(info["equity"])
                     logger.info(f"[Main] 💰 Wealth Manager started (equity=${info['equity']:.2f})")
             else:
-                logger.info(f"[Main] 💰 Wealth Manager started (no MT5 connection)")
+                logger.info(f"[Main] 💰 Wealth Manager started (no Broker connection)")
         except Exception as e:
             logger.warning(f"[Main] Wealth Manager MT5 check failed: {e}")
     except Exception as e:
@@ -697,18 +709,54 @@ def run_full_bot(node: str, mode: str):
     )
 
     # ── Main loop ─────────────────────────────────────────────────────────
+    from core.events import emergency_stop_event
     try:
-        while True:
+        while not emergency_stop_event.is_set():
             schedule.run_pending()
-            time.sleep(30)
+            time.sleep(1) # Poll more frequently to react to emergency stop, but schedule handles its own timing
+            if int(time.time()) % 30 == 0:
+                pass # 30s tick if needed
 
-    except KeyboardInterrupt:
+        if emergency_stop_event.is_set():
+            logger.critical("[Main] 🚨 EMERGENCY STOP EVENT TRIGGERED! Halting execution.")
+
+    except (KeyboardInterrupt, Exception) as e:
+        if isinstance(e, Exception):
+            logger.error(f"[Main] Unhandled crash: {e}")
+            import traceback
+            traceback.print_exc()
+        
         logger.info("[Main] Shutting down gracefully...")
-        trading_loop.stop()
-        dynamic_tp.stop()
-        event_hedge.stop()
-        sync.stop()
-        tg.send("⏹️ Trading Engine shutdown.")
+        try: trading_loop.stop()
+        except: pass
+        try: dynamic_tp.stop()
+        except: pass
+        try: event_hedge.stop()
+        except: pass
+        try: jarvis_manager.stop()
+        except: pass
+        try: sync.stop()
+        except: pass
+        
+        # Stop infrastructure and intelligence
+        try: 
+            from intelligence.news_sentinel import get_sentinel
+            get_sentinel().stop()
+        except: pass
+        
+        try:
+            from intelligence.x_scraper import get_x_scraper
+            get_x_scraper().stop()
+        except: pass
+        
+        try: orchestrator.stop()
+        except: pass
+        
+        try: 
+            tg.send("⏹️ Trading Engine shutdown.")
+            tg.stop()
+        except: pass
+        
         logger.info("[Main] Shutdown complete.")
 
 
@@ -742,10 +790,15 @@ def run_lite_bot(node: str, mode: str):
         f"Open positions: {positions.count()}"
     )
 
+    from core.events import emergency_stop_event
     try:
-        while True:
+        while not emergency_stop_event.is_set():
             schedule.run_pending()
-            time.sleep(60)
+            time.sleep(1)
+            
+        if emergency_stop_event.is_set():
+            logger.critical("[Main] 🚨 EMERGENCY STOP EVENT TRIGGERED! Halting execution.")
+            tg.send("🚨 EMERGENCY STOP EVENT TRIGGERED!")
     except KeyboardInterrupt:
         tg.send("⏹️ Phone node shutdown.")
 
@@ -762,6 +815,7 @@ def main():
     parser.add_argument("--status",     action="store_true")
     parser.add_argument("--setup",      action="store_true")
     parser.add_argument("--node",       type=str)
+    parser.add_argument("--profile",    type=str, help="Instance profile (e.g. xm, metaquotes)")
     args = parser.parse_args()
 
     node             = args.node or detect_node()

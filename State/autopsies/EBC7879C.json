@@ -1,0 +1,21 @@
+{
+  "trade_id": "EBC7879C",
+  "symbol": "ETHUSDT",
+  "direction": "buy",
+  "r_multiple": -0.08,
+  "outcome": "exit_signal",
+  "entry_time": "2026-07-16T08:42:58.660486+00:00",
+  "close_time": "2026-07-16T08:44:50.382805+00:00",
+  "context": {
+    "day_of_week": "Thursday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 60
+  },
+  "llm_analysis": "Breakeven/small loss (-0.08R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-16T08:44:51.323495+00:00"
+}

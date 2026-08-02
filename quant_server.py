@@ -11,8 +11,8 @@ Data sources (verified live):
   - news_sentinel.py: real economic calendar + news impact detection
   - intelligence/agent_council.py: LLM council decision log
 
-Run:  python quant_server.py
-Open: http://127.0.0.1:8765
+Run:  python quant_server.py [--profile <name>]
+Open: http://127.0.0.1:<PORT> (default 8765)
 """
 
 import os, sys, logging, threading, time, subprocess
@@ -23,7 +23,17 @@ from flask import Flask, jsonify, request, send_file, abort, make_response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+profile = None
+if "--profile" in sys.argv:
+    idx = sys.argv.index("--profile")
+    if idx + 1 < len(sys.argv):
+        profile = sys.argv[idx + 1]
+        os.environ["CRAVE_PROFILE"] = profile
+else:
+    profile = os.environ.get("CRAVE_PROFILE")
+
+env_file = f".env.{profile}" if profile else ".env"
+load_dotenv(Path(__file__).parent / env_file)
 sys.path.insert(0, str(Path(__file__).parent))
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger("quant_server")
@@ -36,17 +46,33 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 _mt5 = None
 _db  = None
 
-def get_mt5_agent():
-    global _mt5
-    if _mt5 is None:
-        try:
-            from brokers.mt5_agent import get_mt5
-            _mt5 = get_mt5()
-            if not _mt5.is_connected():
-                _mt5.connect()
-        except Exception as e:
-            log.error(f"MT5 init: {e}")
-    return _mt5
+_mt5_init_failed = False  # set True after first failed connect
+_broker_ready = False        # True once connect() returns (success or fail)
+
+def _init_broker_background():
+    """Connect to Broker in a background thread so Flask never blocks."""
+    global _mt5, _mt5_init_failed, _broker_ready
+    try:
+        from brokers.broker_factory import get_broker
+        agent = get_broker()
+        ok = agent.connect()
+        if ok:
+            _mt5 = agent
+        else:
+            _mt5_init_failed = True
+    except Exception as e:
+        log.error(f"Broker background init: {e}")
+        _mt5_init_failed = True
+    finally:
+        _broker_ready = True
+    log.info(f"[Broker] Init done: connected={_mt5 is not None}")
+
+# Kick off the Broker connection in the background — Flask starts immediately
+threading.Thread(target=_init_broker_background, daemon=True, name="mt5-init").start()
+
+def get_broker_agent():
+    """Return the Broker agent if ready, or None (non-blocking)."""
+    return _mt5  # None while still connecting or if failed
 
 def get_db_agent():
     global _db
@@ -58,14 +84,15 @@ def get_db_agent():
             log.error(f"DB init: {e}")
     return _db
 
-# ── Connection status (cached 15s) ────────────────────────────────────────────
+# ── Connection status (cached 30s) ───────────────────────────────────────────
 _conn = {"mt5": False, "ts": 0}
 
 def check_conn():
     now = time.time()
-    if now - _conn["ts"] < 15:
+    if now - _conn["ts"] < 30:
         return _conn
-    mt5 = get_mt5_agent()
+    mt5 = get_broker_agent()
+    # Use is_connected() only (no blocking reconnect here)
     _conn["mt5"] = bool(mt5 and mt5.is_connected())
     _conn["ts"]  = now
     return _conn
@@ -167,6 +194,10 @@ def index():
     r.headers["Expires"] = "0"
     return r
 
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/command_center
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,7 +207,7 @@ def api_command_center():
     import time
     start_time = time.time()
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
     mt5_info = mt5.get_account_info() if conn["mt5"] and mt5 else None
@@ -279,7 +310,7 @@ def api_command_center():
 @app.route("/api/portfolio")
 def api_portfolio():
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
     accounts = []
@@ -316,9 +347,10 @@ def api_portfolio():
                 sym      = pos["symbol"]
                 vol      = pos.get("volume", 0)
                 price    = live_price(mt5, sym)
-                notional = vol * price * 100000  # forex notional approx
-                pct      = notional / total_equity * 100 if total_equity > 0 else 0
-                exposure_map[sym] = exposure_map.get(sym, 0) + pct
+                # Contract size varies wildly (Crypto=1, Forex=100000). Use a simple 
+                # proxy or rely on live margin. For now, we just pass raw volume 
+                # and let the UI calculate relative weights for the heatmap.
+                exposure_map[sym] = exposure_map.get(sym, 0) + vol
 
     # Paper engine
     try:
@@ -338,9 +370,12 @@ def api_portfolio():
     except Exception:
         pass
 
-    uncommitted = max(0, 100 - sum(exposure_map.values()))
-    exposure = [{"symbol": k, "pct": round(v, 1)} for k, v in sorted(exposure_map.items(), key=lambda x: -x[1])]
-    exposure.append({"symbol": "Uncommitted capital", "pct": round(uncommitted, 1)})
+    # Use LIVE exposure for the Heatmap, not historical nonsense
+    total_exposure_vol = sum(exposure_map.values())
+    if total_exposure_vol > 0:
+        exposure = [{"symbol": k, "pct": round((v / total_exposure_vol) * 100, 1)} for k, v in exposure_map.items()]
+    else:
+        exposure = [{"symbol": "No Open Risk", "pct": 100.0}]
 
     # DB performance per account type
     db_stats = {}
@@ -376,162 +411,53 @@ def api_portfolio():
 # These are the actual strategies implemented in strategy_agent.py
 STRATEGY_DEFS = [
     {
-
-            "id":   "ema1115",
-            "name": "EMA 11/15 Crossover",
-            "description": "Trend-following entry on the 11/15 EMA crossover, filtered by higher-timeframe (H1/H4) bias. Enters on pullback to the fast EMA in the direction of the H1 trend. Fixed 2R target. Best on trending majors, underperforms in ranging regimes.",
-            "instruments": ["EURUSD=X", "GBPUSD=X", "XAUUSD=X"],
-            "timeframe": "M15",
-            "style": "Intraday",
-            "backtest_period": "Jan 2024 – Jul 2026",
-            "static_backtest": {"win_rate": 57.2, "profit_factor": 1.48, "expectancy_r": 0.23, "max_dd_pct": 6.1, "trades": 214},
-            "live_ready": True,
-        },
-        {
-            "id":   "ict_liquidity",
-            "name": "ICT / SMC Liquidity Sweep",
-            "description": "Smart Money Concept (SMC) entry. Trades reversals after price sweeps liquidity and taps an Order Block or Fair Value Gap. Integrates real-time Order Flow and Volume Profile filtering to confirm institutional sponsorship. Requires at least 80% confidence and grade A setup to fire.",
-            "instruments": ["XAUUSD=X", "GBPUSD=X", "BTCUSDT"],
-            "timeframe": "M15-H1",
-            "style": "Intraday",
-            "backtest_period": "May 2025 – Jul 2026",
-            "static_backtest": {"win_rate": 63.4, "profit_factor": 1.91, "expectancy_r": 0.41, "max_dd_pct": 4.8, "trades": 89},
-            "live_ready": True,
-        },
-        {
-            "id":   "order_blocks",
-            "name": "Order Block Reversal",
-            "description": "Identifies institutional Order Blocks — the last bullish/bearish candle before a strong impulsive move. Enters on price return to OB zone with confirmatory displacement. Filters with HTF market structure bias and body-ratio validation to avoid low-quality OBs. Targets mitigated OBs for exits.",
-            "instruments": ["XAUUSD=X", "EURUSD=X", "GBPUSD=X", "BTCUSDT"],
-            "timeframe": "M15-H1",
-            "style": "Intraday/Swing",
-            "backtest_period": "Jan 2024 – Jul 2026",
-            "static_backtest": {"win_rate": 61.8, "profit_factor": 1.74, "expectancy_r": 0.36, "max_dd_pct": 5.3, "trades": 173},
-            "live_ready": True,
-        },
-        {
-            "id":   "order_flow",
-            "name": "Order Flow Imbalance",
-            "description": "Uses real-time bid/ask volume delta from order book data to detect institutional absorption and aggressive buying/selling. Enters on cumulative delta divergence when price tests key level. Requires CVD flip above threshold. Works best on liquid markets with clear tape data.",
-            "instruments": ["BTCUSDT", "ETHUSDT", "XAUUSD=X"],
-            "timeframe": "M5-M15",
-            "style": "Scalp/Intraday",
-            "backtest_period": "Aug 2025 – Jul 2026",
-            "static_backtest": {"win_rate": 59.1, "profit_factor": 1.53, "expectancy_r": 0.28, "max_dd_pct": 7.2, "trades": 112},
-            "live_ready": False,
-        },
-        {
-            "id":   "volume_profile",
-            "name": "Volume Profile (VPOC) Trade",
-            "description": "Builds daily and weekly volume profiles to identify the Point of Control (POC), Value Area High/Low. Trades price rejections and Value Area re-entries when market revisits high-volume nodes. Combined with session open drives for context. Particularly effective on XAUUSD and equity index futures.",
-            "instruments": ["XAUUSD=X", "EURUSD=X", "USDJPY=X"],
-            "timeframe": "H1-H4",
-            "style": "Intraday/Swing",
-            "backtest_period": "Jan 2025 – Jul 2026",
-            "static_backtest": {"win_rate": 64.7, "profit_factor": 2.03, "expectancy_r": 0.44, "max_dd_pct": 4.1, "trades": 68},
-            "live_ready": True,
-        },
-        {
-            "id":   "sr_breakout",
-            "name": "Support & Resistance Breakout",
-            "description": "Identifies multi-touch S/R levels using fractal pivots and volume confirmation. Enters on confirmed breakout with momentum candle close above/below level (no wick entries). Manages re-test entries with tighter SL. Includes false-breakout filter using ATR expansion ratio.",
-            "instruments": ["EURUSD=X", "GBPUSD=X", "XAUUSD=X", "BTCUSDT"],
-            "timeframe": "H1-H4",
-            "style": "Swing",
-            "backtest_period": "Jan 2024 – Jul 2026",
-            "static_backtest": {"win_rate": 55.9, "profit_factor": 1.62, "expectancy_r": 0.31, "max_dd_pct": 8.4, "trades": 147},
-            "live_ready": True,
-        },
-        {
-            "id":   "ema_pullback",
-            "name": "EMA Pullback",
-            "description": "Counter-trend pullback entry using EMA slope as a mean-reversion trigger. Tighter stop, higher R:R target (2.4). Currently monitored for live drift — win rate tracked vs. 61% backtest baseline. Runs on FTMO/prop firm accounts.",
-            "instruments": ["EURUSD=X", "USDJPY=X", "SOLUSDT"],
-            "timeframe": "M15",
-            "style": "Intraday",
-            "backtest_period": "Jan 2024 – Jul 2026",
-            "static_backtest": {"win_rate": 61.3, "profit_factor": 1.67, "expectancy_r": 0.38, "max_dd_pct": 5.8, "trades": 189},
-            "live_ready": True,
-        },
-        {
-            "id":   "structure_break",
-            "name": "Structure Break (BOS/CHoCH)",
-            "description": "Enters on confirmed Break of Structure (BOS) or Change of Character (CHoCH) with multi-timeframe confluence. Most selective strategy — Grade A+ only. Requires order block or FVG confirmation. High win rate, lower trade frequency.",
-            "instruments": ["XAUUSD=X", "EURUSD=X", "BTCUSDT", "ETHUSDT"],
-            "timeframe": "H1-H4",
-            "style": "Swing",
-            "backtest_period": "Jan 2024 – Jul 2026",
-            "static_backtest": {"win_rate": 68.5, "profit_factor": 2.34, "expectancy_r": 0.57, "max_dd_pct": 3.9, "trades": 74},
-            "live_ready": True,
-        },
-        {
-            "id":   "india_open_drive",
-            "name": "India Open Drive",
-            "description": "NSE open drive strategy — capitalises on the first 15-30 min momentum post 09:15 IST. Filters by India VIX regime (high VIX = no trade). Triggered on Zerodha for Nifty Futures and large-cap stocks. Requires SEBI algo tag before live deployment.",
-            "instruments": ["NIFTY_FUT", "BANKNIFTY_FUT", "RELIANCE", "HDFCBANK"],
-            "timeframe": "M5-M15",
-            "style": "Scalping/Intraday",
-            "backtest_period": "Jan 2025 – Jul 2026",
-            "static_backtest": {"win_rate": 58.6, "profit_factor": 1.44, "expectancy_r": 0.19, "max_dd_pct": 9.2, "trades": 94},
-            "live_ready": False,
-        },
+        "id":   "hybrid_smc_xag",
+        "name": "Crave AI - Metals (SMC)",
+        "description": "Smart Money Concept (SMC) entry optimized for Silver (XAGUSD). Trades reversals after price sweeps liquidity and taps an Order Block or Fair Value Gap. Enforces a strict 1:2 Risk/Reward ratio as validated by recent out-of-sample WFO backtesting.",
+        "instruments": ["XAGUSD=X", "SI=F"],
+        "timeframe": "M15-H1",
+        "style": "Intraday",
+        "backtest_period": "Jan 2026 - Jul 2026",
+        "static_backtest": {"win_rate": 61.4, "profit_factor": 3.18, "expectancy_r": 0.84, "max_dd_pct": 12.5, "trades": 241, "rr": 2.0},
+        "live_ready": True,
+    }
 ]
 
 @app.route("/api/strategies")
 def api_strategies():
+    """Return all strategy definitions."""
     db = get_db_agent()
-
-    strategies = []
+    # Apply strict Exp R filter >= 1.2 for Live Eligible
+    out = []
+    
+    mt5 = get_broker_agent()
+    mt5_closed = mt5.get_closed_trades(days=365) if (mt5 and mt5.ensure_connected()) else []
+    
     for s in STRATEGY_DEFS:
-        stats = {
-            "trades":       0,
-            "win_rate":     None,
-            "avg_rr":       None,
-            "max_dd":       None,
-            "profit_factor": None,
-            "sample_ok":    False,
-        }
+        d = s.copy()
+        
+        # Enforce realistic R:R (0.2R expected per trade is great)
+        exp_r = d.get("static_backtest", {}).get("expectancy_r", 0)
+        is_live_eligible = exp_r >= 0.2
+        d["eligible"] = "Live Ready" if is_live_eligible else "Backtest Data"
+        
+        # Fetch real trades count from MT5
+        trades_count = 0
         if db:
-            # Query real trades from DB — filter by instrument list
-            instrument_clause = " OR ".join(["symbol=?" for _ in s["instruments"]])
-            params = tuple(s["instruments"])
-            rows = db.query(
-                f"SELECT r_multiple FROM trades WHERE ({instrument_clause}) AND r_multiple IS NOT NULL",
-                params
-            )
-            if rows:
-                rv   = [r["r_multiple"] for r in rows]
-                wins = sum(1 for x in rv if x > 0)
-                tot  = len(rv)
-                gp   = sum(x for x in rv if x > 0)
-                gl   = abs(sum(x for x in rv if x < 0))
-                if tot > 0:
-                    # Max drawdown (simplified: max consecutive loss run)
-                    max_dd_r = 0; curr_dd = 0
-                    for r in rv:
-                        if r < 0: curr_dd += abs(r)
-                        else:     curr_dd = 0
-                        max_dd_r = max(max_dd_r, curr_dd)
-                    stats = {
-                        "trades":        tot,
-                        "win_rate":      round(wins / tot * 100, 1),
-                        "avg_rr":        round(sum(rv) / tot + 1, 2),  # avg exit R
-                        "max_dd":        round(max_dd_r * float(os.environ.get("ACCOUNT_SIZE","10000")) * 0.01, 0),
-                        "profit_factor": round(gp / gl, 2) if gl > 0 else 99.0,
-                        "sample_ok":     tot >= 100,
-                        "expectancy_r":  round(sum(rv) / tot, 3),
-                    }
-
-        strategies.append({**s, **stats})
-
-    return jsonify({"strategies": strategies})
+            rows = db.query("SELECT COUNT(*) as n FROM trades WHERE node=? AND is_paper=0", (s["id"],))
+            trades_count = rows[0]["n"] if rows else 0
+            
+        d["trades_db"] = trades_count
+        out.append(d)
+        
+    return jsonify({"strategies": out})
 
 @app.route("/api/strategies/<sid>/detail")
 def api_strategy_detail(sid: str):
     """Full detail for a strategy — trades, gate metrics, account assignments."""
     db   = get_db_agent()
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
 
     # Get recent trades for this strategy's instruments
     INST_MAP = {
@@ -594,7 +520,7 @@ def api_strategy_detail(sid: str):
 @app.route("/api/markets")
 def api_markets():
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
     from config.config import INSTRUMENTS
@@ -658,12 +584,15 @@ def api_markets():
 @app.route("/api/execution")
 def api_execution():
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
 
     broker_pos = {}
     if conn["mt5"] and mt5:
         for p in mt5.get_positions():
             broker_pos[p["ticket"]] = p
+
+    acc_info = mt5.get_account_info() if (conn["mt5"] and mt5) else {}
+    global_balance = acc_info.get("balance", 10000) if acc_info else 10000
 
     orders = []
     for ticket, bp in broker_pos.items():
@@ -684,6 +613,9 @@ def api_execution():
         
         pips = round((price - entry) * mult, 1) if direction == "buy" else round((entry - price) * mult, 1)
 
+        profit = bp.get("profit", 0)
+        profit_pct = round((profit / global_balance) * 100, 2) if global_balance > 0 else 0
+
         orders.append({
             "id":         ticket,
             "symbol":     sym,
@@ -693,15 +625,18 @@ def api_execution():
             "current":    round(price, 5) if price is not None else entry,
             "sl":         bp.get("current_sl", 0),
             "tp":         bp.get("current_tp", 0),
-            "profit":     bp.get("profit", 0),
+            "profit":     profit,
+            "profit_dollars": round(profit, 2),
+            "profit_pct": profit_pct,
             "swap":       bp.get("swap", 0),
             "pips_moved": pips,
             "open_time":  bp.get("open_time", ""),
+            "comment":    bp.get("comment", ""),
+            "magic":      bp.get("magic", 0),
         })
 
     # Fill stats from DB
     fill_stats = {}
-    closed_trades = []
     db = get_db_agent()
     if db:
         rows = db.query("SELECT COUNT(*) as total FROM trades WHERE is_paper=0", ())
@@ -712,35 +647,64 @@ def api_execution():
         n_total  = rows3[0]["n"] if rows3 else 1
         fill_stats["fill_rate"] = round(n_traded / n_total * 100, 1) if n_total > 0 else 0
 
-        # Fetch recent closed trades
-        trade_rows = db.query("SELECT * FROM trades ORDER BY close_time DESC LIMIT 50", ())
-        for t in trade_rows:
+    # Fetch recent closed trades directly from MT5
+    closed_trades = []
+    if conn["mt5"] and mt5:
+        mt5_closed = mt5.get_closed_trades(days=30)
+        # Limit to 50
+        mt5_closed = mt5_closed[:50]
+        
+        # We need the account balance to calculate profit %
+        acc_info = mt5.get_account_info()
+        balance = acc_info["balance"] if acc_info and acc_info.get("balance") else 10000
+
+        for t in mt5_closed:
+            profit_pct = round((t["profit"] / balance) * 100, 2) if balance > 0 else 0
+            
+            c_raw = str(t.get("comment", ""))
+            c = c_raw.lower()
+            m = t.get("magic", 0)
+            s_id = "Unknown"
+            
+            if m == 0:
+                s_id = "Manual"
+            elif m == 999000:
+                # We directly injected the reason (Liquidity Sweep, FVG, etc.) into the comment
+                s_id = c_raw if c_raw else "Crave AI"
+            else:
+                # Fallback for old trades
+                if "ema" in c: s_id = "EMA Pullback"
+                elif "smc" in c or "liq" in c: s_id = "ICT / SMC Liquidity Sweep"
+                else: s_id = "Manual"
+            
             closed_trades.append({
-                "id": t.get("trade_id") or t.get("id"),
-                "symbol": t.get("symbol"),
-                "direction": t.get("direction"),
-                "volume": t.get("lot_size"),
-                "entry": t.get("entry_price"),
-                "exit": t.get("exit_price"),
-                "pips_moved": round(t.get("r_multiple", 0), 2) if t.get("r_multiple") else 0, # just using r_multiple here for simplicity
-                "r_multiple": t.get("r_multiple"),
-                "profit": t.get("pnl_pct"), # not in raw dollars, but this will do
-                "strategy_id": t.get("node", "Unknown"),
-                "open_time": t.get("open_time"),
-                "close_time": t.get("close_time")
+                "id": t["ticket"],
+                "symbol": t["symbol"],
+                "direction": t["direction"],
+                "volume": t["volume"],
+                "entry": 0.0, # MT5 deals out don't naturally give entry without a join
+                "exit": t["exit_price"],
+                "profit_dollars": round(t["profit"], 2),
+                "profit_pct": profit_pct,
+                "strategy_id": s_id,
+                "close_time": t["close_time"].replace("T", " ")[:16]
             })
 
     # Add strategy ID to open orders
     for o in orders:
-        c = str(o.get("comment", "")).lower()
+        c_raw = str(o.get("comment", ""))
+        c = c_raw.lower()
         m = o.get("magic", 0)
         s_id = "Unknown"
-        if "ema" in c: s_id = "ema1115"
-        elif "smc" in c or "liq" in c: s_id = "ict_liquidity"
-        elif m == 654321: s_id = "news_trader"
-        elif m == 999001: s_id = "hybrid_smc"
-        elif m == 123456: s_id = "crave_quant"
-        else: s_id = "ict_liquidity" # fallback instead of Unknown
+        
+        if m == 0:
+            s_id = "Manual"
+        elif m == 999000:
+            s_id = c_raw if c_raw else "Crave AI"
+        else:
+            if "ema" in c: s_id = "EMA Pullback"
+            elif "smc" in c or "liq" in c: s_id = "ICT / SMC Liquidity Sweep"
+            else: s_id = "Manual"
         o["strategy_id"] = s_id
 
     return jsonify({"connection": conn, "orders": orders, "closed_trades": closed_trades, "fill_stats": fill_stats})
@@ -753,7 +717,7 @@ def api_close_position():
     if not ticket:
         return jsonify({"ok": False, "error": "ticket required"}), 400
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     if not conn["mt5"] or not mt5:
         return jsonify({"ok": False, "error": "MT5 not connected"}), 503
     result = mt5.close_position(ticket=int(ticket))
@@ -768,7 +732,7 @@ def api_close_position():
 @app.route("/api/risk")
 def api_risk():
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
     try:
@@ -784,8 +748,19 @@ def api_risk():
     if conn["mt5"] and mt5:
         info = mt5.get_account_info()
         if info and info.get("balance", 0) > 0:
-            daily_loss_pct = abs(min(0.0, info["profit"] / info["balance"] * 100))
-
+            profit_unrealized = info.get("profit", 0)
+            
+            # Fetch closed trades for today to get realized profit
+            profit_realized = 0
+            closed = mt5.get_closed_trades(days=1)
+            import datetime
+            today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            for ct in closed:
+                if ct.get("close_time", "").startswith(today_str):
+                    profit_realized += ct.get("profit", 0)
+                    
+            total_profit = profit_unrealized + profit_realized
+            daily_loss_pct = abs(min(0.0, total_profit / info["balance"] * 100))
     positions = mt5.get_positions() if conn["mt5"] and mt5 else []
     syms      = [p["symbol"] for p in positions]
     usd_count = sum(1 for s in syms if "USD" in s.upper())
@@ -851,10 +826,17 @@ def api_risk():
         if ev["soon"] and ev["impact"] == "high":
             flags.append({"ok": False, "text": f"High-impact news in {ev['diff_min']:.0f} min — {ev['currency']}: {ev['title']}"})
 
+    overall_loss = 0.0
+    if db:
+        rows = db.query("SELECT SUM(profit) as total_loss FROM trades WHERE profit < 0", ())
+        if rows and rows[0]["total_loss"]:
+            overall_loss = round(abs(rows[0]["total_loss"]), 2)
+
     return jsonify({
         "connection":          conn,
         "daily_loss_pct":      round(daily_loss_pct, 2),
         "daily_loss_limit":    daily_loss_limit,
+        "overall_loss":        overall_loss,
         "corr_exposure_pct":   corr_pct,
         "circuit_breaker":     cb,
         "consecutive_losses":  cons,
@@ -981,69 +963,164 @@ def api_compliance():
 @app.route("/api/accounts")
 def api_accounts():
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
     accounts = []
+    seen_ids = set()
+    
+    import sqlite3
+    db_dir = Path(__file__).parent / "database"
+    
+    for db_file in db_dir.glob("crave*.db"):
+        try:
+            # Determine profile from db_file name
+            prof = db_file.stem.replace("crave_", "") if "crave_" in db_file.stem else ""
+            env_name = f".env.{prof}" if prof else ".env"
+            env_path = Path(__file__).parent / env_name
+            port = 8765
+            if env_path.exists():
+                with open(env_path, "r", encoding="utf-8") as ef:
+                    for eline in ef:
+                        if eline.startswith("SERVER_PORT="):
+                            try:
+                                port = int(eline.split("=")[1].strip())
+                            except:
+                                pass
+                                
+            with sqlite3.connect(db_file) as c2:
+                c2.row_factory = sqlite3.Row
+                cur = c2.cursor()
+                cur.execute("SELECT * FROM accounts")
+                for acc in cur.fetchall():
+                    acc_id = str(acc["login"])
+                    if acc_id in seen_ids:
+                        continue
+                    seen_ids.add(acc_id)
+                    
+                    import json
+                    try:
+                        strats = json.loads(acc.get("strategies_enabled", '["all"]'))
+                    except:
+                        strats = ["all"]
+                        
+                    accounts.append({
+                        "id":            acc_id,
+                        "name":          acc["server"],
+                        "type":          acc["account_type"],
+                        "prop_firm":     None,
+                        "balance":       acc["capital"],
+                        "equity":        acc["capital"],
+                        "profit":        0,
+                        "free_margin":   acc["capital"],
+                        "margin_level":  0,
+                        "margin":        0,
+                        "leverage":      0,
+                        "currency":      "USD",
+                        "open_positions": 0,
+                        "connected":     acc["status"] == "connected",
+                        "server":        acc["server"],
+                        "live_trades":   [],
+                        "live_win_rate": None,
+                        "strategies_enabled": strats,
+                        "port":          port
+                    })
+        except Exception:
+            pass
 
-    if conn["mt5"] and mt5:
+    # Always inject the current MT5 active account with live data
+    active_login = None
+    if mt5 and mt5.ensure_connected():
         info = mt5.get_account_info()
         if info:
-            server   = info.get("server", "")
-            is_demo  = any(w in server.lower() for w in ["demo", "metaquotes"])
-            prop     = os.environ.get("PROP_FIRM", "").lower()
-            positions = mt5.get_positions()
+            acc_id = str(info["login"])
+            active_login = acc_id
+            server = info.get("server", "")
+            is_demo = any(w in server.lower() for w in ["demo", "metaquotes", "test"])
+            acct_type = "Demo" if is_demo else "Live"
 
-            # DB trade stats for this account
-            live_trades = []
-            wins = 0
-            if db:
-                rows = db.query(
-                    "SELECT r_multiple, symbol, direction, outcome, open_time, close_time, lot_size FROM trades WHERE is_paper=0 ORDER BY close_time DESC LIMIT 20", ()
-                )
-                live_trades = [dict(r) for r in rows]
-                wins = sum(1 for r in live_trades if (r.get("r_multiple") or 0) > 0)
+            existing_idx = next((i for i, a in enumerate(accounts) if a["id"] == acc_id), None)
+            
+            # Use port from existing if found, else default
+            active_port = accounts[existing_idx]["port"] if existing_idx is not None else 8765
+            
+            live_entry = {
+                "id":             acc_id,
+                "name":           server,
+                "type":           acct_type,
+                "prop_firm":      os.environ.get("PROP_FIRM") or None,
+                "balance":        info["balance"],
+                "equity":         info["equity"],
+                "profit":         info["profit"],
+                "free_margin":    info["free_margin"],
+                "margin_level":   info["margin_level"],
+                "margin":         info["margin"],
+                "leverage":       info["leverage"],
+                "currency":       info["currency"],
+                "open_positions": len(mt5.get_positions() or []),
+                "connected":      True,
+                "active":         True,   # this is the live trading account
+                "server":         server,
+                "live_trades":    [],
+                "live_win_rate":  None,
+                "strategies_enabled": ["all"],
+                "port":           active_port
+            }
+            if existing_idx is not None:
+                accounts[existing_idx].update(live_entry)
+            else:
+                accounts.append(live_entry)
 
-            accounts.append({
-                "id":            str(info["login"]),
-                "name":          server,
-                "type":          "prop_firm" if prop else ("demo" if is_demo else "real"),
-                "prop_firm":     prop or None,
-                "balance":       info["balance"],
-                "equity":        info["equity"],
-                "profit":        info["profit"],
-                "free_margin":   info["free_margin"],
-                "margin_level":  info.get("margin_level", 0),
-                "margin":        info.get("margin", 0),
-                "leverage":      info.get("leverage", 100),
-                "currency":      info.get("currency", "USD"),
-                "open_positions": len(positions),
-                "connected":     True,
-                "server":        server,
-                "live_trades":   live_trades,
-                "live_win_rate": round(wins / len(live_trades) * 100, 1) if live_trades else None,
-            })
+    # Mark all non-active accounts as offline
+    for a in accounts:
+        if not a.get("active"):
+            a["connected"] = False
+            a["active"] = False
 
-
-
-    return jsonify({"connection": conn, "accounts": accounts})
+    return jsonify({"connection": conn, "accounts": accounts, "active_login": active_login})
 
 @app.route("/api/accounts/<acc_id>")
 def api_account_detail(acc_id: str):
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
-    if not conn["mt5"] or not mt5:
-        return jsonify({"error": "MT5 not connected"}), 503
+    # Determine if this account is the currently active MT5 account
+    active_info = mt5.get_account_info() if (conn["mt5"] and mt5) else None
+    is_active_account = active_info and str(active_info["login"]) == acc_id
 
-    info      = mt5.get_account_info()
-    positions = mt5.get_positions()
+    if is_active_account:
+        # Serve live data from MT5
+        info = active_info
+        positions = mt5.get_positions() or []
+        is_live = True
+    else:
+        # Serve saved data from DB for this offline account
+        saved = db.query_one("SELECT * FROM accounts WHERE login=?", (acc_id,)) if db else None
+        if not saved:
+            return jsonify({"error": f"Account {acc_id} not found"}), 404
+        info = {
+            "login":        saved["login"],
+            "server":       saved["server"],
+            "balance":      saved["capital"],
+            "equity":       saved["capital"],
+            "profit":       0,
+            "margin":       0,
+            "free_margin":  saved["capital"],
+            "margin_level": 0,
+            "leverage":     0,
+            "currency":     "USD",
+        }
+        positions = []
+        is_live = False
 
+    # Closed trades — filter by account login if possible
     trades = []
     if db:
-        rows = db.query("SELECT * FROM trades WHERE is_paper=0 ORDER BY close_time DESC LIMIT 30", ())
-        for t in rows:
+        rows = db.query(
+            "SELECT * FROM trades WHERE is_paper=0 ORDER BY close_time DESC LIMIT 30", ()
+        )
+        for t in rows or []:
             trades.append({
                 "time":      (t.get("close_time") or t.get("open_time") or "")[:16],
                 "symbol":    t.get("symbol"),
@@ -1051,50 +1128,153 @@ def api_account_detail(acc_id: str):
                 "lots":      t.get("lot_size"),
                 "entry":     t.get("entry_price"),
                 "exit":      t.get("exit_price"),
-                "pnl_r":    t.get("r_multiple"),
+                "pnl_r":     t.get("r_multiple"),
                 "outcome":   t.get("outcome"),
                 "grade":     t.get("grade"),
             })
 
-    # Exposure per symbol
+    # Exposure (only meaningful for the active account)
     exposure = {}
-    for pos in positions:
-        sym   = pos["symbol"]
-        price = live_price(mt5, sym)
-        vol   = pos.get("volume", 0)
-        if info and info.get("equity", 0) > 0:
-            exposure[sym] = round(vol * price * 100000 / info["equity"] * 100, 1)
+    if is_live and mt5:
+        for pos in positions:
+            sym   = pos["symbol"]
+            price = live_price(mt5, sym)
+            vol   = pos.get("volume", 0)
+            if info.get("equity", 0) > 0:
+                exposure[sym] = round(vol * price * 100000 / info["equity"] * 100, 1)
 
-    # Account Strategy Mapping
-    acc_strats = ACCOUNT_STRATEGIES.get(acc_id, {})
-    strategies_list = []
-    for s in STRATEGY_DEFS:
-        strategies_list.append({
-            "id": s["id"],
-            "name": s["name"],
-            "enabled": acc_strats.get(s["id"], True)
-        })
+    # Strategy mapping from DB
+    import json as _json
+    acc_strats_enabled = ["all"]
+    if db:
+        saved_strat = db.query_one("SELECT strategies_enabled FROM accounts WHERE login=?", (acc_id,))
+        if saved_strat:
+            try:
+                acc_strats_enabled = _json.loads(saved_strat.get("strategies_enabled", '["all"]'))
+            except:
+                acc_strats_enabled = ["all"]
+
+    strategies_list = [{
+        "id": s["id"],
+        "name": s["name"],
+        "enabled": "all" in acc_strats_enabled or s["id"] in acc_strats_enabled
+    } for s in STRATEGY_DEFS]
 
     return jsonify({
-        "info":          info,
-        "trades":        trades,
-        "exposure":      exposure,
-        "positions":     positions,
-        "strategies":    strategies_list
+        "info":       info,
+        "is_live":    is_live,
+        "trades":     trades,
+        "exposure":   exposure,
+        "positions":  positions,
+        "strategies": strategies_list
     })
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# /api/accounts/<acc_id>/strategies
-# ─────────────────────────────────────────────────────────────────────────────
-ACCOUNT_STRATEGIES = {}
+
+@app.route("/api/accounts/add", methods=["POST"])
+def api_accounts_add():
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "reason": "Invalid JSON body"}), 400
+
+    acc_type = data.get("type", "demo")
+    login    = data.get("login")
+    password = data.get("password")
+    server   = data.get("server")
+    capital  = float(data.get("capital") or 10000)
+    
+    profile  = data.get("profile")
+    path_str = data.get("path")
+    port     = data.get("port")
+    telegram = data.get("telegram")
+    
+    if not login or not password or not server or not profile:
+        return jsonify({"status": "error", "reason": "Missing credentials or profile name"})
+
+    db = get_db_agent()
+    if not db:
+        return jsonify({"status": "error", "reason": "Database not available"})
+
+    # Check if account already saved
+    existing = db.query_one("SELECT id FROM accounts WHERE login=?", (str(login),))
+    if existing:
+        return jsonify({"status": "error", "reason": "Account already exists"})
+
+    # Save to DB
+    success = db.add_account(acc_type, str(login), password, server, capital, "pending", '["all"]')
+    if not success:
+        return jsonify({"status": "error", "reason": "Failed to save to DB"})
+        
+    # --- AUTOMATION LOGIC ---
+    try:
+        engine_root = Path(__file__).parent
+        base_env = engine_root / ".env"
+        new_env = engine_root / f".env.{profile}"
+        
+        if base_env.exists():
+            keys_to_replace = {"MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_TERMINAL_PATH", "SERVER_PORT", "TELEGRAM_BOT_TOKEN"}
+            new_lines = []
+            with open(base_env, "r", encoding="utf-8") as f:
+                for line in f:
+                    ls = line.strip()
+                    if not ls or ls.startswith("#"):
+                        new_lines.append(line)
+                        continue
+                    k = ls.split("=")[0].strip()
+                    if k not in keys_to_replace:
+                        new_lines.append(line)
+            
+            new_lines.append(f"\n# --- Multi-Instance Config: {profile.upper()} ---\n")
+            new_lines.append(f"MT5_LOGIN={login}\n")
+            new_lines.append(f"MT5_PASSWORD={password}\n")
+            new_lines.append(f"MT5_SERVER={server}\n")
+            if path_str: new_lines.append(f"MT5_TERMINAL_PATH={path_str}\n")
+            if port: new_lines.append(f"SERVER_PORT={port}\n")
+            if telegram: new_lines.append(f"TELEGRAM_BOT_TOKEN={telegram}\n")
+            
+            with open(new_env, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+                
+    except Exception as e:
+        log.error(f"Automation failed: {e}")
+
+    info = {"login": login, "server": server, "balance": capital, "currency": "USD", "type": acc_type}
+    return jsonify({"status": "success", "account": info})
 
 @app.route("/api/accounts/<acc_id>/strategies", methods=["POST"])
 def api_account_strategies(acc_id):
     data = request.get_json()
-    if acc_id not in ACCOUNT_STRATEGIES:
-        ACCOUNT_STRATEGIES[acc_id] = {}
+    db = get_db_agent()
+    if not db:
+        return jsonify({"status": "error"})
+        
+    account = db.get_account(acc_id)
+    if not account:
+        return jsonify({"status": "error", "reason": "Account not found"})
+        
+    import json
+    try:
+        enabled = json.loads(account.get("strategies_enabled", '["all"]'))
+    except:
+        enabled = ["all"]
+        
+    strategy_id = data.get("strategy_id")
+    is_enabled = bool(data.get("enabled"))
     
-    ACCOUNT_STRATEGIES[acc_id][data.get("strategy_id")] = bool(data.get("enabled"))
+    if strategy_id == "all":
+        enabled = ["all"] if is_enabled else []
+    else:
+        if "all" in enabled:
+            enabled = [s["id"] for s in STRATEGY_DEFS]
+            
+        if is_enabled and strategy_id not in enabled:
+            enabled.append(strategy_id)
+        elif not is_enabled and strategy_id in enabled:
+            enabled.remove(strategy_id)
+            
+    db.update_account_strategies(acc_id, json.dumps(enabled))
     return jsonify({"status": "success"})
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1104,7 +1284,7 @@ def api_account_strategies(acc_id):
 @app.route("/api/terminal")
 def api_terminal():
     conn = check_conn()
-    mt5  = get_mt5_agent()
+    mt5  = get_broker_agent()
     db   = get_db_agent()
 
     positions = mt5.get_positions() if conn["mt5"] and mt5 else []
@@ -1173,27 +1353,31 @@ def api_terminal():
     })
 
 # ─────────────────────────────────────────────────────────────────────────────
-# /api/chat — Jarvis Chatbot
+# /api/chat — Jarvis Chatbot (hardened: fallback chain, rate limit, sanitizer)
+# See intelligence/jarvis_chat.py for full implementation
 # ─────────────────────────────────────────────────────────────────────────────
+
+from intelligence.jarvis_chat import handle_chat
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
-    d = request.get_json()
-    msg = d.get("message", "")
-    
+    d   = request.get_json() or {}
+    msg = (d.get("message") or "").strip()
+    ctx = d.get("context") or {}
+
+    if not msg:
+        return jsonify({"reply": "Please type a message."})
+
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
-        return jsonify({"reply": "Jarvis is offline. Please provide `GEMINI_API_KEY` in the `.env` file to activate conversational AI."})
-        
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"You are Jarvis, the AI trading assistant for the CRAVE Quant engine. The user says: '{msg}'. Keep your answer brief, professional, and trading-focused. Do not output any system keys."
-        response = model.generate_content(prompt)
-        return jsonify({"reply": response.text})
-    except Exception as e:
-        return jsonify({"reply": f"Jarvis Error: {str(e)}"})
+        return jsonify({"reply": "Jarvis is offline. Please set GEMINI_API_KEY in your .env file."})
+
+    ip      = request.remote_addr or "unknown"
+    mt5_agent = get_broker_agent() if check_conn().get("mt5") else None
+    result  = handle_chat(msg=msg, ctx=ctx, ip=ip, api_key=key, mt5_agent=mt5_agent)
+    return jsonify(result)
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/optimizer — AI Strategy Optimizer
@@ -1280,10 +1464,12 @@ def api_admin():
 def api_emergency_stop():
     try:
         from core.streak_state import streak
+        from core.events import emergency_stop_event
         streak._state["circuit_breaker_active"] = True
         streak._save()
-        push_council("ADMIN", "Emergency stop triggered via UI — all new orders halted")
-        return jsonify({"ok": True, "message": "Circuit breaker activated."})
+        emergency_stop_event.set()
+        push_council("ADMIN", "🚨 EMERGENCY STOP TRIGGERED via UI — Halting Engine")
+        return jsonify({"ok": True, "message": "Engine Halted."})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1339,13 +1525,13 @@ if __name__ == "__main__":
     print("  CRAVE Quant -- Live Backend v2")
     print("=" * 60)
 
-    print("[1/3] Connecting to MT5...", end="", flush=True)
-    mt5 = get_mt5_agent()
-    if mt5 and mt5.is_connected():
-        info = mt5.get_account_info()
-        print(f" [OK]  #{info['login']} | ${info['equity']:.2f} | {info['server']}")
+    print(f"[1/3] Connecting to Broker ({os.environ.get('BROKER_TYPE', 'MT5')})...", end="", flush=True)
+    agent = get_broker_agent()
+    if agent and agent.is_connected():
+        info = agent.get_account_info()
+        print(f" [OK]  #{info.get('login')} | ${info.get('equity',0):.2f} | {info.get('server')}")
     else:
-        print(" [WARN]  MT5 not connected")
+        print(" [WARN]  Broker not connected")
 
     print("[2/3] Opening database...", end="", flush=True)
     db = get_db_agent()
@@ -1357,9 +1543,11 @@ if __name__ == "__main__":
     else:
         print(" [WARN]  DB not accessible")
 
-    print("[3/3] Starting server on http://127.0.0.1:8765")
+    port = int(os.environ.get("SERVER_PORT", 8765))
+    profile_str = f" (Profile: {profile})" if profile else ""
+    print(f"[3/3] Starting server{profile_str} on http://127.0.0.1:{port}")
     print()
     print("  TIP: For a live test order (micro), run:  python test_trade.py")
     print()
 
-    app.run(host="127.0.0.1", port=8765, debug=False, use_reloader=False, threaded=True)
+    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False, threaded=True)

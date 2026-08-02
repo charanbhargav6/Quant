@@ -1,0 +1,74 @@
+[
+  {
+    "type": "bad_session",
+    "description": "Loss during Asian session on BTCUSDT (-1.00R)",
+    "applies_to": {
+      "symbol": "BTCUSDT",
+      "direction": "*",
+      "session": "asian"
+    },
+    "confidence_adjustment": -5,
+    "weight": 0.8,
+    "created_at": "2026-07-22T05:21:36.355001+00:00"
+  },
+  {
+    "type": "winning_grade",
+    "description": "Strong win with grade B on SOLUSDT (+2.73R)",
+    "applies_to": {
+      "symbol": "SOLUSDT",
+      "direction": "sell",
+      "session": "asian"
+    },
+    "confidence_adjustment": 5,
+    "weight": 0.8,
+    "created_at": "2026-07-24T07:43:57.455753+00:00"
+  },
+  {
+    "type": "big_win",
+    "description": "Big win on SOLUSDT sell (+2.73R) during asian",
+    "applies_to": {
+      "symbol": "SOLUSDT",
+      "direction": "sell",
+      "session": "asian"
+    },
+    "confidence_adjustment": 8,
+    "weight": 1.0,
+    "created_at": "2026-07-24T07:43:57.455753+00:00"
+  },
+  {
+    "type": "winning_grade",
+    "description": "Strong win with grade A+ on SOLUSDT (+2.72R)",
+    "applies_to": {
+      "symbol": "SOLUSDT",
+      "direction": "sell",
+      "session": "london"
+    },
+    "confidence_adjustment": 5,
+    "weight": 0.8,
+    "created_at": "2026-07-24T13:59:27.525310+00:00"
+  },
+  {
+    "type": "big_win",
+    "description": "Big win on SOLUSDT sell (+2.72R) during london",
+    "applies_to": {
+      "symbol": "SOLUSDT",
+      "direction": "sell",
+      "session": "london"
+    },
+    "confidence_adjustment": 8,
+    "weight": 1.0,
+    "created_at": "2026-07-24T13:59:27.525310+00:00"
+  },
+  {
+    "type": "bad_session",
+    "description": "Loss during Asian session on BTCUSDT (-1.00R)",
+    "applies_to": {
+      "symbol": "BTCUSDT",
+      "direction": "*",
+      "session": "asian"
+    },
+    "confidence_adjustment": -5,
+    "weight": 0.8,
+    "created_at": "2026-07-27T13:07:15.092076+00:00"
+  }
+]

@@ -586,9 +586,10 @@ class NewsTrader:
     def _get_current_price(self, crave_symbol: str) -> Optional[float]:
         """Get live mid price."""
         try:
-            from brokers.mt5_agent import get_mt5
+            from brokers.broker_factory import get_broker
             import MetaTrader5 as mt5
-            agent = get_mt5()
+            # 1. MT5 agent via get_broker since this logic is generic
+            agent = get_broker()
             if not agent.ensure_connected():
                 return None
             mt5_sym = agent._map_symbol(crave_symbol)

@@ -1,0 +1,21 @@
+{
+  "trade_id": "DDE81E11",
+  "symbol": "XAUUSD=X",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-05T01:02:53.616919+00:00",
+  "close_time": "2026-07-05T05:50:06.152371+00:00",
+  "context": {
+    "day_of_week": "Sunday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 55
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-05T05:50:06.527531+00:00"
+}

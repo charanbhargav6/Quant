@@ -1,0 +1,21 @@
+{
+  "trade_id": "482C37F1",
+  "symbol": "ETHUSDT",
+  "direction": "buy",
+  "r_multiple": 0.02,
+  "outcome": "exit_signal",
+  "entry_time": "2026-07-16T08:47:10.898438+00:00",
+  "close_time": "2026-07-16T08:50:07.566095+00:00",
+  "context": {
+    "day_of_week": "Thursday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 80
+  },
+  "llm_analysis": "Small win (+0.02R). Could improve TP targeting.",
+  "lessons": [],
+  "analyzed_at": "2026-07-16T08:50:09.748593+00:00"
+}

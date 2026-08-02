@@ -1,0 +1,21 @@
+{
+  "trade_id": "6456399E",
+  "symbol": "RELIANCE",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-16T09:41:49.793350+00:00",
+  "close_time": "2026-07-18T08:12:48.060251+00:00",
+  "context": {
+    "day_of_week": "Thursday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 60
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-18T08:12:51.564554+00:00"
+}

@@ -1,0 +1,21 @@
+{
+  "trade_id": "F1EEAA9A",
+  "symbol": "ETHUSDT",
+  "direction": "buy",
+  "r_multiple": -0.48,
+  "outcome": "exit_signal",
+  "entry_time": "2026-07-27T05:59:03.977294+00:00",
+  "close_time": "2026-07-27T06:13:27.006502+00:00",
+  "context": {
+    "day_of_week": "Monday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 45
+  },
+  "llm_analysis": "Breakeven/small loss (-0.48R). SL may be too tight. Asian session losses are common \u2014 low volume.",
+  "lessons": [],
+  "analyzed_at": "2026-07-27T06:13:27.667666+00:00"
+}

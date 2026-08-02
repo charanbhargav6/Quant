@@ -1,0 +1,21 @@
+{
+  "trade_id": "7286D92E",
+  "symbol": "HDFCBANK",
+  "direction": "sell",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-21T03:00:52.470212+00:00",
+  "close_time": "2026-07-21T07:21:48.023974+00:00",
+  "context": {
+    "day_of_week": "Tuesday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A+",
+    "confidence": 90
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-21T07:21:48.450816+00:00"
+}

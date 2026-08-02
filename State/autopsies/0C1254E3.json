@@ -1,0 +1,21 @@
+{
+  "trade_id": "0C1254E3",
+  "symbol": "XAUUSD=X",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-05T05:51:22.788440+00:00",
+  "close_time": "2026-07-05T07:54:13.414126+00:00",
+  "context": {
+    "day_of_week": "Sunday",
+    "session": "asian",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "A",
+    "confidence": 55
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-05T07:54:13.463075+00:00"
+}

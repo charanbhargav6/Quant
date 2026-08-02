@@ -980,6 +980,18 @@ class TradingLoop:
         validated["exchange"]  = self._get_exchange_for(symbol)
         validated["node"]      = self._get_node_name()
 
+        # Derived reason for MT5 execution tab
+        if context.get("Liquidity_Sweep"):
+            validated["reason"] = "Liquidity Sweep"
+        elif context.get("Recent_FVGs"):
+            validated["reason"] = "FVG"
+        elif context.get("Order_Blocks"):
+            validated["reason"] = "Order Block"
+        elif context.get("Market_Structure"):
+            validated["reason"] = "Market Structure"
+        else:
+            validated["reason"] = "Crave AI"
+
         # ── Hybrid Execution: OB Limit Order Logic ────────────────────────
         # Detect the nearest Order Block boundary for precise limit entry.
         # Node-aware: AWS uses strict postOnly, local uses standard limits.
@@ -1039,6 +1051,15 @@ class TradingLoop:
                     f"[TradingLoop] ❌ COUNCIL REJECTED: {symbol} {direction.upper()} "
                     f"({council_result['approvals']}/6 approve) — {council_result['reasoning']}"
                 )
+                
+                try:
+                    from quant_server import push_council
+                    for v in council_result.get("votes", []):
+                        push_council(v["agent"], f"Vote: {v['vote'].upper()} | {v['reasoning']}")
+                    push_council("Director", f"Verdict: REJECTED | {council_result['reasoning']}")
+                except Exception as e:
+                    pass
+                    
                 self._log_signal(
                     symbol, "council_rejected", council_result["reasoning"],
                     confidence, grade_str, context if isinstance(context, dict) else {},
@@ -1056,6 +1077,14 @@ class TradingLoop:
                     f"[TradingLoop] ✅ COUNCIL APPROVED: {symbol} {direction.upper()} "
                     f"({council_result.get('approvals', 6)}/6 approve)"
                 )
+                
+                try:
+                    from quant_server import push_council
+                    for v in council_result.get("votes", []):
+                        push_council(v["agent"], f"Vote: {v['vote'].upper()} | {v['reasoning']}")
+                    push_council("Director", f"Verdict: APPROVED | {council_result['reasoning']}")
+                except Exception as e:
+                    pass
                 
                 # Apply dynamic SL/TP adjustments from the Director
                 sl_mult = council_result.get("sl_multiplier", 1.0)

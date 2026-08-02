@@ -164,6 +164,20 @@ CREATE TABLE IF NOT EXISTS streak_history (
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 
+-- ── Accounts (MT5) ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS accounts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_type    TEXT    NOT NULL,       -- prop, broker, demo
+    login           TEXT    NOT NULL,
+    password        TEXT    NOT NULL,
+    server          TEXT    NOT NULL,
+    capital         REAL,
+    status          TEXT    DEFAULT 'disconnected', -- connected, disconnected, error
+    strategies_enabled TEXT,                -- JSON list of enabled strategies
+    created_at      TEXT    DEFAULT (datetime('now')),
+    UNIQUE(login, server)
+);
+
 -- ── Indices for common queries ───────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_trades_symbol    ON trades(symbol);
 CREATE INDEX IF NOT EXISTS idx_trades_open_time ON trades(open_time);
@@ -189,6 +203,7 @@ class DatabaseManager:
         from config.config import DB_PATH
         self.db_path  = db_path or str(DB_PATH)
         self._local   = threading.local()   # thread-local connections
+        self._write_lock = threading.RLock() # global lock for queries
         self._init_db()
         logger.info(f"[DB] Initialised at {self.db_path}")
 
@@ -199,6 +214,7 @@ class DatabaseManager:
                 self.db_path,
                 detect_types=sqlite3.PARSE_DECLTYPES,
                 check_same_thread=False,
+                timeout=15.0  # Wait for locks instead of instant crash
             )
             self._local.conn.row_factory = sqlite3.Row   # dict-like rows
             self._local.conn.execute("PRAGMA journal_mode=WAL")   # better concurrency
@@ -208,10 +224,11 @@ class DatabaseManager:
 
     def _init_db(self):
         """Create all tables if they don't exist."""
-        conn = self._get_conn()
-        conn.executescript(SCHEMA_SQL)
-        conn.commit()
-        logger.info("[DB] Schema verified.")
+        with self._write_lock:
+            conn = self._get_conn()
+            conn.executescript(SCHEMA_SQL)
+            conn.commit()
+            logger.info("[DB] Schema verified.")
 
     # ─────────────────────────────────────────────────────────────────────────
     # GENERIC HELPERS
@@ -246,11 +263,59 @@ class DatabaseManager:
         return results[0] if results else None
 
     # ─────────────────────────────────────────────────────────────────────────
+    # ACCOUNTS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get_accounts(self) -> List[Dict]:
+        return self.query("SELECT * FROM accounts ORDER BY created_at ASC")
+
+    def get_account(self, account_id: int) -> Optional[Dict]:
+        return self.query_one("SELECT * FROM accounts WHERE id=?", (account_id,))
+
+    def add_account(self, acc_type: str, login: str, password: str, server: str, capital: float, status: str = 'disconnected', strategies: str = '[]') -> bool:
+        try:
+            self.execute("""
+                INSERT INTO accounts (account_type, login, password, server, capital, status, strategies_enabled)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (acc_type, login, password, server, capital, status, strategies))
+            return True
+        except Exception as e:
+            logger.error(f"[DB] add_account failed: {e}")
+            return False
+
+    def update_account_status(self, account_id: int, status: str) -> bool:
+        try:
+            self.execute("UPDATE accounts SET status=? WHERE id=?", (status, account_id))
+            return True
+        except Exception as e:
+            logger.error(f"[DB] update_account_status failed: {e}")
+            return False
+
+    def update_account_strategies(self, account_id: int, strategies: str) -> bool:
+        try:
+            self.execute("UPDATE accounts SET strategies_enabled=? WHERE id=?", (strategies, account_id))
+            return True
+        except Exception as e:
+            logger.error(f"[DB] update_account_strategies failed: {e}")
+            return False
+
+    def delete_account(self, account_id: int) -> bool:
+        try:
+            self.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+            return True
+        except Exception as e:
+            logger.error(f"[DB] delete_account failed: {e}")
+            return False
+
+    # ─────────────────────────────────────────────────────────────────────────
     # TRADES
     # ─────────────────────────────────────────────────────────────────────────
 
     def save_trade(self, trade: dict) -> bool:
         """Save a closed trade to the database."""
+        
+        # User requested zero dummy data to be stored.
+        trade_id = trade.get("trade_id", str(uuid.uuid4())[:8])
         try:
             self.execute("""
                 INSERT OR REPLACE INTO trades (
@@ -650,11 +715,13 @@ class DatabaseManager:
 # Import this anywhere:  from core.database_manager import db
 
 _db_instance: Optional[DatabaseManager] = None
+_db_lock = threading.Lock()
 
 def get_db() -> DatabaseManager:
     global _db_instance
-    if _db_instance is None:
-        _db_instance = DatabaseManager()
-    return _db_instance
+    with _db_lock:
+        if _db_instance is None:
+            _db_instance = DatabaseManager()
+        return _db_instance
 
 db = get_db()

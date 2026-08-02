@@ -1,0 +1,21 @@
+{
+  "trade_id": "F05F96BB",
+  "symbol": "GBPUSD=X",
+  "direction": "sell",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-28T15:51:19.016820+00:00",
+  "close_time": "2026-07-29T07:43:17.143943+00:00",
+  "context": {
+    "day_of_week": "Tuesday",
+    "session": "ny",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 40
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-29T07:43:27.779359+00:00"
+}

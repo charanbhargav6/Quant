@@ -1,0 +1,21 @@
+{
+  "trade_id": "9CE9E884",
+  "symbol": "RELIANCE",
+  "direction": "buy",
+  "r_multiple": 0.0,
+  "outcome": "stale_force_close",
+  "entry_time": "2026-07-21T07:38:36.426249+00:00",
+  "close_time": "2026-07-22T03:01:19.501460+00:00",
+  "context": {
+    "day_of_week": "Tuesday",
+    "session": "london",
+    "news_sentiment": "neutral",
+    "dxy_trend": "unknown",
+    "regime": "unknown",
+    "grade": "B",
+    "confidence": 50
+  },
+  "llm_analysis": "Breakeven/small loss (+0.00R). SL may be too tight.",
+  "lessons": [],
+  "analyzed_at": "2026-07-22T03:01:20.298807+00:00"
+}
