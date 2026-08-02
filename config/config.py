@@ -1007,6 +1007,36 @@ def get_spike_threshold(symbol: str) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SINGLE SOURCE OF TRUTH — effective confidence gate (v11.3 fix)
+# ─────────────────────────────────────────────────────────────────────────────
+# PROBLEM THIS FIXES:
+#   Two independent confidence-gate systems existed:
+#     1. ASSET_PARAMS[asset_class]["min_conf"]   (int, 0-100)  — used by BOTH
+#        backtesting/backtest_agent.py AND core/trading_loop.py
+#     2. CONFIDENCE_GATES[symbol]                (float, 0-1)  — used ONLY by
+#        core/trading_loop.py (as `CONFIDENCE_GATES.get(...) * 100`)
+#   trading_loop.py combines them: min_conf = max(asset_min_conf, gate*100).
+#   backtest_agent.py NEVER reads CONFIDENCE_GATES at all — it only checks
+#   ASSET_PARAMS.min_conf. That means a backtest can "approve" a symbol at a
+#   confidence threshold the live bot would never actually accept, and there
+#   was no single place to look to know what threshold is really in force.
+#
+# FIX: one function both call sites should use. Backtest code should be
+# updated to call this instead of reading ASSET_PARAMS["min_conf"] directly.
+def get_effective_min_confidence(symbol: str) -> float:
+    """
+    Returns the ACTUAL confidence gate that will be enforced for `symbol`,
+    combining both legacy sources so live and backtest can never silently
+    diverge again. This is the only function that should be used to answer
+    "what confidence does this symbol need to trade" anywhere in the codebase.
+    """
+    asset_p = get_asset_params(symbol)
+    asset_min_conf = asset_p.get("min_conf", 50)
+    inst_conf_gate = CONFIDENCE_GATES.get(symbol, CONFIDENCE_GATES.get("default", 0.50)) * 100
+    return max(asset_min_conf, inst_conf_gate)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ASSET CLASS PARAMETERS — Shared between backtest and live trading
 # Sweep-optimized on 90d hourly data (2026-05-04).
 # ─────────────────────────────────────────────────────────────────────────────

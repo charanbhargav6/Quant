@@ -225,8 +225,19 @@ class StrategyAgent:
         current_low   = df.iloc[i]['low']
         active = []
 
+        # LOOK-AHEAD FIX (v9.4): an OB at `formed_at` is only classified as an OB
+        # because of the impulse move measured over candles
+        # formed_at+1 .. formed_at+3 (see _build_ob_catalog). That means the OB
+        # cannot be considered "known" in real time until candle formed_at+3 has
+        # CLOSED. The old guard (`formed_at >= i`) let a backtest query at index i
+        # see OBs whose confirming impulse candles were still in the future
+        # relative to i, inflating OB-driven confidence/backtest results.
+        # Live trading never hit this because future candles genuinely don't
+        # exist yet — this only mattered for the backtest replay path.
+        OB_CONFIRM_LAG = 3
+
         for ob in catalog:
-            if ob['formed_at'] >= i:
+            if ob['formed_at'] + OB_CONFIRM_LAG >= i:
                 continue
 
             candles_since = df.iloc[ob['formed_at']:i]
