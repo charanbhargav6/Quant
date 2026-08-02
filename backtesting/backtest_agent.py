@@ -121,7 +121,7 @@ def _wilder_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 # ASSET CLASS PARAMETERS — imported from shared config (single source of truth)
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    from config.config import ASSET_PARAMS, get_asset_params
+    from config.config import ASSET_PARAMS, get_asset_params, get_effective_min_confidence
 except ImportError:
     # Fallback for standalone use
     ASSET_PARAMS = {
@@ -142,6 +142,12 @@ except ImportError:
         if t in CRYPTO_TICKERS:   return ASSET_PARAMS["crypto"]
         return ASSET_PARAMS["default"]
 
+    def get_effective_min_confidence(ticker: str) -> float:
+        # Standalone fallback: no CONFIDENCE_GATES available, so this can only
+        # be as good as ASSET_PARAMS.min_conf. Real runs should always hit the
+        # `try` branch above and use config.config's real CONFIDENCE_GATES too.
+        return get_asset_params(ticker).get("min_conf", 50)
+
 FOREX_PAIRS    = {"EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X",
                   "USDCHF=X", "NZDUSD=X", "EURJPY=X", "GBPJPY=X"}
 CRYPTO_TICKERS = {"BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "XRP-USD"}
@@ -161,6 +167,40 @@ R_BY_OUTCOME = {
     "tp2_via_tp1":  1.5,
     "tp2":          2.0,
 }
+
+
+def _in_kill_zone(ts, symbol: str) -> bool:
+    """
+    v11.3 ADDITION: the backtest previously fired signals on every candle,
+    24/7, while btest.md claimed a 'London/NY session filter' that was never
+    actually enforced here. This lets a backtest run be honest about session
+    restriction — pass enforce_kill_zones=True to run_backtest() to only
+    count signals inside the same KILL_ZONES windows config.py defines for
+    live trading.
+    """
+    try:
+        from config.config import KILL_ZONES
+        import pandas as pd
+        t = pd.Timestamp(ts)
+        if t.tzinfo is None:
+            t = t.tz_localize("UTC")
+        else:
+            t = t.tz_convert("UTC")
+        hhmm = t.strftime("%H:%M")
+        for zone in KILL_ZONES.values():
+            insts = zone.get("instruments", "all")
+            if insts != "all" and symbol not in insts:
+                continue
+            start, end = zone["start_utc"], zone["end_utc"]
+            if start <= end:
+                if start <= hhmm <= end:
+                    return True
+            else:  # wraps midnight (e.g. Asian session)
+                if hhmm >= start or hhmm <= end:
+                    return True
+        return False
+    except Exception:
+        return True  # fail open rather than silently zero out a whole run
 
 
 class BacktestAgent:
@@ -259,7 +299,8 @@ class BacktestAgent:
 
     def run_backtest(self, symbol: str, days: int = 30, timeframe: str = "1h",
                      min_confidence: int = 40,
-                     risk_per_trade: float = DEFAULT_RISK_PER_TRADE) -> dict:
+                     risk_per_trade: float = DEFAULT_RISK_PER_TRADE,
+                     enforce_kill_zones: bool = False) -> dict:
         """
         Walk-forward backtest with asset-specific parameters and proper warmup.
 
@@ -375,9 +416,16 @@ class BacktestAgent:
 
                 direction = "buy" if macro_trend == "Bullish" else "sell"
 
+            # ── Optional session/kill-zone filter (v11.3) ──
+            if enforce_kill_zones and not _in_kill_zone(df.iloc[i-1]['time'], ticker):
+                continue
+
             # ── Per-asset confidence and grade filtering ──
-            asset_min_conf = asset_p.get("min_conf", min_confidence)
-            effective_min_conf = max(min_confidence, asset_min_conf)
+            # v11.3 FIX: previously only checked ASSET_PARAMS.min_conf, so a
+            # symbol could "pass" backtest at a confidence the live bot's
+            # CONFIDENCE_GATES would actually reject. get_effective_min_confidence
+            # is the same function trading_loop.py uses live — one source of truth.
+            effective_min_conf = max(min_confidence, get_effective_min_confidence(ticker))
             if confidence < effective_min_conf:
                 continue
 
