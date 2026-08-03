@@ -311,7 +311,8 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                       enforce_kill_zones: bool = False,
                       approximate_bias_gate: bool = True,
                       require_mtf_confluence: bool = True,
-                      lookahead_candles: int = 200) -> dict:
+                      lookahead_candles: int = 200,
+                      random_baseline: bool = False) -> dict:
         ticker = resolve_symbol(symbol)
         asset_p = get_asset_params(ticker)
         sl_mult = asset_p["sl_mult"]
@@ -321,7 +322,8 @@ class HybridVerifyBacktestAgent(BacktestAgent):
         is_gold = ticker in ("GC=F", "XAUUSD=X")
 
         # ── Fetch 15m data (matches live trading_loop.py's entry timeframe) ──
-        warmup_extra_days = 60
+        # yfinance limits 15m data to 60 days total.
+        warmup_extra_days = max(5, min(30, 59 - days)) if days < 59 else 0
         df = self.fetch_data_yfinance(symbol, days, "15m", warmup_extra_days=warmup_extra_days)
         if df is None or len(df) < 400:
             return {"error": f"Not enough 15m data for {display_name(ticker)}. "
@@ -384,6 +386,10 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                     skipped["unknown_trend"] += 1
                     continue
                 direction = "buy" if macro_trend == "Bullish" else "sell"
+
+            if random_baseline:
+                import random
+                direction = random.choice(["buy", "sell"])
 
             if enforce_kill_zones and not _in_kill_zone(ts, ticker):
                 skipped["kill_zone"] += 1
@@ -469,7 +475,7 @@ class HybridVerifyBacktestAgent(BacktestAgent):
 
         return {
             "Symbol": display_name(ticker), "Asset_Class": asset_label,
-            "Strategy": "HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py)",
+            "Strategy": "Random Baseline (Coin-flip direction)" if random_baseline else "HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py)",
             "Period_Days": days, "Timeframe": "15m",
             "Gates_Applied": {
                 "kill_zone": enforce_kill_zones,
@@ -490,6 +496,15 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             "_trades": trade_details,
             "_r_multiples": r_multiples,
         }
+
+    def run_random_baseline(self, symbol: str, days: int = 90, **kwargs) -> dict:
+        """
+        Runs the exact same backtest but replaces the strategy's directional
+        signal with a random coin-flip (buy/sell). This establishes a baseline
+        expectancy for the partial-booking exit model itself.
+        """
+        kwargs["random_baseline"] = True
+        return self.run_backtest(symbol, days=days, **kwargs)
 
     # ─────────────────────────────────────────────────────────────────────
     # WALK-FORWARD: split into K non-overlapping folds, score each

@@ -237,6 +237,7 @@ class BacktestAgent:
             # Map days to valid yfinance period
             if days_to_fetch <= 5: period_str = "5d"
             elif days_to_fetch <= 30: period_str = "1mo"
+            elif days_to_fetch <= 60: period_str = "60d"
             elif days_to_fetch <= 90: period_str = "3mo"
             elif days_to_fetch <= 180: period_str = "6mo"
             elif days_to_fetch <= 365: period_str = "1y"
