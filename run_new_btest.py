@@ -32,23 +32,23 @@ def run_all():
                 f.write(f"## {sym}\n\n")
                 
                 # 1. Random Baseline
-                print(f"  -> Random Baseline (60 days)...", flush=True)
-                base_report = agent.run_random_baseline(sym, days=60, enforce_kill_zones=True)
-                f.write("### 1. Random Baseline (60 days)\n```text\n")
+                print(f"  -> Random Baseline (45 days)...", flush=True)
+                base_report = agent.run_random_baseline(sym, days=45, enforce_kill_zones=True)
+                f.write("### 1. Random Baseline (45 days)\n```text\n")
                 f.write(agent.format_report(base_report))
                 f.write("\n```\n\n")
                 
                 # 2. Real Strategy
-                print(f"  -> Real Strategy (60 days)...", flush=True)
-                real_report = agent.run_backtest(sym, days=60, enforce_kill_zones=True)
-                f.write("### 2. Real Strategy (60 days)\n```text\n")
+                print(f"  -> Real Strategy (45 days)...", flush=True)
+                real_report = agent.run_backtest(sym, days=45, enforce_kill_zones=True)
+                f.write("### 2. Real Strategy (45 days)\n```text\n")
                 f.write(agent.format_report(real_report))
                 f.write("\n```\n\n")
                 
                 # 3. Walk Forward
-                print(f"  -> Walk Forward (60 days, 3 folds)...", flush=True)
-                wf = agent.run_walk_forward(sym, total_days=60, folds=3, enforce_kill_zones=True)
-                f.write("### 3. Walk-Forward Validation (60 days, 3 folds)\n```text\n")
+                print(f"  -> Walk Forward (45 days, 3 folds)...", flush=True)
+                wf = agent.run_walk_forward(sym, total_days=45, folds=3, enforce_kill_zones=True)
+                f.write("### 3. Walk-Forward Validation (45 days, 3 folds)\n```text\n")
                 f.write(agent.format_walk_forward(wf))
                 f.write("\n```\n\n")
                 f.flush()
