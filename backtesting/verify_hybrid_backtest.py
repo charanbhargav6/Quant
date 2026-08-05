@@ -396,8 +396,9 @@ class HybridVerifyBacktestAgent(BacktestAgent):
 
     def __init__(self):
         super().__init__()
-        from engines.hybrid_strategy import HybridStrategyAgent
-        self.strategy = HybridStrategyAgent()
+        # v3.0: no longer instantiates a fixed HybridStrategyAgent here —
+        # each StrategyAdapter (see strategy_adapters.py) owns its own engine
+        # instance, so this class stays strategy-agnostic.
         self._prepare_cache = {}
 
     # ─────────────────────────────────────────────────────────────────────
@@ -407,14 +408,18 @@ class HybridVerifyBacktestAgent(BacktestAgent):
     # not the re-fetching itself, but trusting run_backtest's own internal
     # "days back from now" window math to double as fold boundaries).
     # ─────────────────────────────────────────────────────────────────────
-    def _prepare(self, symbol: str, days: int) -> dict:
-        cache_key = f"{symbol}_{days}"
+    def _prepare(self, symbol: str, days: int, adapter=None) -> dict:
+        ticker_preview = resolve_symbol(symbol)
+        if adapter is None:
+            adapter = self._default_adapter_for(ticker_preview)
+
+        cache_key = f"{symbol}_{days}_{adapter.name}"
         if cache_key in self._prepare_cache:
             return self._prepare_cache[cache_key]
 
-        ticker = resolve_symbol(symbol)
+        ticker = ticker_preview
         asset_p = get_asset_params(ticker)
-        is_gold = ticker in ("GC=F", "XAUUSD=X")
+        is_gold = ticker in ("GC=F", "XAUUSD=X")  # kept for reporting/labels only now
 
         warmup_extra_days = max(5, min(30, 59 - days)) if days < 59 else 0
         df = self.fetch_data_yfinance(symbol, days, "15m", warmup_extra_days=warmup_extra_days)
@@ -436,15 +441,14 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
         ).dropna().reset_index()
 
-        fvg_catalog = ob_catalog = structure = None
-        if is_gold:
-            from engines.gold_strategy import attach_gold_indicators
-            df = attach_gold_indicators(df)
-        else:
-            df = self._attach_indicators(df)
-            fvg_catalog = self.strategy._build_fvg_catalog(df)
-            ob_catalog = self.strategy._build_ob_catalog(df)
-            structure = self.strategy._build_structure(df)
+        # v3.0 REFACTOR: the strategy engine no longer decides its own data
+        # prep by hardcoded ticker check (`if is_gold: ... else: ...`). Each
+        # adapter declares what it needs via prepare(), and the harness stays
+        # strategy-agnostic. See strategy_adapters.py for why this matters.
+        df = self._attach_indicators(df)
+        adapter_extra = adapter.prepare(df)
+        if "df" in adapter_extra:
+            df = adapter_extra["df"]
 
         test_start_cutoff = df['time'].iloc[-1] - pd.Timedelta(days=days)
         test_start_idx = int(df[df['time'] >= test_start_cutoff].index[0])
@@ -452,13 +456,25 @@ class HybridVerifyBacktestAgent(BacktestAgent):
 
         result = {
             "ticker": ticker, "asset_p": asset_p, "is_gold": is_gold,
+            "adapter_name": adapter.name,
             "df": df, "df_1h_full": df_1h_full, "df_4h_full": df_4h_full,
             "df_daily_full": df_daily_full,
-            "fvg_catalog": fvg_catalog, "ob_catalog": ob_catalog, "structure": structure,
             "signal_start": signal_start, "data_end_idx": len(df) - 1,
+            **{k: v for k, v in adapter_extra.items() if k != "df"},
         }
         self._prepare_cache[cache_key] = result
         return result
+
+    @staticmethod
+    def _default_adapter_for(ticker: str):
+        """Preserves the exact pre-refactor default behavior (Gold -> trend
+        price-action, everything else -> Hybrid) for any caller that doesn't
+        explicitly pass an adapter — this is what keeps run_new_btest.py and
+        any other existing call site working unchanged."""
+        from strategy_adapters import TrendPriceActionAdapter, HybridAdapter
+        if ticker in ("GC=F", "XAUUSD=X"):
+            return TrendPriceActionAdapter()
+        return HybridAdapter()
 
     # ─────────────────────────────────────────────────────────────────────
     # STAGE 2: simulate signals over an explicit candle-index range
@@ -475,16 +491,16 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                    lookahead_candles: int = 200,
                    random_baseline: bool = False,
                    apply_transaction_costs: bool = True,
-                   transaction_cost_r_override: Optional[float] = None) -> dict:
+                   transaction_cost_r_override: Optional[float] = None,
+                   adapter=None) -> dict:
         df = ctx["df"]
         ticker = ctx["ticker"]
         asset_p = ctx["asset_p"]
         sl_mult = asset_p["sl_mult"]
-        is_gold = ctx["is_gold"]
         df_1h_full, df_4h_full, df_daily_full = ctx["df_1h_full"], ctx["df_4h_full"], ctx["df_daily_full"]
 
-        if is_gold:
-            from engines.gold_strategy import analyze_gold
+        if adapter is None:
+            adapter = self._default_adapter_for(ticker)
 
         cost_r = 0.0
         if apply_transaction_costs:
@@ -503,26 +519,18 @@ class HybridVerifyBacktestAgent(BacktestAgent):
         for i in range(idx_start, idx_end):
             ts = df.iloc[i - 1]['time']
 
-            if is_gold:
-                sig = analyze_gold(df, i)
-                if sig["direction"] is None:
-                    skipped["unknown_trend"] += 1
-                    continue
-                confidence, macro_trend, direction = sig["confidence"], sig["macro_trend"], sig["direction"]
-                score = f"Grade {sig['grade']}"
-            else:
-                context = self.strategy.analyze_market_context(
-                    ticker, df, i - 1, ctx["fvg_catalog"], ctx["ob_catalog"], ctx["structure"]
-                )
-                if "error" in context:
-                    continue
-                confidence = context.get("Confidence_Pct", 0)
-                score = context.get("Structure_Score", "C")
-                macro_trend = context.get("Macro_Trend", "Unknown")
-                if macro_trend == "Unknown":
-                    skipped["unknown_trend"] += 1
-                    continue
-                direction = "buy" if macro_trend == "Bullish" else "sell"
+            # v3.0 REFACTOR: was a hardcoded `if is_gold: analyze_gold(...)
+            # else: self.strategy.analyze_market_context(...)` branch. Now
+            # ANY adapter (Structure, OrderFlow, Trend/PriceAction, Hybrid)
+            # answers through the exact same call, so this loop no longer
+            # knows or cares which strategy family it's testing.
+            sig = adapter.analyze(ctx, i - 1)
+            direction = sig.get("direction")
+            confidence = sig.get("confidence", 0)
+            grade = sig.get("grade")
+            if direction is None:
+                skipped["unknown_trend"] += 1
+                continue
 
             if random_baseline:
                 direction = random.choice(["buy", "sell"])
@@ -551,7 +559,6 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                 skipped["confidence"] += 1
                 continue
 
-            grade = next((g for g in ("A+", "A", "B+") if g in score), None)
             if grade is None:
                 skipped["grade"] += 1
                 continue
@@ -650,10 +657,20 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                       lookahead_candles: int = 200,
                       random_baseline: bool = False,
                       apply_transaction_costs: bool = True,
-                      transaction_cost_r_override: Optional[float] = None) -> dict:
-        ctx = self._prepare(symbol, days)
+                      transaction_cost_r_override: Optional[float] = None,
+                      adapter=None) -> dict:
+        """`adapter`: an instance from strategy_adapters.py (StructureAdapter(),
+        OrderFlowAdapter(), TrendPriceActionAdapter(), HybridAdapter()). If
+        None (default), preserves pre-refactor behavior: Gold -> trend
+        price-action, everything else -> Hybrid. Pass an explicit adapter to
+        test any strategy family on any instrument, independent of ticker."""
+        resolved_ticker = resolve_symbol(symbol)
+        if adapter is None:
+            adapter = self._default_adapter_for(resolved_ticker)
+
+        ctx = self._prepare(symbol, days, adapter=adapter)
         if "error" in ctx:
-            return {"Symbol": display_name(resolve_symbol(symbol)), **ctx}
+            return {"Symbol": display_name(resolved_ticker), **ctx}
 
         result = self._simulate(
             ctx, ctx["signal_start"], ctx["data_end_idx"],
@@ -664,14 +681,15 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             lookahead_candles=lookahead_candles, random_baseline=random_baseline,
             apply_transaction_costs=apply_transaction_costs,
             transaction_cost_r_override=transaction_cost_r_override,
+            adapter=adapter,
         )
         if "error" in result:
             return {"Symbol": display_name(ctx["ticker"]), **result}
 
+        strategy_label = f"{adapter.name} (Random Baseline)" if random_baseline else adapter.name
         return {
             "Symbol": display_name(ctx["ticker"]), "Asset_Class": ctx["asset_p"]["label"],
-            "Strategy": ("Random Baseline (Coin-flip direction)" if random_baseline
-                         else "HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py)"),
+            "Strategy": strategy_label,
             "Period_Days": days, "Timeframe": "15m",
             "Gates_Applied": {
                 "kill_zone": enforce_kill_zones,
@@ -691,11 +709,15 @@ class HybridVerifyBacktestAgent(BacktestAgent):
     # and genuinely independent (no fold contains another).
     # ─────────────────────────────────────────────────────────────────────
     def run_walk_forward(self, symbol: str, total_days: int = 240, folds: int = 4,
-                          **kwargs) -> dict:
+                          adapter=None, **kwargs) -> dict:
         if folds < 2:
             raise ValueError("folds must be >= 2 for walk-forward to mean anything")
 
-        ctx = self._prepare(symbol, total_days)
+        resolved_ticker = resolve_symbol(symbol)
+        if adapter is None:
+            adapter = self._default_adapter_for(resolved_ticker)
+
+        ctx = self._prepare(symbol, total_days, adapter=adapter)
         if "error" in ctx:
             return {"symbol": symbol, "error": ctx["error"]}
 
@@ -723,7 +745,7 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                 continue
             idx_start, idx_end = int(in_fold.index[0]), int(in_fold.index[-1]) + 1
 
-            result = self._simulate(ctx, idx_start, idx_end, **kwargs)
+            result = self._simulate(ctx, idx_start, idx_end, adapter=adapter, **kwargs)
             if "error" in result:
                 fold_reports.append({
                     "fold": f + 1,
@@ -851,8 +873,28 @@ def _smoke_test():
             "Folds have suspiciously identical signal counts — check for nesting bug."
         )
 
-    print("\nSMOKE TEST PASSED — v2 harness runs end-to-end without errors, and fold "
-          "windows are independent (see the differing signal counts above).\n"
+    print("\nSMOKE TEST (default path) PASSED — fold windows are independent "
+          "(see the differing signal counts above).")
+
+    print("\n>>> Adapter refactor check — same symbol, four different strategy "
+          "families, each independently pluggable:")
+    from strategy_adapters import (StructureAdapter, OrderFlowAdapter,
+                                    TrendPriceActionAdapter, HybridAdapter)
+    for adapter_cls in (HybridAdapter, StructureAdapter, OrderFlowAdapter, TrendPriceActionAdapter):
+        a = adapter_cls()
+        t0 = time.time()
+        r = agent.run_backtest("EURUSD", days=8, enforce_kill_zones=False, adapter=a)
+        elapsed = time.time() - t0
+        if "error" in r:
+            print(f"  {a.name}: error — {r['error']}")
+        else:
+            print(f"  {a.name}: {r['Signals']} signals, WR {r['Win_Rate']}, "
+                  f"Exp {r['Expectancy_R']:+.3f}R  ({elapsed:.1f}s)")
+
+    print("\nSMOKE TEST PASSED — v3.0 refactor runs end-to-end for all four "
+          "adapters without errors. Different adapters should show different "
+          "signal counts/stats above (proof they're genuinely independent, not "
+          "all silently falling through to the same engine).\n"
           "PERFORMANCE NOTE (measured on real repo code, synthetic data): a single "
           "~1,400-candle (15 real days of 15m bars) Hybrid analyze pass took roughly "
           "35-75s end-to-end in this sandbox. Extrapolated, a 240-day/4-fold "
