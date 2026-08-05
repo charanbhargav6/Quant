@@ -11,35 +11,35 @@
 ```text
 === XAGUSD (Silver) — Random Baseline (Coin-flip direction) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 119 | Win/Loss: 80/39 | WR: 67.2%
-Expectancy: +0.324R | PF: 1.99
-Simple additive return (no compounding): +77.15%
-Naive compounded return (assumes trades never overlap): +108.28% | MaxDD: -16.10%
-Concurrency: max 9 / avg 1.04 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 47, 'win_rate': '68.1%'}, 'A': {'trades': 57, 'win_rate': '64.9%'}, 'B+': {'trades': 15, 'win_rate': '73.3%'}}
-Skipped (why signals were rejected): {'unknown_trend': 973, 'mtf_conflict': 454, 'bias_conflict': 93, 'confidence': 80, 'grade': 0, 'kill_zone': 1036}
+Signals: 121 | Win/Loss: 48/73 | WR: 39.7%
+Expectancy (net of est. costs): +0.262R | gross (no costs): +0.362R | est. cost/trade: 0.100R | PF: 1.68
+Simple additive return (no compounding): +63.45%
+Naive compounded return (assumes trades never overlap): +81.23% | MaxDD: -20.66%
+Concurrency: max 11 / avg 1.1 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 48, 'win_rate': '33.3%'}, 'A': {'trades': 58, 'win_rate': '41.4%'}, 'B+': {'trades': 15, 'win_rate': '53.3%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1007, 'mtf_conflict': 461, 'bias_conflict': 96, 'confidence': 79, 'grade': 0, 'kill_zone': 1045}
 ```
 
 ### 2. Real Strategy (45 days)
 ```text
 === XAGUSD (Silver) — HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 141 | Win/Loss: 91/50 | WR: 64.5%
-Expectancy: +0.346R | PF: 1.98
-Simple additive return (no compounding): +97.65%
-Naive compounded return (assumes trades never overlap): +152.93% | MaxDD: -30.24%
-Concurrency: max 14 / avg 1.61 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 66, 'win_rate': '63.6%'}, 'A': {'trades': 48, 'win_rate': '56.2%'}, 'B+': {'trades': 27, 'win_rate': '81.5%'}}
-Skipped (why signals were rejected): {'unknown_trend': 973, 'mtf_conflict': 309, 'bias_conflict': 161, 'confidence': 135, 'grade': 0, 'kill_zone': 1036}
+Signals: 143 | Win/Loss: 58/85 | WR: 40.6%
+Expectancy (net of est. costs): +0.242R | gross (no costs): +0.342R | est. cost/trade: 0.100R | PF: 1.6
+Simple additive return (no compounding): +69.15%
+Naive compounded return (assumes trades never overlap): +90.49% | MaxDD: -38.43%
+Concurrency: max 14 / avg 1.56 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 66, 'win_rate': '40.9%'}, 'A': {'trades': 50, 'win_rate': '32.0%'}, 'B+': {'trades': 27, 'win_rate': '55.6%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1007, 'mtf_conflict': 325, 'bias_conflict': 159, 'confidence': 130, 'grade': 0, 'kill_zone': 1045}
 ```
 
 ### 3. Walk-Forward Validation (45 days, 3 folds)
 ```text
 === Walk-forward: SI=F (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-21 to 2026-07-06): 36 trades | WR 61.1% | Exp +0.658R | Additive return +47.35% | max-concurrent 14
-  Fold 2 (2026-07-06 to 2026-07-20): 61 trades | WR 72.1% | Exp +0.371R | Additive return +45.25% | max-concurrent 11
-  Fold 3 (2026-07-20 to 2026-08-03): 44 trades | WR 56.8% | Exp +0.057R | Additive return +5.05% | max-concurrent 12
-Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.362, 'expectancy_std': 0.245, 'verdict': 'STABLE — edge holds up across independent folds'}
+  Fold 1 (2026-06-21 to 2026-07-06): 36 trades | WR 41.7% | Exp +0.558R | Additive return +40.15% | max-concurrent 14
+  Fold 2 (2026-07-06 to 2026-07-20): 61 trades | WR 47.5% | Exp +0.271R | Additive return +33.05% | max-concurrent 11
+  Fold 3 (2026-07-20 to 2026-08-04): 46 trades | WR 30.4% | Exp -0.044R | Additive return -4.05% | max-concurrent 12
+Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': 0.262, 'expectancy_std': 0.246, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
 ```
 
 ## GC=F
@@ -48,35 +48,35 @@ Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100
 ```text
 === XAUUSD (Gold) — Random Baseline (Coin-flip direction) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 118 | Win/Loss: 63/55 | WR: 53.4%
-Expectancy: +0.266R | PF: 1.57
-Simple additive return (no compounding): +62.87%
-Naive compounded return (assumes trades never overlap): +78.81% | MaxDD: -23.93%
-Concurrency: max 12 / avg 1.61 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 18, 'win_rate': '66.7%'}, 'A': {'trades': 78, 'win_rate': '52.6%'}, 'B+': {'trades': 22, 'win_rate': '45.5%'}}
-Skipped (why signals were rejected): {'unknown_trend': 1796, 'mtf_conflict': 217, 'bias_conflict': 26, 'confidence': 0, 'grade': 0, 'kill_zone': 599}
+Signals: 122 | Win/Loss: 51/71 | WR: 41.8%
+Expectancy (net of est. costs): +0.327R | gross (no costs): +0.387R | est. cost/trade: 0.060R | PF: 1.68
+Simple additive return (no compounding): +79.83%
+Naive compounded return (assumes trades never overlap): +110.54% | MaxDD: -21.77%
+Concurrency: max 14 / avg 1.91 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 21, 'win_rate': '57.1%'}, 'A': {'trades': 80, 'win_rate': '42.5%'}, 'B+': {'trades': 21, 'win_rate': '23.8%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1833, 'mtf_conflict': 219, 'bias_conflict': 27, 'confidence': 0, 'grade': 0, 'kill_zone': 609}
 ```
 
 ### 2. Real Strategy (45 days)
 ```text
 === XAUUSD (Gold) — HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 253 | Win/Loss: 126/127 | WR: 49.8%
-Expectancy: +0.162R | PF: 1.32
-Simple additive return (no compounding): +82.13%
-Naive compounded return (assumes trades never overlap): +106.55% | MaxDD: -50.69%
+Signals: 253 | Win/Loss: 87/166 | WR: 34.4%
+Expectancy (net of est. costs): +0.102R | gross (no costs): +0.162R | est. cost/trade: 0.060R | PF: 1.19
+Simple additive return (no compounding): +51.77%
+Naive compounded return (assumes trades never overlap): +52.56% | MaxDD: -54.27%
 Concurrency: max 23 / avg 3.72 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 35, 'win_rate': '71.4%'}, 'A': {'trades': 178, 'win_rate': '46.6%'}, 'B+': {'trades': 40, 'win_rate': '45.0%'}}
-Skipped (why signals were rejected): {'unknown_trend': 1796, 'mtf_conflict': 65, 'bias_conflict': 43, 'confidence': 0, 'grade': 0, 'kill_zone': 599}
+Grade breakdown: {'A+': {'trades': 35, 'win_rate': '54.3%'}, 'A': {'trades': 178, 'win_rate': '30.3%'}, 'B+': {'trades': 40, 'win_rate': '35.0%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1833, 'mtf_conflict': 65, 'bias_conflict': 50, 'confidence': 0, 'grade': 0, 'kill_zone': 609}
 ```
 
 ### 3. Walk-Forward Validation (45 days, 3 folds)
 ```text
 === Walk-forward: GC=F (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-21 to 2026-07-06): 77 trades | WR 48.1% | Exp +0.257R | Additive return +39.58% | max-concurrent 23
-  Fold 2 (2026-07-06 to 2026-07-20): 102 trades | WR 41.2% | Exp +0.011R | Additive return +2.25% | max-concurrent 16
-  Fold 3 (2026-07-20 to 2026-08-03): 74 trades | WR 63.5% | Exp +0.272R | Additive return +40.30% | max-concurrent 19
-Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.18, 'expectancy_std': 0.12, 'verdict': 'STABLE — edge holds up across independent folds'}
+  Fold 1 (2026-06-21 to 2026-07-06): 79 trades | WR 36.7% | Exp +0.165R | Additive return +26.10% | max-concurrent 23
+  Fold 2 (2026-07-06 to 2026-07-20): 100 trades | WR 27.0% | Exp -0.029R | Additive return -5.75% | max-concurrent 16
+  Fold 3 (2026-07-20 to 2026-08-04): 74 trades | WR 41.9% | Exp +0.212R | Additive return +31.42% | max-concurrent 19
+Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': 0.116, 'expectancy_std': 0.104, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
 ```
 
 ## EURUSD=X
@@ -85,35 +85,35 @@ Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100
 ```text
 === EURUSD (Forex) — Random Baseline (Coin-flip direction) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 49 | Win/Loss: 31/18 | WR: 63.3%
-Expectancy: +0.039R | PF: 1.11
-Simple additive return (no compounding): +3.80%
-Naive compounded return (assumes trades never overlap): +2.83% | MaxDD: -14.32%
-Concurrency: max 5 / avg 0.21 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 3, 'win_rate': '66.7%'}, 'A': {'trades': 46, 'win_rate': '63.0%'}}
-Skipped (why signals were rejected): {'unknown_trend': 1429, 'mtf_conflict': 406, 'bias_conflict': 74, 'confidence': 153, 'grade': 0, 'kill_zone': 822}
+Signals: 56 | Win/Loss: 17/39 | WR: 30.4%
+Expectancy (net of est. costs): -0.006R | gross (no costs): +0.034R | est. cost/trade: 0.040R | PF: 0.99
+Simple additive return (no compounding): -0.68%
+Naive compounded return (assumes trades never overlap): -2.01% | MaxDD: -16.21%
+Concurrency: max 5 / avg 0.29 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 5, 'win_rate': '0.0%'}, 'A': {'trades': 51, 'win_rate': '33.3%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1444, 'mtf_conflict': 397, 'bias_conflict': 78, 'confidence': 150, 'grade': 0, 'kill_zone': 842}
 ```
 
 ### 2. Real Strategy (45 days)
 ```text
 === EURUSD (Forex) — HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 102 | Win/Loss: 57/45 | WR: 55.9%
-Expectancy: +0.024R | PF: 1.05
-Simple additive return (no compounding): +4.90%
-Naive compounded return (assumes trades never overlap): +2.17% | MaxDD: -20.11%
-Concurrency: max 8 / avg 0.42 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 8, 'win_rate': '50.0%'}, 'A': {'trades': 94, 'win_rate': '56.4%'}}
-Skipped (why signals were rejected): {'unknown_trend': 1429, 'mtf_conflict': 125, 'bias_conflict': 146, 'confidence': 309, 'grade': 0, 'kill_zone': 822}
+Signals: 102 | Win/Loss: 29/73 | WR: 28.4%
+Expectancy (net of est. costs): -0.016R | gross (no costs): +0.024R | est. cost/trade: 0.040R | PF: 0.97
+Simple additive return (no compounding): -3.26%
+Naive compounded return (assumes trades never overlap): -5.84% | MaxDD: -22.20%
+Concurrency: max 8 / avg 0.43 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 8, 'win_rate': '12.5%'}, 'A': {'trades': 94, 'win_rate': '29.8%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1444, 'mtf_conflict': 124, 'bias_conflict': 146, 'confidence': 309, 'grade': 0, 'kill_zone': 842}
 ```
 
 ### 3. Walk-Forward Validation (45 days, 3 folds)
 ```text
 === Walk-forward: EURUSD=X (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-19 to 2026-07-04): 19 trades | WR 47.4% | Exp +0.043R | Additive return +1.65% | max-concurrent 4
-  Fold 2 (2026-07-04 to 2026-07-19): 49 trades | WR 61.2% | Exp +0.147R | Additive return +14.40% | max-concurrent 8
-  Fold 3 (2026-07-19 to 2026-08-03): 34 trades | WR 52.9% | Exp -0.164R | Additive return -11.15% | max-concurrent 7
-Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': 0.009, 'expectancy_std': 0.129, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
+  Fold 1 (2026-06-21 to 2026-07-06): 19 trades | WR 31.6% | Exp +0.057R | Additive return +2.18% | max-concurrent 4
+  Fold 2 (2026-07-06 to 2026-07-20): 57 trades | WR 28.1% | Exp +0.104R | Additive return +11.89% | max-concurrent 8
+  Fold 3 (2026-07-20 to 2026-08-04): 26 trades | WR 26.9% | Exp -0.333R | Additive return -17.33% | max-concurrent 5
+Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': -0.057, 'expectancy_std': 0.196, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
 ```
 
 ## BTC-USD
@@ -122,34 +122,34 @@ Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.
 ```text
 === BTCUSD (BTC) — Random Baseline (Coin-flip direction) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 304 | Win/Loss: 200/104 | WR: 65.8%
-Expectancy: +0.511R | PF: 2.49
-Simple additive return (no compounding): +310.45%
-Naive compounded return (assumes trades never overlap): +1868.96% | MaxDD: -26.39%
-Concurrency: max 23 / avg 1.32 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 160, 'win_rate': '68.1%'}, 'A': {'trades': 118, 'win_rate': '62.7%'}, 'B+': {'trades': 26, 'win_rate': '65.4%'}}
-Skipped (why signals were rejected): {'unknown_trend': 1055, 'mtf_conflict': 898, 'bias_conflict': 109, 'confidence': 96, 'grade': 0, 'kill_zone': 1858}
+Signals: 268 | Win/Loss: 138/130 | WR: 51.5%
+Expectancy (net of est. costs): +0.489R | gross (no costs): +0.539R | est. cost/trade: 0.050R | PF: 2.22
+Simple additive return (no compounding): +262.35%
+Naive compounded return (assumes trades never overlap): +1125.70% | MaxDD: -31.20%
+Concurrency: max 22 / avg 1.08 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 143, 'win_rate': '57.3%'}, 'A': {'trades': 125, 'win_rate': '44.8%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1068, 'mtf_conflict': 882, 'bias_conflict': 130, 'confidence': 129, 'grade': 0, 'kill_zone': 1841}
 ```
 
 ### 2. Real Strategy (45 days)
 ```text
 === BTCUSD (BTC) — HybridStrategyAgent (SMC+OrderFlow, mirrors live trading_loop.py) ===
 Period: 45d @ 15m | Gates: {'kill_zone': True, 'mtf_confluence': True, 'approx_daily_bias': True}
-Signals: 433 | Win/Loss: 293/140 | WR: 67.7%
-Expectancy: +0.566R | PF: 2.75
-Simple additive return (no compounding): +490.25%
-Naive compounded return (assumes trades never overlap): +11162.28% | MaxDD: -34.51%
-Concurrency: max 38 / avg 1.97 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
-Grade breakdown: {'A+': {'trades': 243, 'win_rate': '72.4%'}, 'A': {'trades': 146, 'win_rate': '60.3%'}, 'B+': {'trades': 44, 'win_rate': '65.9%'}}
-Skipped (why signals were rejected): {'unknown_trend': 1055, 'mtf_conflict': 604, 'bias_conflict': 179, 'confidence': 191, 'grade': 0, 'kill_zone': 1858}
+Signals: 406 | Win/Loss: 219/187 | WR: 53.9%
+Expectancy (net of est. costs): +0.566R | gross (no costs): +0.616R | est. cost/trade: 0.050R | PF: 2.69
+Simple additive return (no compounding): +459.49%
+Naive compounded return (assumes trades never overlap): +8247.46% | MaxDD: -36.06%
+Concurrency: max 37 / avg 1.74 open trades at once ⚠️ OVERLAPPING TRADES — compounded return is unreliable, trust Simple_Additive_Return_Pct
+Grade breakdown: {'A+': {'trades': 251, 'win_rate': '57.8%'}, 'A': {'trades': 155, 'win_rate': '47.7%'}}
+Skipped (why signals were rejected): {'unknown_trend': 1068, 'mtf_conflict': 583, 'bias_conflict': 179, 'confidence': 241, 'grade': 0, 'kill_zone': 1841}
 ```
 
 ### 3. Walk-Forward Validation (45 days, 3 folds)
 ```text
 === Walk-forward: BTC-USD (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-19 to 2026-07-04): 148 trades | WR 64.2% | Exp +0.529R | Additive return +156.50% | max-concurrent 31
-  Fold 2 (2026-07-04 to 2026-07-19): 177 trades | WR 65.5% | Exp +0.408R | Additive return +144.60% | max-concurrent 24
-  Fold 3 (2026-07-19 to 2026-08-03): 108 trades | WR 75.9% | Exp +0.876R | Additive return +189.15% | max-concurrent 20
-Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.604, 'expectancy_std': 0.198, 'verdict': 'STABLE — edge holds up across independent folds'}
+  Fold 1 (2026-06-21 to 2026-07-06): 141 trades | WR 44.0% | Exp +0.550R | Additive return +155.05% | max-concurrent 37
+  Fold 2 (2026-07-06 to 2026-07-21): 156 trades | WR 54.5% | Exp +0.334R | Additive return +104.15% | max-concurrent 24
+  Fold 3 (2026-07-21 to 2026-08-05): 109 trades | WR 66.1% | Exp +0.919R | Additive return +200.29% | max-concurrent 19
+Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.601, 'expectancy_std': 0.242, 'verdict': 'STABLE — edge holds up across independent folds'}
 ```
 

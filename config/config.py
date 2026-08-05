@@ -623,6 +623,22 @@ CONFIDENCE_GATES = {
     "default": 0.40,
 }
 
+# v11.4 FIX: CONFIDENCE_GATES is keyed by the internal LIVE symbol
+# (e.g. "BTCUSDT"), but backtest/verify code resolves tickers to their
+# yfinance form (e.g. "BTC-USD") before calling get_effective_min_confidence.
+# Without this alias table, "BTC-USD" misses the "BTCUSDT" key entirely and
+# silently falls back to CONFIDENCE_GATES["default"] (0.40) instead of the
+# real, stricter 0.45 gate — meaning a backtest could admit BTC signals live
+# trading would actually reject. Confirmed via btest.md's real-run BTC
+# signal count (433/45 days) being suspiciously high before this fix.
+TICKER_ALIASES = {
+    "BTC-USD": "BTCUSDT", "BTCUSDT": "BTC-USD",
+    "ETH-USD": "ETHUSDT", "ETHUSDT": "ETH-USD",
+    "SOL-USD": "SOLUSDT", "SOLUSDT": "SOL-USD",
+    "GC=F": "XAUUSD=X", "XAUUSD=X": "GC=F",
+    "SI=F": "XAGUSD=X", "XAGUSD=X": "SI=F",
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PARTIAL BOOKING SCHEDULE (unchanged)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1029,11 +1045,23 @@ def get_effective_min_confidence(symbol: str) -> float:
     combining both legacy sources so live and backtest can never silently
     diverge again. This is the only function that should be used to answer
     "what confidence does this symbol need to trade" anywhere in the codebase.
+
+    v11.4: now alias-aware (see TICKER_ALIASES) so it doesn't matter whether
+    the caller passes the internal live symbol ("BTCUSDT") or the
+    yfinance/backtest ticker ("BTC-USD") — both resolve to the same gate.
     """
     asset_p = get_asset_params(symbol)
     asset_min_conf = asset_p.get("min_conf", 50)
-    inst_conf_gate = CONFIDENCE_GATES.get(symbol, CONFIDENCE_GATES.get("default", 0.50)) * 100
-    return max(asset_min_conf, inst_conf_gate)
+
+    gate = CONFIDENCE_GATES.get(symbol)
+    if gate is None:
+        alias = TICKER_ALIASES.get(symbol)
+        if alias is not None:
+            gate = CONFIDENCE_GATES.get(alias)
+    if gate is None:
+        gate = CONFIDENCE_GATES.get("default", 0.50)
+
+    return max(asset_min_conf, gate * 100)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
