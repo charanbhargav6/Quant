@@ -1,7 +1,35 @@
 """
-CRAVE Verify-Hybrid Backtest Harness (v2.0)
+CRAVE Verify-Hybrid Backtest Harness (v2.1)
 ============================================
-v2 CHANGELOG (fixes applied after reviewing the first real btest.md run):
+v2.1 CHANGELOG (this round):
+
+3. TICKER-ALIAS CONFIDENCE GATE BUG (FIXED, in config.py):
+   get_effective_min_confidence() looked up CONFIDENCE_GATES by whatever
+   symbol string was passed in. Live trading passes the internal symbol
+   ("BTCUSDT"); this backtest passes the yfinance ticker ("BTC-USD"). Since
+   CONFIDENCE_GATES only had a "BTCUSDT" key, "BTC-USD" missed it and
+   silently fell back to the default gate (40) instead of BTC's real,
+   stricter gate (45) — a real, measurable gap that plausibly contributed
+   to BTC's suspiciously high signal count (433 signals / 45 days) in the
+   first real btest.md run. Fixed via a TICKER_ALIASES table in config.py.
+   Confirmed by direct test: get_effective_min_confidence("BTC-USD") and
+   get_effective_min_confidence("BTCUSDT") now both return 45.0 (previously
+   40.0 and 45.0 respectively).
+
+4. ZERO-TRANSACTION-COST ASSUMPTION (ADDRESSED):
+   Every run through v2.0 assumed zero spread/commission/slippage, which
+   inflates every result but inflates high-frequency instruments (Gold:
+   ~5.6 signals/day, BTC: ~9.6/day in the last real run) far more than
+   low-frequency ones. Added TRANSACTION_COST_R — a deliberately rough,
+   asset-class-level R-multiple deduction applied once per trade inside
+   simulate_partial_booking_exit(). Every report now shows BOTH
+   Expectancy_R (net of estimated costs) and Expectancy_R_Gross_No_Costs
+   side by side, so you can see exactly how much of any edge survives
+   costs. These are approximations, not real spread data — override with
+   `transaction_cost_r_override=` if you have real numbers from your
+   broker, or `apply_transaction_costs=False` to go back to gross-only.
+
+v2.0 CHANGELOG (previous round, still in effect):
 
 1. WALK-FORWARD FOLD OVERLAP BUG (FIXED):
    v1's run_walk_forward() called run_backtest(days=fold_days + days_ago_end)
@@ -51,7 +79,7 @@ PARTIAL_BOOKING). This harness closes that gap by reusing the same strategy
 classes, gates, and (as closely as OHLCV-only replay allows) exit model as
 core/trading_loop.py.
 
-HONEST LIMITATIONS (unchanged from v1 — still true, still important)
+HONEST LIMITATIONS (still true, still important)
 -----------------------------------------------------------------------
 1. Daily bias gate is APPROXIMATED (SMA-based), not a faithful replay of the
    live engines/daily_bias_engine.py singleton, which has no historical
@@ -67,6 +95,12 @@ HONEST LIMITATIONS (unchanged from v1 — still true, still important)
 4. MT5 "volume" for forex/CFD symbols is commonly tick-count, not real
    traded volume. Confirm your feed's semantics before trusting
    OrderFlow-driven grades for FX majors specifically.
+5. TRANSACTION_COST_R (new in v2.1) is a rough asset-class-level estimate,
+   not real spread/commission data from your broker. Treat
+   Expectancy_R_Gross_No_Costs vs Expectancy_R as a sensitivity range, not
+   two equally-trustworthy numbers — the truth for your real fills is
+   somewhere in between, and could be worse than the "net" estimate for
+   high-frequency instruments if real slippage exceeds this table's guess.
 
 USAGE
 -----
@@ -82,6 +116,9 @@ USAGE
 
     baseline = agent.run_random_baseline("XAGUSD", days=90, enforce_kill_zones=True)
     print(agent.format_report(baseline))
+
+    # Real-cost override once you have actual broker spread data:
+    report = agent.run_backtest("XAGUSD", days=90, transaction_cost_r_override=0.03)
 """
 
 import logging
@@ -219,18 +256,56 @@ def _parse_sl_move(token: str) -> float:
     return float(token.replace("R", ""))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TRANSACTION COST MODEL (v2.1 ADDITION)
+# ─────────────────────────────────────────────────────────────────────────────
+# Neither v1 nor the first v2 pass modeled any transaction cost — every result
+# assumed zero spread, zero commission, zero slippage. That inflates every
+# number, but it inflates high-frequency instruments (Gold: ~5.6 signals/day,
+# BTC: ~9.6/day in the last real run) far more than low-frequency ones.
+#
+# These are DELIBERATELY ROUGH, ASSET-CLASS-LEVEL approximations expressed in
+# R-multiples (fraction of the 1R stop distance), not live spread data —
+# nobody should mistake this for a broker-fee-accurate cost model. Override
+# with real numbers from your actual MT5/Zerodha spread logs if you have them
+# (pass `transaction_cost_r=` explicitly to bypass this table entirely).
+#
+# Rationale for the numbers: cost is charged once per trade as a rough stand-in
+# for the round-trip friction across ALL of that trade's partial-booking exits
+# combined (not per-leg — a real per-leg model would need actual spread data
+# per instrument, which isn't available in an OHLCV backtest).
+TRANSACTION_COST_R = {
+    "gold":    0.06,   # ~30-50c spread on a typical ATR-based stop distance
+    "silver":  0.10,   # wider relative spread than gold historically
+    "forex":   0.04,   # tight spread majors, small round-trip friction
+    "btc":     0.05,   # tight spread but real slippage in fast moves
+    "crypto":  0.05,
+    "india":   0.08,
+    "unknown": 0.06,
+    "default": 0.06,
+}
+
+
+def get_transaction_cost_r(asset_label: str) -> float:
+    return TRANSACTION_COST_R.get((asset_label or "default").lower(), TRANSACTION_COST_R["default"])
+
+
 def simulate_partial_booking_exit(future: pd.DataFrame, direction: str, entry: float,
                                     atr: float, sl_mult: float,
-                                    schedule: list = None) -> dict:
+                                    schedule: list = None,
+                                    transaction_cost_r: float = 0.0) -> dict:
     """Same exit-model semantics as v1. Now also returns `candles_used` (how
     many future candles were consumed before resolution) so the caller can
-    build a [entry_idx, exit_idx) interval for concurrency analysis."""
+    build a [entry_idx, exit_idx) interval for concurrency analysis.
+    `transaction_cost_r` (v2.1) is subtracted from the realized R-multiple
+    once per trade — see TRANSACTION_COST_R above for where the default
+    values come from and their limitations."""
     schedule = schedule or PARTIAL_BOOKING
     stages = sorted(schedule, key=lambda s: s["r_level"])
 
     r_distance = atr * sl_mult
     if r_distance <= 0:
-        return {"r_multiple": 0.0, "outcome": "invalid_atr", "candles_used": 0}
+        return {"r_multiple": 0.0, "r_multiple_gross": 0.0, "outcome": "invalid_atr", "candles_used": 0}
 
     remaining = 1.0
     realized_r = 0.0
@@ -277,8 +352,11 @@ def simulate_partial_booking_exit(future: pd.DataFrame, direction: str, entry: f
                  else (entry - last_close) / r_distance)
         realized_r += remaining * mtm_r
 
+    realized_r_after_cost = realized_r - transaction_cost_r
+
     return {
-        "r_multiple": round(float(realized_r), 3),
+        "r_multiple": round(float(realized_r_after_cost), 3),
+        "r_multiple_gross": round(float(realized_r), 3),
         "outcome": outcome,
         "stages_hit": sum(triggered),
         "candles_used": candles_used,
@@ -395,7 +473,9 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                    approximate_bias_gate: bool = True,
                    require_mtf_confluence: bool = True,
                    lookahead_candles: int = 200,
-                   random_baseline: bool = False) -> dict:
+                   random_baseline: bool = False,
+                   apply_transaction_costs: bool = True,
+                   transaction_cost_r_override: Optional[float] = None) -> dict:
         df = ctx["df"]
         ticker = ctx["ticker"]
         asset_p = ctx["asset_p"]
@@ -406,10 +486,15 @@ class HybridVerifyBacktestAgent(BacktestAgent):
         if is_gold:
             from engines.gold_strategy import analyze_gold
 
+        cost_r = 0.0
+        if apply_transaction_costs:
+            cost_r = (transaction_cost_r_override if transaction_cost_r_override is not None
+                      else get_transaction_cost_r(asset_p.get("label", "default")))
+
         idx_start = max(idx_start, 200)
         idx_end = min(idx_end, len(df) - 1)
 
-        r_multiples, trade_details, intervals = [], [], []
+        r_multiples, r_multiples_gross, trade_details, intervals = [], [], [], []
         total = wins = losses = 0
         skipped = {"unknown_trend": 0, "mtf_conflict": 0, "bias_conflict": 0,
                    "confidence": 0, "grade": 0, "kill_zone": 0}
@@ -485,7 +570,8 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             if len(future) < 5:
                 continue
 
-            result = simulate_partial_booking_exit(future, direction, entry, atr, sl_mult)
+            result = simulate_partial_booking_exit(future, direction, entry, atr, sl_mult,
+                                                     transaction_cost_r=cost_r)
             r_result = result["r_multiple"]
 
             total += 1
@@ -496,10 +582,12 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                 grade_stats[grade]["w" if is_win else "l"] += 1
 
             r_multiples.append(r_result)
+            r_multiples_gross.append(result["r_multiple_gross"])
             intervals.append((i, i + result["candles_used"]))
             trade_details.append({
                 "time": str(ts), "entry": round(entry, 5), "direction": direction,
                 "outcome": result["outcome"], "r_multiple": r_result,
+                "r_multiple_gross": result["r_multiple_gross"],
                 "confidence": confidence, "grade": grade,
             })
 
@@ -507,10 +595,13 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             return {"error": "No qualifying signals in this window.", "Skipped_Breakdown": skipped}
 
         r_arr = np.array(r_multiples)
+        r_arr_gross = np.array(r_multiples_gross)
         win_rate = wins / total * 100
         expectancy_r = float(r_arr.mean())
+        expectancy_r_gross = float(r_arr_gross.mean())
 
-        # Old (v1) behavior — kept, renamed, clearly caveated.
+        # Old (v1) behavior — kept, renamed, clearly caveated. Now computed
+        # on cost-adjusted R (net), same as everything else.
         eq_returns = r_arr * risk_per_trade
         naive_compounded_return = ((1 + eq_returns).prod() - 1) * 100
         equity_curve = np.cumprod(1 + eq_returns) * 10_000
@@ -529,6 +620,8 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             "Signals": total, "Wins": wins, "Losses": losses,
             "Win_Rate": f"{win_rate:.1f}%",
             "Expectancy_R": round(expectancy_r, 3),
+            "Expectancy_R_Gross_No_Costs": round(expectancy_r_gross, 3),
+            "Transaction_Cost_R_Per_Trade": round(cost_r, 3),
             "Naive_Compounded_Return_Pct": round(float(naive_compounded_return), 2),
             "Simple_Additive_Return_Pct": round(simple_additive_return, 2),
             "Max_Concurrent_Open_Trades": max_concurrent,
@@ -555,7 +648,9 @@ class HybridVerifyBacktestAgent(BacktestAgent):
                       approximate_bias_gate: bool = True,
                       require_mtf_confluence: bool = True,
                       lookahead_candles: int = 200,
-                      random_baseline: bool = False) -> dict:
+                      random_baseline: bool = False,
+                      apply_transaction_costs: bool = True,
+                      transaction_cost_r_override: Optional[float] = None) -> dict:
         ctx = self._prepare(symbol, days)
         if "error" in ctx:
             return {"Symbol": display_name(resolve_symbol(symbol)), **ctx}
@@ -567,6 +662,8 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             approximate_bias_gate=approximate_bias_gate,
             require_mtf_confluence=require_mtf_confluence,
             lookahead_candles=lookahead_candles, random_baseline=random_baseline,
+            apply_transaction_costs=apply_transaction_costs,
+            transaction_cost_r_override=transaction_cost_r_override,
         )
         if "error" in result:
             return {"Symbol": display_name(ctx["ticker"]), **result}
@@ -678,7 +775,9 @@ class HybridVerifyBacktestAgent(BacktestAgent):
             f"=== {report['Symbol']} ({report['Asset_Class']}) — {report['Strategy']} ===",
             f"Period: {report['Period_Days']}d @ {report['Timeframe']} | Gates: {report['Gates_Applied']}",
             f"Signals: {report['Signals']} | Win/Loss: {report['Wins']}/{report['Losses']} | WR: {report['Win_Rate']}",
-            f"Expectancy: {report['Expectancy_R']:+.3f}R | PF: {report['Profit_Factor']}",
+            f"Expectancy (net of est. costs): {report['Expectancy_R']:+.3f}R "
+            f"| gross (no costs): {report['Expectancy_R_Gross_No_Costs']:+.3f}R "
+            f"| est. cost/trade: {report['Transaction_Cost_R_Per_Trade']:.3f}R | PF: {report['Profit_Factor']}",
             f"Simple additive return (no compounding): {report['Simple_Additive_Return_Pct']:+.2f}%",
             f"Naive compounded return (assumes trades never overlap): {report['Naive_Compounded_Return_Pct']:+.2f}% "
             f"| MaxDD: -{report['Max_Drawdown_Pct']:.2f}%",
@@ -735,14 +834,14 @@ def _smoke_test():
 
     print(">>> Single run:")
     t0 = time.time()
-    report = agent.run_backtest("EURUSD", days=10, enforce_kill_zones=False)
+    report = agent.run_backtest("EURUSD", days=8, enforce_kill_zones=False)
     print(f"(took {time.time()-t0:.1f}s)")
     print(agent.format_report(report))
     assert "error" in report or "Signals" in report
 
     print("\n>>> Walk-forward (2 folds) — verifying folds are NOT nested this time:")
     t0 = time.time()
-    wf = agent.run_walk_forward("EURUSD", total_days=10, folds=2, enforce_kill_zones=False)
+    wf = agent.run_walk_forward("EURUSD", total_days=8, folds=2, enforce_kill_zones=False)
     print(f"(took {time.time()-t0:.1f}s)")
     print(agent.format_walk_forward(wf))
     valid_folds = [f for f in wf["folds"] if "error" not in f]
