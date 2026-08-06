@@ -347,7 +347,12 @@ class BrokerRouter:
                     continue
                 
                 # Connect to this specific account
-                if not agent.connect(login=acc.get("login"), password=acc.get("password"), server=acc.get("server")):
+                # NOTE: acc["password"] is Fernet-encrypted at rest (core/secrets_vault.py)
+                # since account_endpoints_patch.py started writing accounts via
+                # verify_and_connect(). Must decrypt before handing to MT5.
+                from core.secrets_vault import decrypt_secret
+                real_password = decrypt_secret(acc.get("password") or "")
+                if not agent.connect(login=acc.get("login"), password=real_password, server=acc.get("server")):
                     logger.warning(f"[Router] MT5 login failed for account {acc.get('login')}")
                     continue
 

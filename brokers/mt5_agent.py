@@ -68,9 +68,32 @@ class MT5Agent:
         self._connected = False
         self._mt5 = None
         self._login = int(os.environ.get("MT5_LOGIN", "0"))
-        self._password = os.environ.get("MT5_PASSWORD", "")
+        self._password = self._decrypt_env_password(os.environ.get("MT5_PASSWORD", ""))
         self._server = os.environ.get("MT5_SERVER", "MetaQuotes-Demo")
         self._last_connect_attempt = 0.0  # cooldown to prevent blocking
+
+    @staticmethod
+    def _decrypt_env_password(raw: str) -> str:
+        """
+        MT5_PASSWORD in .env.<profile> is written encrypted (Fernet) by
+        account_endpoints_patch.py as of the account-verification fix.
+        Fall back to treating it as plaintext if decryption fails, so
+        pre-existing .env files with an old-style plaintext password
+        don't break — re-saving the account through the UI will migrate
+        it to encrypted form on the next verify-and-connect.
+        """
+        if not raw:
+            return ""
+        try:
+            from core.secrets_vault import decrypt_secret
+            return decrypt_secret(raw)
+        except Exception:
+            logger.warning(
+                "[MT5] MT5_PASSWORD did not decrypt as a Fernet token — "
+                "using as plaintext. Re-add this account via the UI to "
+                "migrate it to encrypted storage."
+            )
+            return raw
 
     # ─────────────────────────────────────────────────────────────────────────
     # CONNECTION
