@@ -23,6 +23,9 @@ from flask import Flask, jsonify, request, send_file, abort, make_response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
+# Account security patch (v5/v6): real broker verification + Fernet encryption
+from core.account_endpoints_patch import register_account_routes
+
 profile = None
 if "--profile" in sys.argv:
     idx = sys.argv.index("--profile")
@@ -1171,77 +1174,13 @@ def api_account_detail(acc_id: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-
-@app.route("/api/accounts/add", methods=["POST"])
-def api_accounts_add():
-    try:
-        data = request.get_json(force=True) or {}
-    except Exception:
-        return jsonify({"status": "error", "reason": "Invalid JSON body"}), 400
-
-    acc_type = data.get("type", "demo")
-    login    = data.get("login")
-    password = data.get("password")
-    server   = data.get("server")
-    capital  = float(data.get("capital") or 10000)
-    
-    profile  = data.get("profile")
-    path_str = data.get("path")
-    port     = data.get("port")
-    telegram = data.get("telegram")
-    
-    if not login or not password or not server or not profile:
-        return jsonify({"status": "error", "reason": "Missing credentials or profile name"})
-
-    db = get_db_agent()
-    if not db:
-        return jsonify({"status": "error", "reason": "Database not available"})
-
-    # Check if account already saved
-    existing = db.query_one("SELECT id FROM accounts WHERE login=?", (str(login),))
-    if existing:
-        return jsonify({"status": "error", "reason": "Account already exists"})
-
-    # Save to DB
-    success = db.add_account(acc_type, str(login), password, server, capital, "pending", '["all"]')
-    if not success:
-        return jsonify({"status": "error", "reason": "Failed to save to DB"})
-        
-    # --- AUTOMATION LOGIC ---
-    try:
-        engine_root = Path(__file__).parent
-        base_env = engine_root / ".env"
-        new_env = engine_root / f".env.{profile}"
-        
-        if base_env.exists():
-            keys_to_replace = {"MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_TERMINAL_PATH", "SERVER_PORT", "TELEGRAM_BOT_TOKEN"}
-            new_lines = []
-            with open(base_env, "r", encoding="utf-8") as f:
-                for line in f:
-                    ls = line.strip()
-                    if not ls or ls.startswith("#"):
-                        new_lines.append(line)
-                        continue
-                    k = ls.split("=")[0].strip()
-                    if k not in keys_to_replace:
-                        new_lines.append(line)
-            
-            new_lines.append(f"\n# --- Multi-Instance Config: {profile.upper()} ---\n")
-            new_lines.append(f"MT5_LOGIN={login}\n")
-            new_lines.append(f"MT5_PASSWORD={password}\n")
-            new_lines.append(f"MT5_SERVER={server}\n")
-            if path_str: new_lines.append(f"MT5_TERMINAL_PATH={path_str}\n")
-            if port: new_lines.append(f"SERVER_PORT={port}\n")
-            if telegram: new_lines.append(f"TELEGRAM_BOT_TOKEN={telegram}\n")
-            
-            with open(new_env, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
-                
-    except Exception as e:
-        log.error(f"Automation failed: {e}")
-
-    info = {"login": login, "server": server, "balance": capital, "currency": "USD", "type": acc_type}
-    return jsonify({"status": "success", "account": info})
+# Account routes: /api/accounts/add, /api/prop_firms, /api/accounts/zerodha/complete
+# Registered via account_endpoints_patch (v5/v6 security patch):
+#   - Real broker verification before any DB write
+#   - Fernet-encrypted passwords/secrets in DB and .env.<profile> files
+#   - Zerodha OAuth two-step flow
+# ─────────────────────────────────────────────────────────────────────────────
+register_account_routes(app, get_db_agent, log)
 
 @app.route("/api/accounts/<acc_id>/strategies", methods=["POST"])
 def api_account_strategies(acc_id):

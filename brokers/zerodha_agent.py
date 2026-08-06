@@ -62,9 +62,26 @@ TOKEN_FILE = Path(__file__).parent.parent.parent.parent / "State" / "zerodha_tok
 
 class ZerodhaAgent:
 
+    @staticmethod
+    def _decrypt_env_value(raw: str) -> str:
+        """See MT5Agent._decrypt_env_password — same encrypted-at-rest
+        convention, same plaintext fallback for pre-existing .env files."""
+        if not raw:
+            return ""
+        try:
+            from core.secrets_vault import decrypt_secret
+            return decrypt_secret(raw)
+        except Exception:
+            logger.warning(
+                "[Zerodha] ZERODHA_API_SECRET did not decrypt as a Fernet "
+                "token — using as plaintext. Re-add this account via the "
+                "UI to migrate it to encrypted storage."
+            )
+            return raw
+
     def __init__(self):
         self._api_key    = os.environ.get("ZERODHA_API_KEY", "")
-        self._api_secret = os.environ.get("ZERODHA_API_SECRET", "")
+        self._api_secret = self._decrypt_env_value(os.environ.get("ZERODHA_API_SECRET", ""))
         self._redirect   = os.environ.get("ZERODHA_REDIRECT_URL",
                                            "http://127.0.0.1/redirect")
         self._kite       = None
