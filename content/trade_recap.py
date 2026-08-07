@@ -49,10 +49,10 @@ from typing import Optional
 
 logger = logging.getLogger("crave.content")
 
-RECAP_DIR    = Path(__file__).parent.parent.parent.parent / "State" / "recaps"
+RECAP_DIR    = Path(__file__).parent.parent / "State" / "recaps"
 RECAP_DIR.mkdir(parents=True, exist_ok=True)
 
-PUBLIC_DASH  = Path(__file__).parent.parent.parent.parent / "State" / "public_dashboard.html"
+PUBLIC_DASH  = Path(__file__).parent.parent / "State" / "public_dashboard.html"
 
 
 class ContentFactory:

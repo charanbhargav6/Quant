@@ -42,7 +42,7 @@ import pandas as pd
 logger = logging.getLogger("crave.nse_bhavcopy")
 
 # Local storage for downloaded bhavcopy files
-BHAVCOPY_DIR = Path(__file__).parent.parent.parent.parent / "Database" / "bhavcopy"
+BHAVCOPY_DIR = Path(__file__).parent.parent / "Database" / "bhavcopy"
 
 
 class NSEBhavcopy:

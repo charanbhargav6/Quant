@@ -74,7 +74,7 @@ logger = logging.getLogger("crave.jarvis")
 # Cache sentiment so we don't spam the API on every signal
 # Sentiment is refreshed every 2 hours (markets move slowly at narrative level)
 _SENTIMENT_CACHE_MINS = 120
-_POSTMORTEM_DIR = Path(__file__).parent.parent.parent.parent / "State" / "postmortems"
+_POSTMORTEM_DIR = Path(__file__).parent.parent / "State" / "postmortems"
 _POSTMORTEM_DIR.mkdir(parents=True, exist_ok=True)
 
 

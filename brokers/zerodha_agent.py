@@ -57,7 +57,7 @@ from typing import Optional
 logger = logging.getLogger("crave.zerodha")
 
 # Token stored in State/ directory, refreshed daily
-TOKEN_FILE = Path(__file__).parent.parent.parent.parent / "State" / "zerodha_token.json"
+TOKEN_FILE = Path(__file__).parent.parent / "State" / "zerodha_token.json"
 
 
 class ZerodhaAgent:
