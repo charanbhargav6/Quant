@@ -3,7 +3,7 @@ from strategy_adapters import StructureAdapter, OrderFlowAdapter
 
 agent = HybridVerifyBacktestAgent()
 
-with open("adapter_test.md", "w", encoding="utf-8") as f:
+with open("docs/adapter_test.md", "w", encoding="utf-8") as f:
     f.write("Testing StructureAdapter on XAUUSD (Gold)...\n")
     r = agent.run_backtest("XAUUSD", days=45, enforce_kill_zones=True, adapter=StructureAdapter())
     f.write(agent.format_report(r) + "\n\n")

@@ -19,7 +19,7 @@ def run_all():
     
     print(f"Starting verified backtest run for: {core_symbols}", flush=True)
     
-    with open("btest.md", "w", encoding="utf-8") as f:
+    with open("docs/btest.md", "w", encoding="utf-8") as f:
         f.write("# CRAVE Hybrid Strategy Backtest Report (Verified)\n\n")
         f.write("> **WARNING - SUPERSEDES ALL PREVIOUS REPORTS**\n")
         f.write("> This report was generated using the fully reconciled `verify_hybrid_backtest.py` harness, which strictly mirrors the live `HybridStrategyAgent` (15m timeframe, MTF confluence, partial-booking exits, and exact confidence gates).\n\n")
@@ -57,7 +57,7 @@ def run_all():
                 print(f"Error testing {sym}: {e}", flush=True)
                 f.write(f"**Error testing {sym}:** {e}\n\n")
                 
-    print("btest.md has been regenerated.", flush=True)
+    print("docs/btest.md has been regenerated.", flush=True)
 
 if __name__ == "__main__":
     run_all()
