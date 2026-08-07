@@ -1215,6 +1215,11 @@ def api_account_detail(acc_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 register_account_routes(app, get_db_agent, log)
 
+# Phase 1: MT5 process supervisor routes (/api/ping, /api/accounts/<id>/launch,
+# /api/accounts/<id>/stop, /api/accounts/<id>/process_status)
+from core.supervisor_endpoints import register_supervisor_routes
+register_supervisor_routes(app, get_db_agent, log)
+
 @app.route("/api/accounts/<acc_id>/strategies", methods=["POST"])
 def api_account_strategies(acc_id):
     data = request.get_json()

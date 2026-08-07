@@ -191,9 +191,29 @@ def register_account_routes(app, get_db_agent, log):
         if not success:
             return jsonify({"status": "error", "reason": "Verified but failed to save to DB"})
 
+        # Record broker + profile now that the row exists (add_account's
+        # signature predates these columns — see migrate_accounts_supervisor.py).
+        row = db.query_one("SELECT id FROM accounts WHERE login=?", (login_identifier,))
+        account_id = row["id"] if row else None
+        if account_id:
+            db.execute("UPDATE accounts SET broker=?, profile=? WHERE id=?", (broker, profile, account_id))
+
+        # ── Launch (Phase 1 supervisor) — MT5 only. Zerodha/Binance don't
+        # need process isolation (Phase 2 multi-tenant manager handles those
+        # in-process). A verified MT5 account that never gets launched would
+        # just sit in the DB looking "connected" without ever actually
+        # trading — this is the step that closes that gap.
+        launch_result = None
+        if account_id and broker == "mt5":
+            from core.process_supervisor import get_supervisor
+            launch_result = get_supervisor(db).launch(account_id)
+            if not launch_result["ok"]:
+                log.error(f"[Accounts] Verified but failed to launch account {account_id}: {launch_result['reason']}")
+
         return jsonify({
             "status": "success",
             "account": {
+                "id": account_id,
                 "login": login_identifier,
                 "server": result["server"],
                 "balance": result["balance"],      # REAL balance, not user input
@@ -203,6 +223,7 @@ def register_account_routes(app, get_db_agent, log):
                 "broker": broker,
                 "prop_firm": prop_firm_key,
                 "rules": FIRM_RULES.get(prop_firm_key) if prop_firm_key else None,
+                "process": launch_result,   # None for zerodha/binance; {"ok","reason","port"} for mt5
             },
         })
 
