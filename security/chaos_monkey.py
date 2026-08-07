@@ -52,7 +52,7 @@ from unittest.mock import patch, MagicMock
 
 logger = logging.getLogger("crave.chaos")
 
-RESULTS_FILE = Path(__file__).parent.parent.parent.parent / "State" / "chaos_results.json"
+RESULTS_FILE = Path(__file__).parent.parent / "State" / "chaos_results.json"
 
 
 class ChaosMonkey:

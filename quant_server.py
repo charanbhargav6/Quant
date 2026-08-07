@@ -414,16 +414,49 @@ def api_portfolio():
 # These are the actual strategies implemented in strategy_agent.py
 STRATEGY_DEFS = [
     {
-        "id":   "hybrid_smc_xag",
-        "name": "Crave AI - Metals (SMC)",
-        "description": "Smart Money Concept (SMC) entry optimized for Silver (XAGUSD). Trades reversals after price sweeps liquidity and taps an Order Block or Fair Value Gap. Enforces a strict 1:2 Risk/Reward ratio as validated by recent out-of-sample WFO backtesting.",
-        "instruments": ["XAGUSD=X", "SI=F"],
-        "timeframe": "M15-H1",
+        "id":   "orderflow_btc",
+        "name": "OrderFlow — Crypto (BTC/ETH/SOL)",
+        "description": "Pure Order Flow footprint proxy. Trades volume-profile POC/VAH/VAL levels with delta confirmation. A+/A-grade signals only. Proven edge on Crypto where exchange volume is real. Cooldown/rate-limiter required before live deployment (max 29 concurrent trades observed).",
+        "instruments": ["BTC-USD", "ETH-USD", "SOL-USD"],
+        "timeframe": "M15",
         "style": "Intraday",
-        "backtest_period": "Jan 2026 - Jul 2026",
-        "static_backtest": {"win_rate": 61.4, "profit_factor": 3.18, "expectancy_r": 0.84, "max_dd_pct": 12.5, "trades": 241, "rr": 2.0},
-        "live_ready": True,
-    }
+        "backtest_period": "Jun 2026 - Aug 2026 (45 days, 3-fold WFO)",
+        "static_backtest": {"win_rate": 59.0, "profit_factor": 3.87, "expectancy_r": 0.745, "max_dd_pct": 30.32, "trades": 210, "rr": 2.0},
+        "live_ready": False,
+    },
+    {
+        "id":   "trend_pa_gold",
+        "name": "Trend/Price-Action — Gold (XAUUSD)",
+        "description": "EMA50/200 trend filter + ADX strength gate + EMA21 pullback entries confirmed by Keltner, RSI, Stochastic. SMC/Structure alone was -0.252R net on Gold — replaced by this adapter. Requires walk-forward validation before live use.",
+        "instruments": ["GC=F", "XAUUSD=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Pending validation",
+        "static_backtest": {"win_rate": None, "profit_factor": None, "expectancy_r": None, "max_dd_pct": None, "trades": None, "rr": 2.0},
+        "live_ready": False,
+    },
+    {
+        "id":   "trend_pa_forex",
+        "name": "Trend/Price-Action — Forex (EURUSD)",
+        "description": "Same Trend/PA engine as Gold adapter. EURUSD SMC had -0.016R net expectancy and INCONSISTENT walk-forward verdict. Trend/PA untested on Forex — requires validation before live use.",
+        "instruments": ["EURUSD=X", "GBPUSD=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Pending validation",
+        "static_backtest": {"win_rate": None, "profit_factor": None, "expectancy_r": None, "max_dd_pct": None, "trades": None, "rr": 2.0},
+        "live_ready": False,
+    },
+    {
+        "id":   "structure_silver",
+        "name": "Structure (SMC/ICT) — Silver (XAGUSD)",
+        "description": "FVG, Order Block, liquidity sweep, BOS/CHoCH engine. +0.242R net expectancy over 45 days but INCONSISTENT walk-forward verdict (fold 3 negative). Not approved for live until stability improves.",
+        "instruments": ["SI=F", "XAGUSD=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Jun 2026 - Aug 2026 (45 days, 3-fold WFO)",
+        "static_backtest": {"win_rate": 40.6, "profit_factor": 1.60, "expectancy_r": 0.242, "max_dd_pct": 38.43, "trades": 143, "rr": 2.0},
+        "live_ready": False,
+    },
 ]
 
 @app.route("/api/strategies")
