@@ -1409,9 +1409,9 @@ window.onPropFirmChange = function(){
   if(!firm){ el.innerHTML = ''; return; }
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:12px;">
-      <div><div style="color:var(--sub)">Max Loss</div><div style="font-weight:700;margin-top:2px">${firm.max_loss_pct}%</div></div>
-      <div><div style="color:var(--sub)">Daily Loss</div><div style="font-weight:700;margin-top:2px">${firm.daily_loss_pct}%</div></div>
-      <div><div style="color:var(--sub)">Profit Target</div><div style="font-weight:700;margin-top:2px">${firm.profit_target ?? '&mdash;'}%</div></div>
+      <div><div style="color:var(--sub)">Max Loss</div><div style="font-weight:700;margin-top:2px">${firm.max_loss_pct ? Math.round(firm.max_loss_pct * 100) + '%' : '&mdash;'}</div></div>
+      <div><div style="color:var(--sub)">Daily Loss</div><div style="font-weight:700;margin-top:2px">${firm.daily_loss_pct ? Math.round(firm.daily_loss_pct * 100) + '%' : '&mdash;'}</div></div>
+      <div><div style="color:var(--sub)">Profit Target</div><div style="font-weight:700;margin-top:2px">${firm.profit_target ? Math.round(firm.profit_target * 100) + '%' : '&mdash;'}</div></div>
       <div><div style="color:var(--sub)">Drawdown Type</div><div style="font-weight:700;margin-top:2px;text-transform:capitalize">${firm.drawdown_type}</div></div>
     </div>
     ${firm.note ? `<div style="font-size:11px;color:var(--mute);margin-top:6px">${firm.note}</div>` : ''}

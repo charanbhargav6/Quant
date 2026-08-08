@@ -496,7 +496,9 @@ def api_strategies():
         d = s.copy()
         
         # Enforce realistic R:R (0.2R expected per trade is great)
-        exp_r = d.get("static_backtest", {}).get("expectancy_r", 0)
+        exp_r = d.get("static_backtest", {}).get("expectancy_r")
+        if exp_r is None:
+            exp_r = 0.0
         is_live_eligible = exp_r >= 0.2
         d["eligible"] = "Live Ready" if is_live_eligible else "Backtest Data"
         
