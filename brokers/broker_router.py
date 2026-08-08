@@ -167,13 +167,108 @@ class BrokerRouter:
     # EXECUTION PATHS
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _active_broker_accounts(self, db, broker: str, strategy_id: str) -> list:
+        """
+        Shared multi-account filter for Zerodha/Binance, mirroring the
+        pattern _execute_mt5 already uses: only 'connected' accounts of
+        the right broker, with this strategy actually enabled for them.
+        Centralized here so _execute_binance/_execute_zerodha don't each
+        reimplement (and potentially drift on) the same filter logic.
+        """
+        import json
+        accounts = db.get_accounts()
+        result = []
+        for acc in accounts:
+            if acc["status"] != "connected":
+                continue
+            if (acc.get("broker") or "").lower() != broker:
+                continue
+            try:
+                enabled = json.loads(acc.get("strategies_enabled", '["all"]'))
+            except Exception:
+                enabled = ["all"]
+            if "all" not in enabled and strategy_id not in enabled:
+                logger.debug(f"[Router] Strategy {strategy_id} not enabled for account {acc.get('login')}, skipping.")
+                continue
+            result.append(acc)
+        return result
+
     def _execute_binance(self, validated: dict, current_price: float) -> dict:
-        """Route to existing ExecutionAgent Binance path."""
+        """
+        Route to BinanceAgent via MultiTenantBrokerManager, across all
+        active Binance accounts. Consolidates what used to be a separate,
+        disconnected path through ExecutionAgent/DataAgent's global-env
+        Binance client — that client is still used for market data (see
+        core/data_agent.py), but live order placement now goes through the
+        same BinanceAgent class used to verify accounts at onboarding, so
+        "verified" and "trading" are guaranteed to mean the same connection.
+        """
         try:
-            from core.execution_agent import ExecutionAgent
-            from core.data_agent import DataAgent
-            ea = ExecutionAgent(data_agent=DataAgent())
-            return ea.execute_trade(validated, current_price, exchange="binance")
+            from core.database_manager import DatabaseManager
+            from core.multi_tenant_broker_manager import get_multi_tenant_manager
+
+            db = DatabaseManager()
+            mgr = get_multi_tenant_manager(db)
+            strategy_id = validated.get("node", "")
+            active_accounts = self._active_broker_accounts(db, "binance", strategy_id)
+
+            if not active_accounts:
+                return {"status": "failed", "reason": "No connected Binance accounts have this strategy enabled"}
+
+            symbol    = validated["symbol"]
+            direction = validated["direction"]
+            sl        = validated["stop_loss"]
+            tp        = validated.get("take_profit_2") or validated.get("take_profit")
+            risk_pct  = validated.get("risk_pct", 1.0)
+
+            any_success = False
+            first_trade_id = None
+            last_error = "No accounts attempted"
+
+            for acc in active_accounts:
+                agent = mgr.get_agent(acc["id"])
+                if agent is None:
+                    last_error = f"Account {acc.get('login')} unavailable (see logs)"
+                    continue
+
+                info = agent.get_account_info()
+                eq_value = info["equity"] if info else 1000.0
+                # Binance sizing kept simple (fixed 0.01 lot per calculate_lot_size
+                # stub in BinanceAgent) — flagged in strategy_architecture_research.md
+                # as a known simplification, not something this phase changes.
+                lot_size = agent.calculate_lot_size(symbol, eq_value, risk_pct, 0)
+
+                ticket = agent.place_order(
+                    crave_symbol=symbol, direction=direction,
+                    lot_size=lot_size, sl=sl, tp=tp,
+                    comment=f"CRAVE {validated.get('grade', '?')}",
+                    order_type=validated.get("order_type", "market"),
+                    limit_price=validated.get("limit_price"),
+                    post_only=validated.get("post_only", False),
+                )
+
+                if ticket:
+                    any_success = True
+                    import uuid
+                    trade_id = str(uuid.uuid4())[:8].upper()
+                    if first_trade_id is None:
+                        first_trade_id = trade_id
+                    from core.position_tracker import positions
+                    positions.open({
+                        **validated,
+                        "trade_id": trade_id, "lot_size": lot_size,
+                        "entry_price": current_price, "is_paper": False,
+                        "exchange": "binance", "account_id": acc["id"],
+                        "binance_order_id": ticket,
+                        "signal_id": validated.get("signal_id"),
+                    })
+                else:
+                    last_error = f"Account {acc.get('login')} order placement failed"
+
+            if any_success:
+                return {"status": "filled", "trade_id": first_trade_id}
+            return {"status": "failed", "reason": last_error}
+
         except Exception as e:
             logger.error(f"[Router] Binance execution failed: {e}")
             return {"status": "failed", "reason": str(e)}
@@ -245,46 +340,73 @@ class BrokerRouter:
 
     def _execute_zerodha(self, validated: dict, current_price: float,
                           inst: dict) -> dict:
-        """Route Indian stocks to ZerodhaAgent."""
+        """
+        Route Indian stocks to ZerodhaAgent via MultiTenantBrokerManager,
+        across all active Zerodha accounts. Replaces the single-account
+        _get_zerodha() singleton — that path is still used by /api/india
+        status endpoints (read-only, fine to stay singleton), but live
+        order placement now goes per-account.
+        """
         try:
             from config.config import get_lot_size
-            agent         = self._get_zerodha()
+            from core.database_manager import DatabaseManager
+            from core.multi_tenant_broker_manager import get_multi_tenant_manager
+
+            db = DatabaseManager()
+            mgr = get_multi_tenant_manager(db)
+            strategy_id = validated.get("node", "")
+            active_accounts = self._active_broker_accounts(db, "zerodha", strategy_id)
+
+            if not active_accounts:
+                return {"status": "failed", "reason": "No connected Zerodha accounts have this strategy enabled"}
+
             symbol        = validated["symbol"]
             tradingsymbol = inst.get("tradingsymbol", symbol)
             kite_exchange = inst.get("kite_exchange", "NSE")
             lot_size      = get_lot_size(tradingsymbol)
+            lots          = max(1, int(validated.get("lot_size", 1)))
+            quantity      = lots * lot_size if lot_size > 1 else lots
 
-            # For F&O, quantity = lots × lot_size
-            lots     = max(1, int(validated.get("lot_size", 1)))
-            quantity = lots * lot_size if lot_size > 1 else lots
+            any_success = False
+            first_trade_id = None
+            last_error = "No accounts attempted"
 
-            # Use bracket order for intraday
-            result = agent.place_bracket_order(
-                tradingsymbol = tradingsymbol,
-                direction     = validated["direction"],
-                quantity      = quantity,
-                entry_price   = validated.get("entry", current_price),
-                stop_loss     = validated["stop_loss"],
-                target        = validated.get("take_profit_2") or validated.get("take_profit"),
-                kite_exchange = kite_exchange,
-            )
+            for acc in active_accounts:
+                agent = mgr.get_agent(acc["id"])
+                if agent is None:
+                    # Most common cause: expired daily access token — see
+                    # multi_tenant_broker_manager.py's needs_reauth status.
+                    last_error = f"Account {acc.get('login')} unavailable (see logs / needs_reauth)"
+                    continue
 
-            if result:
-                import uuid
-                trade_id = str(uuid.uuid4())[:8].upper()
-                from core.position_tracker import positions
-                positions.open({
-                    **validated,
-                    "trade_id":    trade_id,
-                    "lot_size":    quantity,
-                    "entry_price": current_price,
-                    "is_paper":    False,
-                    "exchange":    "zerodha",
-                    "signal_id":   validated.get("signal_id"),
-                })
-                return {"status": "filled", "trade_id": trade_id, "quantity": quantity}
+                result = agent.place_bracket_order(
+                    tradingsymbol=tradingsymbol, direction=validated["direction"],
+                    quantity=quantity, entry_price=validated.get("entry", current_price),
+                    stop_loss=validated["stop_loss"],
+                    target=validated.get("take_profit_2") or validated.get("take_profit"),
+                    kite_exchange=kite_exchange,
+                )
 
-            return {"status": "failed", "reason": "Zerodha order failed"}
+                if result:
+                    any_success = True
+                    import uuid
+                    trade_id = str(uuid.uuid4())[:8].upper()
+                    if first_trade_id is None:
+                        first_trade_id = trade_id
+                    from core.position_tracker import positions
+                    positions.open({
+                        **validated,
+                        "trade_id": trade_id, "lot_size": quantity,
+                        "entry_price": current_price, "is_paper": False,
+                        "exchange": "zerodha", "account_id": acc["id"],
+                        "signal_id": validated.get("signal_id"),
+                    })
+                else:
+                    last_error = f"Account {acc.get('login')} order failed"
+
+            if any_success:
+                return {"status": "filled", "trade_id": first_trade_id, "quantity": quantity}
+            return {"status": "failed", "reason": last_error}
 
         except Exception as e:
             logger.error(f"[Router] Zerodha execution failed: {e}")
@@ -322,7 +444,14 @@ class BrokerRouter:
             from core.database_manager import DatabaseManager
             db = DatabaseManager()
             accounts = db.get_accounts()
-            active_accounts = [a for a in accounts if a["status"] == "connected"]
+            # BUG FIX: previously filtered only by status=="connected", which
+            # meant a Zerodha/Binance account sharing this table would have
+            # its login/password handed straight to MT5's connect() — silent
+            # cross-broker credential mismatch. Now that `broker` is a real
+            # column (see migrate_accounts_supervisor.py), filter by it too.
+            active_accounts = [a for a in accounts
+                                if a["status"] == "connected"
+                                and (a.get("broker") or "mt5") == "mt5"]
             
             # If no DB accounts, fallback to single .env account
             if not active_accounts:

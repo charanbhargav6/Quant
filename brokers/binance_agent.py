@@ -7,25 +7,42 @@ from config.config import BINANCE_API_KEY, BINANCE_API_SECRET
 logger = logging.getLogger("crave.binance_agent")
 
 class BinanceAgent:
-    """Binance Futures broker agent for live/demo execution via CCXT."""
+    """
+    Binance Futures broker agent for live/demo execution via CCXT.
 
-    def __init__(self):
+    MULTI-ACCOUNT: api_key/api_secret can be passed directly to __init__ so
+    multiple instances — one per DB account — can coexist in the same
+    process without clobbering each other via shared env vars. Falls back
+    to the global .env values only when nothing is passed, for backward
+    compatibility with any single-account call sites.
+    """
+
+    def __init__(self, api_key: str = None, api_secret: str = None):
         self._connected = False
         self._exchange = None
         self._last_connect_attempt = 0.0
+        self._api_key = api_key or BINANCE_API_KEY
+        self._api_secret = api_secret or BINANCE_API_SECRET
 
     def connect(self, login: int = None, password: str = None, server: str = None) -> bool:
-        """Initialize CCXT Binance client."""
+        """Initialize CCXT Binance client.
+        `login`/`password` accepted for interface compatibility with the
+        other brokers' connect() signature — they override whatever was
+        passed to __init__ if given, same precedence as before."""
         try:
             import ccxt
-            
-            # Note: password is used as API secret if passed, else env vars
-            api_key = str(login) if login else BINANCE_API_KEY
-            secret = password if password else BINANCE_API_SECRET
-            
+
+            api_key = str(login) if login else self._api_key
+            secret = password if password else self._api_secret
+
             if not api_key or not secret:
-                logger.error("[Binance] API keys missing. Check .env")
+                logger.error("[Binance] API keys missing. Check .env or pass explicitly.")
                 return False
+
+            # Keep instance credentials in sync with whatever actually connected,
+            # so get_account_info() below reports the RIGHT account, not env leftovers.
+            self._api_key = api_key
+            self._api_secret = secret
 
             self._exchange = ccxt.binanceusdm({
                 'apiKey': api_key,
@@ -102,37 +119,62 @@ class BinanceAgent:
 
     def place_order(self, crave_symbol: str, direction: str,
                     lot_size: float, sl: float = None, tp: float = None,
-                    magic: int = 123456, comment: str = "CRAVE") -> Optional[int]:
-        """Place market order with bracket SL/TP."""
+                    magic: int = 123456, comment: str = "CRAVE",
+                    order_type: str = "market", limit_price: float = None,
+                    post_only: bool = False) -> Optional[int]:
+        """Place a market or limit order with bracket SL/TP.
+
+        order_type: "market" (default) or "limit". Limit entries support
+        post_only for maker-fee/order-block entries — this mirrors the
+        capability ExecutionAgent's binance path had before execution was
+        consolidated onto this class (see multi_tenant_broker_manager.py).
+        SL/TP use closePosition=True (not a fixed reduceOnly amount) so
+        they fully close the position regardless of partial-fill drift.
+        """
         if not self.ensure_connected(): return None
         
         b_sym = self._map_symbol(crave_symbol)
         side = 'buy' if direction.lower() in ('buy', 'long') else 'sell'
         
         try:
-            # Place main market order
-            order = self._exchange.create_order(
-                symbol=b_sym,
-                type='market',
-                side=side,
-                amount=lot_size
-            )
-            
-            # Place SL/TP as separate conditional orders
+            if order_type == "limit" and limit_price:
+                entry_params = {'postOnly': True} if post_only else {}
+                order = self._exchange.create_order(
+                    symbol=b_sym, type='limit', side=side,
+                    amount=lot_size, price=round(limit_price, 8),
+                    params=entry_params
+                )
+                logger.info(
+                    f"[Binance] LIMIT order @ {limit_price} "
+                    f"{'postOnly' if post_only else 'standard'} | Ticket: {order['id']}"
+                )
+            else:
+                order = self._exchange.create_order(
+                    symbol=b_sym,
+                    type='market',
+                    side=side,
+                    amount=lot_size
+                )
+                logger.info(f"[Binance] MARKET order placed ✅ | Ticket: {order['id']}")
+
+            # Place SL/TP as separate conditional orders. closePosition=True
+            # (not reduceOnly + fixed amount) guarantees the full position
+            # closes even if the entry only partially filled.
             opposite_side = 'sell' if side == 'buy' else 'buy'
-            
+
             if sl:
                 self._exchange.create_order(
                     symbol=b_sym, type='stop_market', side=opposite_side,
-                    amount=lot_size, params={'stopPrice': sl, 'reduceOnly': True}
+                    amount=lot_size, params={'stopPrice': round(sl, 8),
+                                              'reduceOnly': True, 'closePosition': True}
                 )
             if tp:
                 self._exchange.create_order(
                     symbol=b_sym, type='take_profit_market', side=opposite_side,
-                    amount=lot_size, params={'stopPrice': tp, 'reduceOnly': True}
+                    amount=lot_size, params={'stopPrice': round(tp, 8),
+                                              'reduceOnly': True, 'closePosition': True}
                 )
-                
-            logger.info(f"[Binance] Order placed ✅ | Ticket: {order['id']}")
+
             return int(order['id'])
             
         except Exception as e:
@@ -192,7 +234,8 @@ class BinanceAgent:
                         "magic": 123456
                     })
             return active
-        except:
+        except Exception as e:
+            logger.error(f"[Binance] get_positions failed: {e}")
             return []
 
     def get_closed_trades(self, days: int = 30) -> List[dict]:
@@ -204,12 +247,17 @@ class BinanceAgent:
             bal = self._exchange.fetch_balance()
             eq = bal['total'].get('USDT', 0.0)
             return {
-                "login": BINANCE_API_KEY[:6],
+                # BUG FIX: was hardcoded to the global env BINANCE_API_KEY,
+                # so every account's get_account_info() reported the SAME
+                # login regardless of which key actually connected. Now
+                # reports the instance's own connected key.
+                "login": self._api_key[:6] if self._api_key else "unknown",
                 "balance": eq,
                 "equity": eq,
                 "server": "Binance-Futures"
             }
-        except:
+        except Exception as e:
+            logger.error(f"[Binance] get_account_info failed: {e}")
             return None
 
     def calculate_lot_size(self, crave_symbol: str, equity: float, risk_pct: float, stop_loss_pips: float) -> float:
