@@ -56,8 +56,18 @@ from typing import Optional
 
 logger = logging.getLogger("crave.zerodha")
 
-# Token stored in State/ directory, refreshed daily
-TOKEN_FILE = Path(__file__).parent.parent / "State" / "zerodha_token.json"
+# Token stored in State/ directory, refreshed daily.
+# MULTI-ACCOUNT: this is now a per-account path (State/zerodha_token_<id>.json)
+# instead of one shared file. Before this fix, two ZerodhaAgent instances in
+# the same process (one per DB account, via MultiTenantBrokerManager) would
+# silently overwrite each other's access tokens on every _save_token() call —
+# whichever account logged in last would "steal" the session out from under
+# the other. account_id=None keeps the original shared-file path so any
+# existing single-account deployment (get_zerodha() singleton) is unaffected.
+def _token_file_for(account_id) -> Path:
+    if account_id is None:
+        return Path(__file__).parent.parent / "State" / "zerodha_token.json"
+    return Path(__file__).parent.parent / "State" / f"zerodha_token_{account_id}.json"
 
 
 class ZerodhaAgent:
@@ -79,9 +89,22 @@ class ZerodhaAgent:
             )
             return raw
 
-    def __init__(self):
-        self._api_key    = os.environ.get("ZERODHA_API_KEY", "")
-        self._api_secret = self._decrypt_env_value(os.environ.get("ZERODHA_API_SECRET", ""))
+    def __init__(self, api_key: str = None, api_secret: str = None,
+                 access_token: str = None, account_id=None):
+        """
+        MULTI-ACCOUNT: api_key/api_secret/access_token can be passed
+        directly instead of relying on process env vars, so multiple
+        instances — one per DB account — can coexist in the same process.
+        account_id, if given, scopes this instance's token file so
+        concurrent accounts don't overwrite each other's sessions (see
+        _token_file_for above). Falls back to env vars + the shared file
+        when nothing is passed, for backward compatibility with the
+        existing get_zerodha() singleton.
+        """
+        self._account_id = account_id
+        self._token_file = _token_file_for(account_id)
+        self._api_key    = api_key or os.environ.get("ZERODHA_API_KEY", "")
+        self._api_secret = api_secret or self._decrypt_env_value(os.environ.get("ZERODHA_API_SECRET", ""))
         self._redirect   = os.environ.get("ZERODHA_REDIRECT_URL",
                                            "http://127.0.0.1/redirect")
         self._kite       = None
@@ -95,19 +118,45 @@ class ZerodhaAgent:
             )
             return
 
-        self._load_token()
+        # If an access token was handed to us directly (e.g. loaded from
+        # the DB by MultiTenantBrokerManager, already decrypted), use it
+        # immediately instead of re-reading from a token file.
+        if access_token:
+            self._activate_token(access_token, persist=False)
+        else:
+            self._load_token()
 
     # ─────────────────────────────────────────────────────────────────────────
     # AUTHENTICATION
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _activate_token(self, access_token: str, persist: bool = True):
+        """Wire up an access token directly (used when MultiTenantBrokerManager
+        hands us a decrypted token from the DB instead of a token file)."""
+        try:
+            from kiteconnect import KiteConnect
+            self._kite = KiteConnect(api_key=self._api_key)
+            self._kite.set_access_token(access_token)
+            self._authenticated = True
+            if persist:
+                self._save_token(access_token)
+            else:
+                from zoneinfo import ZoneInfo
+                ist_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+                self._token_data = {"access_token": access_token, "date": ist_date}
+            logger.info(f"[Zerodha] ✅ Authenticated (account_id={self._account_id}).")
+        except ImportError:
+            logger.warning("[Zerodha] kiteconnect not installed. Run: pip install kiteconnect")
+        except Exception as e:
+            logger.warning(f"[Zerodha] Token activation failed: {e}")
+
     def _load_token(self):
         """Load stored access token if it's still valid (same calendar day IST)."""
-        if not TOKEN_FILE.exists():
+        if not self._token_file.exists():
             return
 
         try:
-            with open(TOKEN_FILE) as f:
+            with open(self._token_file) as f:
                 data = json.load(f)
 
             # Check if token was created today (IST day)
@@ -149,10 +198,11 @@ class ZerodhaAgent:
             "date":         ist_date,
             "saved_at":     datetime.now(timezone.utc).isoformat(),
         }
-        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(TOKEN_FILE, "w") as f:
+        self._token_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._token_file, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"[Zerodha] Token saved for {ist_date}.")
+        self._token_data = data
+        logger.info(f"[Zerodha] Token saved for {ist_date} (account_id={self._account_id}).")
 
     def get_login_url(self) -> str:
         """
