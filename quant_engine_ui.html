@@ -386,27 +386,82 @@
           <div id="accounts-table-body" style="padding:16px;color:var(--sub);font-size:12px">Connecting to broker...</div>
         </div>
         <div class="section" style="margin-top:12px">
-          <div class="section-h"><h3>Add a new account</h3><p>Connect a new MT5 account (Prop firm, Demo, or Real)</p></div>
+          <div class="section-h"><h3>Add a new account</h3><p>Connect a Prop Firm, Real, Demo, or Binance account &mdash; verified live before it's saved</p></div>
           <div style="padding:16px;">
+
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Account Type</div><select id="add-acc-type" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px"><option value="prop_firm">Prop Firm</option><option value="real">Real</option><option value="demo">Demo</option></select></div>
-              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Capital / Balance ($)</div><input type="number" id="add-acc-cap" value="10000" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div>
+                <div style="font-size:11px;color:var(--sub);margin-bottom:4px">Broker</div>
+                <select id="add-acc-broker" onchange="onBrokerChange()" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px">
+                  <option value="mt5">MetaTrader 5</option>
+                  <option value="zerodha">Zerodha (Kite)</option>
+                  <option value="binance">Binance Futures</option>
+                </select>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--sub);margin-bottom:4px">Account Type</div>
+                <select id="add-acc-type" onchange="onAccountTypeChange()" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px">
+                  <option value="prop_firm">Prop Firm</option>
+                  <option value="real">Real</option>
+                  <option value="demo">Demo</option>
+                </select>
+              </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+
+            <div id="add-acc-propfirm-row" style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:12px">
+              <div>
+                <div style="font-size:11px;color:var(--sub);margin-bottom:4px">Prop Firm</div>
+                <select id="add-acc-propfirm" onchange="onPropFirmChange()" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px">
+                  <option value="">Loading firms&hellip;</option>
+                </select>
+              </div>
+              <div id="add-acc-propfirm-metrics"></div>
+            </div>
+
+            <!-- MT5 fields -->
+            <div id="add-acc-fields-mt5" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
               <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Login (Account #)</div><input type="text" id="add-acc-login" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
               <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Password</div><input type="password" id="add-acc-pass" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
               <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Server Name</div><input type="text" id="add-acc-server" placeholder="e.g. MetaQuotes-Demo" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1.5fr 0.5fr 1fr;gap:12px;margin-bottom:16px">
-              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Profile Name</div><input type="text" id="add-acc-profile" placeholder="e.g. xm2" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
-              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Terminal Path</div><input type="text" id="add-acc-path" placeholder="e.g. C:\Program Files\MT5\terminal64.exe" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
-              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Port</div><input type="number" id="add-acc-port" placeholder="e.g. 8767" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
-              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Telegram Token</div><input type="text" id="add-acc-telegram" placeholder="Bot Token" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+
+            <!-- Zerodha / Binance fields (API key + secret, no server/password concept) -->
+            <div id="add-acc-fields-apikey" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">API Key</div><input type="text" id="add-acc-apikey" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">API Secret</div><input type="password" id="add-acc-apisecret" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
             </div>
+            <div id="add-acc-zerodha-note" style="display:none;font-size:11.5px;color:var(--sub);margin:-6px 0 12px;">Zerodha requires a one-time browser login to verify &mdash; clicking Connect &amp; Verify opens a Zerodha login popup.</div>
+
+            <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:12px">
+              <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Profile Name</div><input type="text" id="add-acc-profile" placeholder="e.g. xm2 &mdash; used to identify this account/process" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+            </div>
+
+            <details style="margin-bottom:16px">
+              <summary style="cursor:pointer;font-size:11.5px;color:var(--sub);margin-bottom:8px">Advanced (optional)</summary>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px" id="add-acc-fields-mt5-advanced">
+                <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Terminal Path (MT5 only)</div><input type="text" id="add-acc-path" placeholder="e.g. C:\Program Files\MT5\terminal64.exe" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+                <div><div style="font-size:11px;color:var(--sub);margin-bottom:4px">Telegram Bot Token</div><input type="text" id="add-acc-telegram" placeholder="Bot Token for this account's alerts" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:4px;box-sizing:border-box"></div>
+              </div>
+              <div style="font-size:11px;color:var(--mute);margin-top:6px">Port is assigned automatically by the process supervisor &mdash; no need to set one.</div>
+            </details>
+
             <div style="display:flex;align-items:center;gap:12px">
-              <button onclick="submitAddAccount()" style="background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Connect &amp; Verify</button>
+              <button id="add-acc-submit-btn" onclick="submitAddAccount()" style="background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Connect &amp; Verify</button>
               <div id="add-acc-status" style="font-size:12px;color:var(--sub)"></div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ STRATEGY SELECTION CONFIRM MODAL ============ -->
+      <div id="strategy-select-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999;align-items:center;justify-content:center;">
+        <div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;max-width:480px;width:90%;max-height:80vh;overflow:auto;padding:20px;">
+          <h3 style="margin:0 0 4px">Select strategies</h3>
+          <p style="color:var(--sub);font-size:12.5px;margin:0 0 16px">Account connected. Choose which strategies can trade this account &mdash; you can toggle these anytime from the account detail view.</p>
+          <div id="strategy-select-list" style="display:grid;gap:10px;margin-bottom:18px"></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button onclick="closeStrategySelectModal()" style="background:transparent;color:var(--sub);border:1px solid var(--line);padding:8px 16px;border-radius:6px;cursor:pointer">Skip for now</button>
+            <button onclick="confirmStrategySelection()" style="background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600">Confirm</button>
           </div>
         </div>
       </div>
@@ -487,7 +542,7 @@
                   eBtn.style.background = 'var(--amber)';
                   eBtn.style.color = '#000';
                   eBtn.innerText = 'HALTED';
-                  fetch('http://127.0.0.1:' + API + '/api/admin/emergency_stop', { method: 'POST' });
+                  fetch(API + '/api/admin/emergency_stop', { method: 'POST' });
                 }
               }, 100);
             };
@@ -503,8 +558,8 @@
             eBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startEStop(); });
             eBtn.addEventListener('touchend', cancelEStop);
           </script>
-          <button onclick="window.open('http://127.0.0.1:'+API+'/api/compliance','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Export audit log</button>
-          <button onclick="window.open('http://127.0.0.1:'+API+'/api/admin','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Raw API debug</button>
+          <button onclick="window.open(API+'/api/compliance','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Export audit log</button>
+          <button onclick="window.open(API+'/api/admin','_blank')" style="background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 16px;border-radius:6px;font-size:12px;cursor:pointer">Raw API debug</button>
         </div>
       </div>
     </div>
@@ -1318,43 +1373,209 @@ async function updateAccounts(){
   }
 }
 
-window.submitAddAccount = async function() {
+// ══════════════════════════════ ADD ACCOUNT FLOW (Phase 3) ══════════════════════════════
+
+let _propFirms = null;
+let _lastAddedAccountId = null;
+
+window.onBrokerChange = function(){
+  const broker = document.getElementById('add-acc-broker').value;
+  document.getElementById('add-acc-fields-mt5').style.display = broker === 'mt5' ? 'grid' : 'none';
+  document.getElementById('add-acc-fields-apikey').style.display = broker === 'mt5' ? 'none' : 'grid';
+  document.getElementById('add-acc-zerodha-note').style.display = broker === 'zerodha' ? 'block' : 'none';
+  document.getElementById('add-acc-fields-mt5-advanced').style.display = broker === 'mt5' ? 'grid' : 'none';
+};
+
+window.onAccountTypeChange = function(){
+  const isPropFirm = document.getElementById('add-acc-type').value === 'prop_firm';
+  document.getElementById('add-acc-propfirm-row').style.display = isPropFirm ? 'grid' : 'none';
+  if(isPropFirm) loadPropFirms();
+};
+
+async function loadPropFirms(){
+  if(!_propFirms){
+    const d = await api('/api/prop_firms');
+    _propFirms = (d && d.firms) || [];
+  }
+  const sel = document.getElementById('add-acc-propfirm');
+  sel.innerHTML = _propFirms.map(f => `<option value="${f.key}">${f.name}</option>`).join('');
+  onPropFirmChange();
+};
+
+window.onPropFirmChange = function(){
+  const key = document.getElementById('add-acc-propfirm').value;
+  const firm = (_propFirms||[]).find(f => f.key === key);
+  const el = document.getElementById('add-acc-propfirm-metrics');
+  if(!firm){ el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:12px;">
+      <div><div style="color:var(--sub)">Max Loss</div><div style="font-weight:700;margin-top:2px">${firm.max_loss_pct}%</div></div>
+      <div><div style="color:var(--sub)">Daily Loss</div><div style="font-weight:700;margin-top:2px">${firm.daily_loss_pct}%</div></div>
+      <div><div style="color:var(--sub)">Profit Target</div><div style="font-weight:700;margin-top:2px">${firm.profit_target ?? '&mdash;'}%</div></div>
+      <div><div style="color:var(--sub)">Drawdown Type</div><div style="font-weight:700;margin-top:2px;text-transform:capitalize">${firm.drawdown_type}</div></div>
+    </div>
+    ${firm.note ? `<div style="font-size:11px;color:var(--mute);margin-top:6px">${firm.note}</div>` : ''}
+  `;
+};
+
+window.submitAddAccount = async function(){
+  const broker = document.getElementById('add-acc-broker').value;
   const type = document.getElementById('add-acc-type').value;
-  const capital = document.getElementById('add-acc-cap').value;
-  const login = document.getElementById('add-acc-login').value;
-  const pass = document.getElementById('add-acc-pass').value;
-  const server = document.getElementById('add-acc-server').value;
-  
   const profile = document.getElementById('add-acc-profile').value;
   const path = document.getElementById('add-acc-path').value;
-  const port = document.getElementById('add-acc-port').value;
   const telegram = document.getElementById('add-acc-telegram').value;
-
+  const prop_firm = type === 'prop_firm' ? document.getElementById('add-acc-propfirm').value : null;
   const status = document.getElementById('add-acc-status');
-  
-  if(!login || !pass || !server || !profile){
-    status.innerHTML = '<span style="color:var(--red)">Please fill at least Login, Pass, Server, and Profile fields</span>';
+  const btn = document.getElementById('add-acc-submit-btn');
+
+  if(!profile){
+    status.innerHTML = '<span style="color:var(--red)">Profile name is required</span>';
     return;
   }
-  
-  status.innerHTML = 'Connecting and verifying...';
+
+  let payload = { type, broker, profile, path, telegram, prop_firm };
+
+  if(broker === 'mt5'){
+    const login = document.getElementById('add-acc-login').value;
+    const pass = document.getElementById('add-acc-pass').value;
+    const server = document.getElementById('add-acc-server').value;
+    if(!login || !pass || !server){
+      status.innerHTML = '<span style="color:var(--red)">Login, Password, and Server are all required for MT5</span>';
+      return;
+    }
+    Object.assign(payload, { login, password: pass, server });
+  } else {
+    const apikey = document.getElementById('add-acc-apikey').value;
+    const apisecret = document.getElementById('add-acc-apisecret').value;
+    if(!apikey || !apisecret){
+      status.innerHTML = '<span style="color:var(--red)">API Key and API Secret are both required</span>';
+      return;
+    }
+    Object.assign(payload, { api_key: apikey, api_secret: apisecret });
+  }
+
+  btn.disabled = true;
+  status.innerHTML = broker === 'mt5'
+    ? 'Connecting and verifying with MT5&hellip;'
+    : (broker === 'binance' ? 'Connecting and verifying with Binance&hellip;' : 'Preparing Zerodha login&hellip;');
+
   try {
-    const res = await api('/api/accounts/add', {
-      method: 'POST',
-      body: JSON.stringify({ type, capital, login, password: pass, server, profile, path, port, telegram })
-    });
+    const res = await api('/api/accounts/add', { method: 'POST', body: JSON.stringify(payload) });
+
+    if(res && res.status === 'pending_oauth'){
+      status.innerHTML = 'Opening Zerodha login &mdash; approve access in the popup&hellip;';
+      const popup = window.open(res.login_url, 'zerodha_oauth', 'width=480,height=640');
+      if(!popup){
+        status.innerHTML = '<span style="color:var(--red)">Popup blocked &mdash; allow popups for this site and try again.</span>';
+        btn.disabled = false;
+      }
+      // Actual completion happens via the postMessage listener below, once
+      // the popup lands on /zerodha_redirect after the user approves.
+      return;
+    }
+
     if(res && res.status === 'success'){
-      status.innerHTML = '<span style="color:var(--green)">Account verified and added!</span>';
-      document.getElementById('add-acc-login').value = '';
-      document.getElementById('add-acc-pass').value = '';
-      updateAccounts();
+      onAccountAdded(res.account, status);
     } else {
-      status.innerHTML = `<span style="color:var(--red)">Error: ${res.reason||'Failed'}</span>`;
+      status.innerHTML = `<span style="color:var(--red)">Error: ${(res && res.reason) || 'Failed'}</span>`;
     }
   } catch(e) {
     status.innerHTML = '<span style="color:var(--red)">Network error</span>';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+function onAccountAdded(account, status){
+  const bal = account.balance != null ? `$${Number(account.balance).toLocaleString()}` : '&mdash;';
+  const proc = account.process;
+  let procNote = '';
+  if(proc){
+    procNote = proc.ok
+      ? ` &mdash; process launched on port ${proc.port}`
+      : ` &mdash; <span style="color:var(--amber)">saved, but process launch failed: ${proc.reason}</span>`;
+  }
+  status.innerHTML = `<span style="color:var(--green)">Verified &mdash; ${account.server||account.broker}, balance ${bal}${procNote}</span>`;
+  document.getElementById('add-acc-login').value = '';
+  document.getElementById('add-acc-pass').value = '';
+  document.getElementById('add-acc-apikey').value = '';
+  document.getElementById('add-acc-apisecret').value = '';
+  updateAccounts();
+
+  if(account.id){
+    _lastAddedAccountId = account.id;
+    openStrategySelectModal(account.id);
   }
 }
+
+// Zerodha popup posts back here once /zerodha_redirect finishes
+window.addEventListener('message', function(ev){
+  if(!ev.data || ev.data.source !== 'crave_zerodha_oauth') return;
+  const status = document.getElementById('add-acc-status');
+  const btn = document.getElementById('add-acc-submit-btn');
+  btn.disabled = false;
+  if(ev.data.ok){
+    updateAccounts();
+    status.innerHTML = `<span style="color:var(--green)">${ev.data.message}</span>`;
+    // Zerodha's own /api/accounts/add response never carried an account id
+    // back to this tab (the OAuth round-trip happens entirely in the
+    // popup) — refresh the list and let the user open the new account's
+    // detail view to select strategies, same place toggling always lives.
+  } else {
+    status.innerHTML = `<span style="color:var(--red)">${ev.data.message}</span>`;
+  }
+});
+
+// ══════════════════════════════ STRATEGY SELECT CONFIRM MODAL ══════════════════════════════
+
+window.openStrategySelectModal = async function(accountId){
+  _lastAddedAccountId = accountId;
+  const d = await api('/api/strategies');
+  const strategies = (d && d.strategies) || [];
+  const list = document.getElementById('strategy-select-list');
+  list.innerHTML = strategies.map(s => {
+    const expR = s.static_backtest ? s.static_backtest.expectancy_r : null;
+    const badge = s.live_ready
+      ? `<span style="color:var(--green);font-size:10.5px;font-weight:700">LIVE READY</span>`
+      : `<span style="color:var(--amber);font-size:10.5px;font-weight:700">PENDING VALIDATION</span>`;
+    return `
+      <label style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:10px 14px;border-radius:6px;border:1px solid var(--line);cursor:pointer;">
+        <div>
+          <input type="checkbox" class="strategy-select-cb" value="${s.id}" style="margin-right:8px" ${s.live_ready ? '' : ''}>
+          <strong style="font-size:13px">${s.name}</strong>
+          <div style="font-size:11px;color:var(--sub);margin-top:2px;margin-left:22px">${expR != null ? `Expectancy ${expR}R` : 'Not yet validated'}</div>
+        </div>
+        ${badge}
+      </label>`;
+  }).join('') || '<div style="color:var(--sub);font-size:12.5px">No strategies defined yet.</div>';
+  document.getElementById('strategy-select-overlay').style.display = 'flex';
+};
+
+window.closeStrategySelectModal = function(){
+  document.getElementById('strategy-select-overlay').style.display = 'none';
+};
+
+window.confirmStrategySelection = async function(){
+  const accountId = _lastAddedAccountId;
+  if(!accountId){ closeStrategySelectModal(); return; }
+  const checked = Array.from(document.querySelectorAll('.strategy-select-cb:checked')).map(cb => cb.value);
+
+  for(const strategyId of checked){
+    await fetch(API + '/api/accounts/' + accountId + '/strategies', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ strategy_id: strategyId, enabled: true })
+    });
+  }
+  closeStrategySelectModal();
+  updateAccounts();
+};
+
+// Initialize field visibility on first load
+document.addEventListener('DOMContentLoaded', function(){
+  if(document.getElementById('add-acc-broker')) onBrokerChange();
+  if(document.getElementById('add-acc-type')) onAccountTypeChange();
+});
 
 window.loadAccountDetail = async function(id){
   const d = await api('/api/accounts/' + id);
