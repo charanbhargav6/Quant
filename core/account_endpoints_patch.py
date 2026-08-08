@@ -94,6 +94,8 @@ def register_account_routes(app, get_db_agent, log):
         """
         out = []
         for key, rules in FIRM_RULES.items():
+            if rules.get("max_loss_pct") is None:
+                continue
             out.append({
                 "key": key,
                 "name": rules["name"],
