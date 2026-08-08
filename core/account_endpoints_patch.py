@@ -25,11 +25,28 @@ WIRING INTO quant_server.py:
 """
 
 from pathlib import Path
-from flask import request, jsonify
+from flask import request, jsonify, Response
 
 from core.account_connector import verify_and_connect, complete_zerodha_login
 from core.secrets_vault import encrypt_secret
 from core.prop_firm_guard import FIRM_RULES
+
+# ── Pending Zerodha OAuth sessions ──────────────────────────────────────────
+# Kite Connect's redirect only ever carries back `request_token` (plus
+# `action`/`status`) — it does not echo back custom state we'd want to pass
+# through (like which profile/port this account should become). So the
+# credentials + profile for an in-flight "Connect & Verify" click have to be
+# held server-side between the initial call and the browser landing back on
+# /zerodha_redirect.
+#
+# KNOWN LIMITATION (v1, documented rather than hidden): this is a single
+# pending-flow slot, not a dict keyed by session/state. Two people adding two
+# different Zerodha accounts from two browser tabs at the same time would
+# collide — the second "Connect & Verify" click overwrites the first's
+# pending session. Fine for this dashboard's actual usage (one operator),
+# but worth revisiting with a real state param + short-TTL keyed store if
+# this ever needs concurrent multi-user onboarding.
+_pending_zerodha = {}
 
 
 def _write_profile_env(profile: str, values: dict):
@@ -134,8 +151,20 @@ def register_account_routes(app, get_db_agent, log):
         result = verify_and_connect(acc_type, broker, creds)
 
         if result["requires_oauth"]:
-            # Zerodha: can't finish here. Hand the frontend the login_url and
-            # a pending token; DB row is NOT created yet.
+            # Zerodha: can't finish here. Stash credentials server-side
+            # (see _pending_zerodha docstring above) and hand the frontend
+            # the login_url. DB row is NOT created yet — only /zerodha_redirect
+            # (after the user actually approves in their browser) creates it.
+            _pending_zerodha.clear()
+            _pending_zerodha.update({
+                "api_key": creds.get("api_key"),
+                "api_secret": creds.get("api_secret"),
+                "profile": profile,
+                "port": data.get("port"),
+                "telegram": data.get("telegram"),
+                "acc_type": acc_type,
+                "prop_firm": prop_firm_key,
+            })
             return jsonify({
                 "status": "pending_oauth",
                 "login_url": result["login_url"],
@@ -229,7 +258,9 @@ def register_account_routes(app, get_db_agent, log):
 
     @app.route("/api/accounts/zerodha/complete", methods=["POST"])
     def api_zerodha_complete():
-        """Second half of Zerodha onboarding — call after the OAuth redirect."""
+        """Second half of Zerodha onboarding, callable directly (e.g. for
+        testing) without going through the browser redirect. The real UX
+        path is /zerodha_redirect below — this stays for programmatic use."""
         data = request.get_json(force=True) or {}
         api_key = data.get("api_key")
         api_secret = data.get("api_secret")
@@ -239,13 +270,59 @@ def register_account_routes(app, get_db_agent, log):
         if not (api_key and api_secret and request_token and profile):
             return jsonify({"status": "error", "reason": "Missing api_key/api_secret/request_token/profile"})
 
+        result = _finish_zerodha_account(
+            get_db_agent, api_key, api_secret, request_token, profile,
+            data.get("port"), data.get("telegram"),
+        )
+        status_code = "success" if result["ok"] else "error"
+        return jsonify({"status": status_code, **({"account": result["account"]} if result["ok"] else {"reason": result["reason"]})})
+
+    @app.route("/zerodha_redirect")
+    def zerodha_redirect():
+        """
+        REAL Zerodha OAuth landing page. This is where ZERODHA_REDIRECT_URL
+        (registered in both .env and the Kite Developer Console for your
+        app) must point. Zerodha appends ?request_token=...&action=...&status=...
+        to this URL after the user approves login — this route picks that
+        up, finishes verification, and closes the popup back to the main
+        onboarding tab via postMessage.
+        """
+        request_token = request.args.get("request_token")
+        status = request.args.get("status")
+
+        if not _pending_zerodha:
+            return _oauth_landing_html(ok=False, message="No pending Zerodha connection found. Please retry from the dashboard.")
+
+        if status != "success" or not request_token:
+            _pending_zerodha.clear()
+            return _oauth_landing_html(ok=False, message=f"Zerodha login did not complete (status={status}).")
+
+        pending = dict(_pending_zerodha)
+        _pending_zerodha.clear()
+
+        result = _finish_zerodha_account(
+            get_db_agent, pending["api_key"], pending["api_secret"], request_token,
+            pending["profile"], pending.get("port"), pending.get("telegram"),
+        )
+
+        if not result["ok"]:
+            return _oauth_landing_html(ok=False, message=result["reason"])
+
+        return _oauth_landing_html(ok=True, message="Zerodha account connected and verified.")
+
+    def _finish_zerodha_account(get_db_agent, api_key, api_secret, request_token,
+                                 profile, port, telegram) -> dict:
+        """Shared by both the JSON endpoint and the real OAuth redirect
+        landing page — exchanges request_token for a session, verifies via
+        margins(), then persists exactly like every other broker: encrypted
+        at rest, .env.<profile> written for the `--profile` launch mechanism."""
         result = complete_zerodha_login(api_key, api_secret, request_token)
         if not result["ok"]:
-            return jsonify({"status": "error", "reason": result["reason"]})
+            return {"ok": False, "reason": result["reason"]}
 
         db = get_db_agent()
         if not db:
-            return jsonify({"status": "error", "reason": "Database not available"})
+            return {"ok": False, "reason": "Database not available"}
 
         enc_token = encrypt_secret(result["access_token"])
 
@@ -253,8 +330,8 @@ def register_account_routes(app, get_db_agent, log):
             "ZERODHA_API_KEY": api_key,
             "ZERODHA_API_SECRET": encrypt_secret(api_secret),
             "ZERODHA_ACCESS_TOKEN": enc_token,
-            "SERVER_PORT": data.get("port"),
-            "TELEGRAM_BOT_TOKEN": data.get("telegram"),
+            "SERVER_PORT": port,
+            "TELEGRAM_BOT_TOKEN": telegram,
         })
 
         success = db.add_account(
@@ -262,12 +339,49 @@ def register_account_routes(app, get_db_agent, log):
             result["balance"], "connected", '["all"]'
         )
         if not success:
-            return jsonify({"status": "error", "reason": "Verified but failed to save to DB"})
+            return {"ok": False, "reason": "Verified but failed to save to DB"}
 
-        return jsonify({
-            "status": "success",
+        row = db.query_one("SELECT id FROM accounts WHERE login=?", (api_key,))
+        account_id = row["id"] if row else None
+        if account_id:
+            db.execute("UPDATE accounts SET broker='zerodha', profile=? WHERE id=?", (profile, account_id))
+
+        return {
+            "ok": True,
             "account": {
-                "login": api_key, "server": "Zerodha/Kite",
+                "id": account_id, "login": api_key, "server": "Zerodha/Kite",
                 "balance": result["balance"], "currency": "INR", "broker": "zerodha",
             },
-        })
+        }
+
+    def _oauth_landing_html(ok: bool, message: str) -> Response:
+        """Small self-contained page: shows the result, tells the opener
+        tab via postMessage so the dashboard can refresh automatically
+        without the user manually switching back and reloading."""
+        color = "#22c55e" if ok else "#ef4444"
+        icon = "✅" if ok else "⚠️"
+        html = f"""<!DOCTYPE html>
+<html><head><title>Zerodha Connection</title>
+<style>
+  body {{ background:#0a0a0a; color:#e5e5e5; font-family:-apple-system,sans-serif;
+          display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }}
+  .card {{ text-align:center; padding:32px; border:1px solid #2a2a2a; border-radius:10px; max-width:420px; }}
+  .icon {{ font-size:36px; margin-bottom:12px; }}
+  .msg {{ color:{color}; font-weight:600; margin-bottom:8px; }}
+  .sub {{ color:#888; font-size:13px; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="icon">{icon}</div>
+    <div class="msg">{message}</div>
+    <div class="sub">This window will close automatically.</div>
+  </div>
+  <script>
+    if (window.opener) {{
+      window.opener.postMessage({{ source: 'crave_zerodha_oauth', ok: {str(ok).lower()}, message: {message!r} }}, '*');
+    }}
+    setTimeout(() => window.close(), 2000);
+  </script>
+</body></html>"""
+        return Response(html, mimetype="text/html")
+
