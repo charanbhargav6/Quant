@@ -195,6 +195,17 @@ def register_account_routes(app, get_db_agent, log):
         # plaintext — matching what mt5_agent.py now expects to decrypt on
         # read. This mirrors the old handler's file-rewrite, minus the
         # plaintext leak.
+        # PHASE 5 FIX: PROP_FIRM/ACCOUNT_SIZE were never written per-account,
+        # so the metrics card shown during onboarding (from /api/prop_firms)
+        # was cosmetic — the actual running process's PropFirmGuard fell
+        # back to whatever PROP_FIRM happened to be in the base .env,
+        # ignoring what the user selected for THIS account. Every account's
+        # own process now gets its own firm's rules and its own real
+        # (broker-verified, not user-typed) account size.
+        prop_env = {}
+        if acc_type == "prop_firm" and prop_firm_key:
+            prop_env = {"PROP_FIRM": prop_firm_key, "ACCOUNT_SIZE": result["balance"]}
+
         if broker == "mt5":
             _write_profile_env(profile, {
                 "MT5_LOGIN": creds.get("login"),
@@ -203,6 +214,7 @@ def register_account_routes(app, get_db_agent, log):
                 "SERVER_PORT": data.get("port"),
                 "TELEGRAM_BOT_TOKEN": data.get("telegram"),
                 "MT5_TERMINAL_PATH": data.get("path"),
+                **prop_env,
             })
         elif broker == "binance":
             _write_profile_env(profile, {
@@ -211,9 +223,11 @@ def register_account_routes(app, get_db_agent, log):
                 "BINANCE_API_SECRET": enc_password,
                 "SERVER_PORT": data.get("port"),
                 "TELEGRAM_BOT_TOKEN": data.get("telegram"),
+                **prop_env,
             })
         # Zerodha's token is written by api_zerodha_complete() below, since
-        # verification only finishes after the OAuth redirect.
+        # verification only finishes after the OAuth redirect — prop_env
+        # is threaded through _pending_zerodha and applied there instead.
 
         success = db.add_account(
             acc_type, login_identifier, enc_password,
@@ -275,6 +289,7 @@ def register_account_routes(app, get_db_agent, log):
         result = _finish_zerodha_account(
             get_db_agent, api_key, api_secret, request_token, profile,
             data.get("port"), data.get("telegram"),
+            data.get("type"), data.get("prop_firm"),
         )
         status_code = "success" if result["ok"] else "error"
         return jsonify({"status": status_code, **({"account": result["account"]} if result["ok"] else {"reason": result["reason"]})})
@@ -305,6 +320,7 @@ def register_account_routes(app, get_db_agent, log):
         result = _finish_zerodha_account(
             get_db_agent, pending["api_key"], pending["api_secret"], request_token,
             pending["profile"], pending.get("port"), pending.get("telegram"),
+            pending.get("acc_type"), pending.get("prop_firm"),
         )
 
         if not result["ok"]:
@@ -313,11 +329,14 @@ def register_account_routes(app, get_db_agent, log):
         return _oauth_landing_html(ok=True, message="Zerodha account connected and verified.")
 
     def _finish_zerodha_account(get_db_agent, api_key, api_secret, request_token,
-                                 profile, port, telegram) -> dict:
+                                 profile, port, telegram, acc_type=None, prop_firm_key=None) -> dict:
         """Shared by both the JSON endpoint and the real OAuth redirect
         landing page — exchanges request_token for a session, verifies via
         margins(), then persists exactly like every other broker: encrypted
-        at rest, .env.<profile> written for the `--profile` launch mechanism."""
+        at rest, .env.<profile> written for the `--profile` launch mechanism.
+        acc_type/prop_firm_key thread through here too (Phase 5 fix) so a
+        Zerodha prop-firm account gets its firm's rules actually configured,
+        not just displayed during onboarding."""
         result = complete_zerodha_login(api_key, api_secret, request_token)
         if not result["ok"]:
             return {"ok": False, "reason": result["reason"]}
@@ -328,12 +347,17 @@ def register_account_routes(app, get_db_agent, log):
 
         enc_token = encrypt_secret(result["access_token"])
 
+        prop_env = {}
+        if acc_type == "prop_firm" and prop_firm_key:
+            prop_env = {"PROP_FIRM": prop_firm_key, "ACCOUNT_SIZE": result["balance"]}
+
         _write_profile_env(profile, {
             "ZERODHA_API_KEY": api_key,
             "ZERODHA_API_SECRET": encrypt_secret(api_secret),
             "ZERODHA_ACCESS_TOKEN": enc_token,
             "SERVER_PORT": port,
             "TELEGRAM_BOT_TOKEN": telegram,
+            **prop_env,
         })
 
         success = db.add_account(
