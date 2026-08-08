@@ -174,8 +174,30 @@ class BrokerRouter:
         the right broker, with this strategy actually enabled for them.
         Centralized here so _execute_binance/_execute_zerodha don't each
         reimplement (and potentially drift on) the same filter logic.
+
+        PHASE 5 FIX: previously only checked the account's own
+        strategies_enabled toggle — a purely user-controlled preference.
+        Nothing checked whether the strategy had actually PASSED
+        walk-forward validation. A strategy correctly marked
+        live_ready=False in core/strategy_registry.py (e.g. structure_silver,
+        which degrades across folds and is flagged as likely overfit) could
+        still be toggled on for a real account and would execute anyway.
+        This now refuses at the execution gate regardless of the account's
+        toggle — the account-level toggle can only narrow what's allowed,
+        never expand past what's actually been validated.
         """
         import json
+        from core.strategy_registry import is_live_ready
+
+        if not is_live_ready(strategy_id):
+            logger.warning(
+                f"[Router] Strategy '{strategy_id}' is not live_ready "
+                f"(failed or pending walk-forward validation) — refusing "
+                f"to execute for ANY {broker} account regardless of "
+                f"per-account strategies_enabled settings."
+            )
+            return []
+
         accounts = db.get_accounts()
         result = []
         for acc in accounts:
@@ -458,6 +480,21 @@ class BrokerRouter:
                 active_accounts = [{"login": None, "password": None, "server": None, "strategies_enabled": '["all"]'}]
 
             strategy_id = validated.get("node", "")
+
+            # PHASE 5 FIX: same gap as _active_broker_accounts() above — this
+            # loop only ever checked the account's own strategies_enabled
+            # toggle, never whether the strategy had actually passed
+            # walk-forward validation. Refuse the whole batch up front if
+            # it hasn't, same as the Zerodha/Binance path.
+            from core.strategy_registry import is_live_ready
+            if not is_live_ready(strategy_id):
+                logger.warning(
+                    f"[Router] Strategy '{strategy_id}' is not live_ready — "
+                    f"refusing MT5 execution for ANY account regardless of "
+                    f"per-account strategies_enabled settings."
+                )
+                return {"status": "failed", "reason": f"Strategy '{strategy_id}' has not passed walk-forward validation"}
+
             first_success_trade_id = None
             any_success = False
             last_error = "MT5 not connected"
