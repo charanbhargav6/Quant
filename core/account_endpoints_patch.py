@@ -411,3 +411,38 @@ def register_account_routes(app, get_db_agent, log):
 </body></html>"""
         return Response(html, mimetype="text/html")
 
+    @app.route("/api/accounts/<int:account_id>", methods=["DELETE"])
+    def api_accounts_delete(account_id):
+        try:
+            # 1. Lookup account
+            account = get_db_agent().get_account(account_id)
+            if not account:
+                return jsonify({"ok": False, "reason": "Account not found"}), 404
+
+            # 2. Stop running subprocess
+            from core.process_supervisor import get_supervisor
+            get_supervisor().stop(account_id, reason="account_deleted")
+
+            # 3. Evict broker session from manager
+            from core.multi_tenant_broker_manager import get_multi_tenant_manager
+            get_multi_tenant_manager(get_db_agent()).remove_agent(account_id)
+
+            # 4. Remove .env credential file
+            profile = account.get("profile")
+            if profile:
+                engine_root = Path(__file__).resolve().parent.parent
+                env_file = engine_root / f".env.{profile}"
+                if env_file.exists():
+                    try:
+                        env_file.unlink()
+                        log.info(f"[API] Deleted credential file {env_file.name}")
+                    except Exception as e:
+                        log.warning(f"[API] Failed to delete {env_file.name}: {e}")
+
+            # 5. Delete from database
+            get_db_agent().delete_account(account_id)
+            
+            return jsonify({"ok": True, "message": f"Account {account_id} completely removed"})
+        except Exception as e:
+            log.error(f"[API] Error deleting account {account_id}: {e}")
+            return jsonify({"ok": False, "reason": str(e)}), 500
