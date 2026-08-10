@@ -960,9 +960,6 @@ def api_accounts():
     conn = check_conn()
     db   = get_db_agent()
     
-    from core.process_supervisor import get_supervisor
-    supervisor = get_supervisor()
-    
     accounts = []
     active_login = None
     
@@ -975,8 +972,7 @@ def api_accounts():
             login = str(acc["login"])
             
             # Check if this specific account is running in the background
-            status_info = supervisor.get_status(acc_id)
-            is_running = status_info.get("ok", False)
+            is_running = acc.get("process_status") == "running"
             
             try:
                 strats = json.loads(acc.get("strategies_enabled", '["all"]'))
@@ -1003,7 +999,7 @@ def api_accounts():
                 "live_trades":   [],
                 "live_win_rate": None,
                 "strategies_enabled": strats,
-                "port":          status_info.get("port", 8765)
+                "port":          acc.get("port", 8765)
             })
             
             if is_running:
