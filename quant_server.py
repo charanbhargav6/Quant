@@ -958,119 +958,60 @@ def api_compliance():
 @app.route("/api/accounts")
 def api_accounts():
     conn = check_conn()
-    mt5  = get_broker_agent()
     db   = get_db_agent()
-
+    
+    from core.process_supervisor import get_supervisor
+    supervisor = get_supervisor()
+    
     accounts = []
-    seen_ids = set()
-    
-    import sqlite3
-    db_dir = Path(__file__).parent / "database"
-    
-    for db_file in db_dir.glob("crave*.db"):
-        try:
-            # Determine profile from db_file name
-            prof = db_file.stem.replace("crave_", "") if "crave_" in db_file.stem else ""
-            env_name = f".env.{prof}" if prof else ".env"
-            env_path = Path(__file__).parent / env_name
-            port = 8765
-            if env_path.exists():
-                with open(env_path, "r", encoding="utf-8") as ef:
-                    for eline in ef:
-                        if eline.startswith("SERVER_PORT="):
-                            try:
-                                port = int(eline.split("=")[1].strip())
-                            except:
-                                pass
-                                
-            with sqlite3.connect(db_file) as c2:
-                c2.row_factory = sqlite3.Row
-                cur = c2.cursor()
-                cur.execute("SELECT * FROM accounts")
-                for acc in cur.fetchall():
-                    acc_id = str(acc["login"])
-                    if acc_id in seen_ids:
-                        continue
-                    seen_ids.add(acc_id)
-                    
-                    import json
-                    try:
-                        strats = json.loads(acc.get("strategies_enabled", '["all"]'))
-                    except:
-                        strats = ["all"]
-                        
-                    accounts.append({
-                        "id":            acc_id,
-                        "name":          acc["server"],
-                        "type":          acc["account_type"],
-                        "prop_firm":     None,
-                        "balance":       acc["capital"],
-                        "equity":        acc["capital"],
-                        "profit":        0,
-                        "free_margin":   acc["capital"],
-                        "margin_level":  0,
-                        "margin":        0,
-                        "leverage":      0,
-                        "currency":      "USD",
-                        "open_positions": 0,
-                        "connected":     acc["status"] == "connected",
-                        "server":        acc["server"],
-                        "live_trades":   [],
-                        "live_win_rate": None,
-                        "strategies_enabled": strats,
-                        "port":          port
-                    })
-        except Exception:
-            pass
-
-    # Always inject the current MT5 active account with live data
     active_login = None
-    if mt5 and mt5.ensure_connected():
-        info = mt5.get_account_info()
-        if info:
-            acc_id = str(info["login"])
-            active_login = acc_id
-            server = info.get("server", "")
-            is_demo = any(w in server.lower() for w in ["demo", "metaquotes", "test"])
-            acct_type = "Demo" if is_demo else "Live"
-
-            existing_idx = next((i for i, a in enumerate(accounts) if a["id"] == acc_id), None)
+    
+    try:
+        db_accounts = db.get_accounts()
+        import json
+        
+        for acc in db_accounts:
+            acc_id = acc["id"]
+            login = str(acc["login"])
             
-            # Use port from existing if found, else default
-            active_port = accounts[existing_idx]["port"] if existing_idx is not None else 8765
+            # Check if this specific account is running in the background
+            status_info = supervisor.get_status(acc_id)
+            is_running = status_info.get("ok", False)
             
-            live_entry = {
-                "id":             acc_id,
-                "name":           server,
-                "type":           acct_type,
-                "prop_firm":      os.environ.get("PROP_FIRM") or None,
-                "balance":        info["balance"],
-                "equity":         info["equity"],
-                "profit":         info["profit"],
-                "free_margin":    info["free_margin"],
-                "margin_level":   info["margin_level"],
-                "margin":         info["margin"],
-                "leverage":       info["leverage"],
-                "currency":       info["currency"],
-                "open_positions": len(mt5.get_positions() or []),
-                "connected":      True,
-                "active":         True,   # this is the live trading account
-                "server":         server,
-                "live_trades":    [],
-                "live_win_rate":  None,
-                "strategies_enabled": ["all"],
-                "port":           active_port
-            }
-            if existing_idx is not None:
-                accounts[existing_idx].update(live_entry)
-            else:
-                accounts.append(live_entry)
-
-    # Mark all non-active accounts as offline
-    for a in accounts:
-        if not a.get("active"):
-            a["connected"] = False
-            a["active"] = False
+            try:
+                strats = json.loads(acc.get("strategies_enabled", '["all"]'))
+            except:
+                strats = ["all"]
+                
+            accounts.append({
+                "id":            login,
+                "name":          acc["server"],
+                "type":          acc["account_type"],
+                "prop_firm":     None, # Could fetch from .env if needed
+                "balance":       acc["capital"],
+                "equity":        acc["capital"],
+                "profit":        0,
+                "free_margin":   acc["capital"],
+                "margin_level":  0,
+                "margin":        0,
+                "leverage":      0,
+                "currency":      "USD",
+                "open_positions": 0,
+                "connected":     is_running,
+                "active":        is_running,
+                "server":        acc["server"],
+                "live_trades":   [],
+                "live_win_rate": None,
+                "strategies_enabled": strats,
+                "port":          status_info.get("port", 8765)
+            })
+            
+            if is_running:
+                # If multiple are running, this just grabs the last one as a fallback for legacy UI needs
+                active_login = login
+                
+    except Exception as e:
+        log.error(f"[API] Error loading accounts: {e}")
 
     return jsonify({"connection": conn, "accounts": accounts, "active_login": active_login})
 
