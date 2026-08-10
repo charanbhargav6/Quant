@@ -120,6 +120,7 @@ class PositionTracker:
             "exchange":             trade.get("exchange", "paper"),
             "is_paper":             trade.get("is_paper", True),
             "node":                 trade.get("node", "unknown"),
+            "strategy_id":          trade.get("strategy_id", "unknown"),
             "open_time":            datetime.now(timezone.utc).isoformat(),
             "last_updated":         datetime.now(timezone.utc).isoformat(),
             "risk_pct":             trade.get("risk_pct", 1.0),
@@ -489,6 +490,15 @@ class PositionTracker:
     def count(self) -> int:
         with self._lock:
             return len(self._positions)
+
+    def count_by_strategy(self, strategy_id: str) -> int:
+        """Used by the orderflow_btc concurrency limiter (core/trading_loop.py) --
+        that strategy's own walk-forward validation observed up to 24
+        concurrent trades per fold in backtest and its STRATEGY_DEFS entry
+        explicitly flags a rate-limiter as required before live deployment.
+        This is what that limiter checks against."""
+        with self._lock:
+            return sum(1 for p in self._positions.values() if p.get("strategy_id") == strategy_id)
 
     def get_summary_message(self) -> str:
         with self._lock:

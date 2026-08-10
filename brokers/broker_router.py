@@ -137,17 +137,6 @@ class BrokerRouter:
             if not pdt_ok:
                 return True, msg
 
-        # ── Strategy Concurrency Cap ───────────────────────────────────────
-        strategy_id = validated.get("node", "")
-        if strategy_id:
-            from core.strategy_registry import get_max_concurrent
-            from core.position_tracker import positions
-            max_c = get_max_concurrent(strategy_id)
-            if max_c and max_c > 0:
-                current = positions.count()
-                if current >= max_c:
-                    return True, f"Strategy {strategy_id} capped at {max_c} open positions (current: {current})"
-
         return False, "OK"
 
     def close_position(self, symbol: str, exchange: str) -> bool:
@@ -242,7 +231,12 @@ class BrokerRouter:
 
             db = DatabaseManager()
             mgr = get_multi_tenant_manager(db)
-            strategy_id = validated.get("node", "")
+            strategy_id = validated.get("strategy_id", "")
+            # BUGFIX: this used to read validated["node"], which is the
+            # machine hostname (laptop/phone/aws from config.NODES), not a
+            # strategy identifier. That meant is_live_ready() never matched
+            # anything and silently blocked 100% of live trades for a week.
+            # See core/strategy_registry.py's module docstring (INCIDENT).
             active_accounts = self._active_broker_accounts(db, "binance", strategy_id)
 
             if not active_accounts:
@@ -387,7 +381,12 @@ class BrokerRouter:
 
             db = DatabaseManager()
             mgr = get_multi_tenant_manager(db)
-            strategy_id = validated.get("node", "")
+            strategy_id = validated.get("strategy_id", "")
+            # BUGFIX: this used to read validated["node"], which is the
+            # machine hostname (laptop/phone/aws from config.NODES), not a
+            # strategy identifier. That meant is_live_ready() never matched
+            # anything and silently blocked 100% of live trades for a week.
+            # See core/strategy_registry.py's module docstring (INCIDENT).
             active_accounts = self._active_broker_accounts(db, "zerodha", strategy_id)
 
             if not active_accounts:
@@ -490,7 +489,12 @@ class BrokerRouter:
             if not active_accounts:
                 active_accounts = [{"login": None, "password": None, "server": None, "strategies_enabled": '["all"]'}]
 
-            strategy_id = validated.get("node", "")
+            strategy_id = validated.get("strategy_id", "")
+            # BUGFIX: this used to read validated["node"], which is the
+            # machine hostname (laptop/phone/aws from config.NODES), not a
+            # strategy identifier. That meant is_live_ready() never matched
+            # anything and silently blocked 100% of live trades for a week.
+            # See core/strategy_registry.py's module docstring (INCIDENT).
 
             # PHASE 5 FIX: same gap as _active_broker_accounts() above — this
             # loop only ever checked the account's own strategies_enabled

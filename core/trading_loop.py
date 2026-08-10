@@ -729,7 +729,72 @@ class TradingLoop:
         from config.config import get_asset_params as _gap
         _is_gold = _gap(symbol).get("label") == "Gold"
 
-        if _is_gold:
+        # ── Route BTC/ETH/SOL to the validated OrderFlowAdapter ────────────
+        # PHASE 5 FOLLOW-UP: this is the actual fix for "strategies are not
+        # working" beyond the live_ready gate bug. Before this, EVERY symbol
+        # (including these three) ran through the old, never-isolated-
+        # validated HybridStrategyAgent below -- strategy_adapters.py and
+        # all of Phase 4's walk-forward work were completely disconnected
+        # from live trading. Only these three symbols get the validated
+        # adapter; everything else still runs the legacy engine (see
+        # core/strategy_registry.py's legacy_hybrid_live / legacy_gold_pullback_live
+        # entries -- registered honestly, not claimed as validated).
+        _CRYPTO_ORDERFLOW_SYMBOLS = {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+        _is_crypto_orderflow = symbol in _CRYPTO_ORDERFLOW_SYMBOLS
+
+        strategy_id_for_signal = "legacy_hybrid_live"   # default; overridden per branch below
+
+        if _is_crypto_orderflow:
+            # Concurrency limiter — orderflow_btc's own STRATEGY_DEFS entry
+            # flags up to 24 concurrent trades observed in backtest and
+            # explicitly requires a rate-limiter before live deployment.
+            # This was never built until now; check BEFORE spending any
+            # more compute on this symbol.
+            from core.position_tracker import positions
+            import os
+            MAX_CONCURRENT_ORDERFLOW_BTC = int(os.environ.get("MAX_CONCURRENT_ORDERFLOW_BTC", "8"))
+            open_count = positions.count_by_strategy("orderflow_btc")
+            if open_count >= MAX_CONCURRENT_ORDERFLOW_BTC:
+                logger.info(
+                    f"[TradingLoop] {symbol}: orderflow_btc concurrency limit "
+                    f"reached ({open_count}/{MAX_CONCURRENT_ORDERFLOW_BTC}) — skipping"
+                )
+                return None
+
+            strategy_id_for_signal = "orderflow_btc"
+            from strategy_adapters import OrderFlowAdapter
+            adapter = OrderFlowAdapter()
+            i = len(df_15m) - 1
+            of_result = adapter.analyze({"df": df_15m, "ticker": symbol}, i)
+
+            if of_result.get("direction") is None:
+                self._log_signal(symbol, "skip", "OrderFlow: no A+/A grade signal",
+                                 of_result.get("confidence", 0), str(of_result.get("grade")),
+                                 {}, df_1h=df_15m)
+                return None
+
+            # Build a context dict shaped like the Hybrid/gold branches
+            # produce, so every downstream gate (grade/confidence checks,
+            # MTF confluence, correlation, sentiment override, risk sizing,
+            # portfolio gate) runs completely unchanged — this adapter only
+            # replaces the SIGNAL SOURCE, not any of the existing safety
+            # checks around it. Order_Blocks=[] is correct, not a shortcut:
+            # OrderFlow-only signals have no SMC order-block concept, so the
+            # "Zone 1" delta-confirmation block below is a no-op for them,
+            # same as it already would be for orderflow-alone confirmations
+            # inside the legacy Hybrid engine itself.
+            context = {
+                "Confidence_Pct":  of_result["confidence"],
+                "Structure_Score": f"Grade {of_result['grade']}",
+                "Macro_Trend":     "Bullish" if of_result["direction"] == "buy" else "Bearish",
+                "Current_Price":   df_15m["close"].iloc[-1],
+                "Is_Swing_Trade":  False,
+                "Liquidity_Sweep": False,
+                "Order_Blocks":    [],
+            }
+
+        elif _is_gold:
+            strategy_id_for_signal = "legacy_gold_pullback_live"
             from engines.gold_strategy import (
                 attach_gold_indicators, analyze_gold_context
             )
@@ -979,6 +1044,11 @@ class TradingLoop:
         validated["risk_pct"]  = risk_pct
         validated["exchange"]  = self._get_exchange_for(symbol)
         validated["node"]      = self._get_node_name()
+        # BUGFIX: "node" above is the machine hostname, not a strategy id --
+        # broker_router.py's live_ready gate used to (incorrectly) read
+        # "node" as the strategy identifier. This is the real field it
+        # should check. See core/strategy_registry.py's module docstring.
+        validated["strategy_id"] = strategy_id_for_signal
 
         # Derived reason for MT5 execution tab
         if context.get("Liquidity_Sweep"):
