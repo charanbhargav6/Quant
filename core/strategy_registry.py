@@ -18,6 +18,8 @@ WHY THIS MOVED OUT OF quant_server.py:
   -- no risk of them drifting apart the way live_ready silently did before.
 """
 
+from typing import Optional
+
 STRATEGY_DEFS = [
     {
         "id":   "orderflow_btc",
@@ -108,3 +110,8 @@ def get_strategy(strategy_id: str) -> dict:
         if s["id"] == strategy_id:
             return s
     return {}
+
+def get_max_concurrent(strategy_id: str) -> Optional[int]:
+    """Return the max_concurrent limit for a strategy, if defined in its static_backtest."""
+    s = get_strategy(strategy_id)
+    return s.get("static_backtest", {}).get("max_concurrent")

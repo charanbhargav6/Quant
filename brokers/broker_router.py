@@ -137,6 +137,17 @@ class BrokerRouter:
             if not pdt_ok:
                 return True, msg
 
+        # ── Strategy Concurrency Cap ───────────────────────────────────────
+        strategy_id = validated.get("node", "")
+        if strategy_id:
+            from core.strategy_registry import get_max_concurrent
+            from core.position_tracker import positions
+            max_c = get_max_concurrent(strategy_id)
+            if max_c and max_c > 0:
+                current = positions.count()
+                if current >= max_c:
+                    return True, f"Strategy {strategy_id} capped at {max_c} open positions (current: {current})"
+
         return False, "OK"
 
     def close_position(self, symbol: str, exchange: str) -> bool:
