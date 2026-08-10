@@ -136,35 +136,45 @@ app.run(host="127.0.0.1", port=port)
     assert acc["process_status"] == "running"
     print(f"✅ Process running on port {acc['port']}, PID {acc['pid']}")
 
-    # ── STEP 4: enable a strategy that FAILED walk-forward, confirm it's refused ──
-    section("STEP 4: Enable structure_silver (live_ready=False) for this account, confirm execution refuses it")
-    # NOTE: /api/accounts/<id>/strategies lives directly in quant_server.py
-    # (not in account_endpoints_patch.py), and fully instantiating
-    # quant_server.py here would pull in MT5/broker imports this sandbox
-    # doesn't have. Its logic was already read and confirmed correct
-    # (core/database_manager.py's update_account_strategies is what it
-    # ultimately calls) — exercising that same call directly here tests
-    # the actual thing Phase 5 is responsible for (the execution gate),
-    # without re-testing an unrelated endpoint that predates this phase.
+    # ── STEP 4: verify the gate's CURRENT default state (disabled per the
+    # hotfix) lets everything through, then verify it correctly re-engages
+    # when explicitly turned on — this is the actual behavior that matters
+    # now, not just "does it always block", since it's an intentional
+    # two-state switch (see core/strategy_registry.py's ENFORCE_LIVE_READY_GATE) ──
+    section("STEP 4: Confirm the gate's default (disabled) state lets a failed-validation strategy through")
     import json as _json
     db.update_account_strategies(account_id, _json.dumps(["structure_silver"]))
     acc = db.get_account(account_id)
     print("Account strategies_enabled:", acc["strategies_enabled"])
-    assert "structure_silver" in acc["strategies_enabled"], "Toggle itself should still work — enforcement happens at execution, not at toggle time"
-    assert not is_live_ready("structure_silver")
+    assert "structure_silver" in acc["strategies_enabled"]
+
+    import core.strategy_registry as sr
+    assert sr.ENFORCE_LIVE_READY_GATE is False, "Gate should default OFF per the hotfix (option a)"
+    assert is_live_ready("structure_silver") is True, "With the gate off, is_live_ready() should return True for everything (restores pre-Phase-5 behavior)"
+    print("✅ Gate correctly disabled by default — trading is not blocked while the strategy_id tagging fix rolls out")
 
     from brokers.broker_router import BrokerRouter
     router = BrokerRouter()
-    assert is_live_ready("structure_silver") is False
+    # NOTE: field is now "strategy_id", not "node" — "node" is the machine
+    # hostname (see the INCIDENT note in core/strategy_registry.py) and was
+    # the actual root cause of last week's zero-trades incident.
+    result_allowed = router._execute_mt5({"strategy_id": "structure_silver", "symbol": "XAUUSD=X"}, 2000.0)
+    print("_execute_mt5 result with gate disabled:", result_allowed["status"])
+    assert result_allowed["status"] != "failed" or "walk-forward" not in result_allowed.get("reason", ""), \
+        "Should NOT be blocked by the live_ready gate while it's disabled"
+    print("✅ Confirmed: gate disabled means execution proceeds past the live_ready check (may still fail downstream for unrelated reasons like no real MT5 connection in this sandbox — that's expected here)")
 
-    # Exercise the REAL execution path, not just the registry lookup —
-    # this proves _execute_mt5's gate (added this phase) actually
-    # short-circuits before any account loop or MT5 connection attempt.
-    result_blocked = router._execute_mt5({"node": "structure_silver", "symbol": "XAUUSD=X"}, 2000.0)
-    print("_execute_mt5 result for a failed-validation strategy:", result_blocked)
-    assert result_blocked["status"] == "failed"
-    assert "walk-forward" in result_blocked["reason"]
-    print("✅ _execute_mt5 correctly refuses structure_silver via the real execution path — before this phase, this call would have proceeded to try connecting to MT5 for every enabled account")
+    section("STEP 4b: Confirm the gate CORRECTLY RE-ENGAGES when explicitly enabled")
+    sr.ENFORCE_LIVE_READY_GATE = True   # simulate ENFORCE_LIVE_READY_GATE=true
+    try:
+        assert is_live_ready("structure_silver") is False, "With the gate ON, a failed-validation strategy must be refused"
+        result_blocked = router._execute_mt5({"strategy_id": "structure_silver", "symbol": "XAUUSD=X"}, 2000.0)
+        print("_execute_mt5 result with gate enabled:", result_blocked)
+        assert result_blocked["status"] == "failed"
+        assert "walk-forward" in result_blocked["reason"]
+        print("✅ _execute_mt5 correctly refuses structure_silver when the gate is re-enabled — proving the fix works, not just that it's currently off")
+    finally:
+        sr.ENFORCE_LIVE_READY_GATE = False   # restore default for the rest of this test
 
     # ── STEP 5: enable orderflow_btc (the one that PASSED), confirm it's allowed ──
     section("STEP 5: Enable orderflow_btc (live_ready=True, the one that actually passed) — confirm it's allowed")

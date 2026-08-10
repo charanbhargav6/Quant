@@ -16,9 +16,34 @@ WHY THIS MOVED OUT OF quant_server.py:
   and the ENFORCEMENT side (broker_router.py's execution gate) one shared
   source of truth. Whichever one you update, the other sees it immediately
   -- no risk of them drifting apart the way live_ready silently did before.
-"""
 
-from typing import Optional
+INCIDENT (post-deployment): the gate initially checked validated["node"]
+as the strategy identifier. "node" is actually the machine hostname
+classification (laptop/phone/aws, from config.NODES) -- unrelated to
+which strategy generated a signal. Since no live signal's "node" value
+ever matched a STRATEGY_DEFS id, is_live_ready() always returned False,
+silently blocking 100% of live trades. Root cause underneath that: the
+live signal generator (core/trading_loop.py's _analyse_and_execute) was
+ALSO never wired to tag signals with a real strategy_id in the first
+place -- it was, and largely still is, calling
+engines.hybrid_strategy.HybridStrategyAgent directly, disconnected from
+strategy_adapters.py and this registry entirely. Two bugs compounded:
+wrong field read, AND the field it should have read didn't exist yet.
+See core/trading_loop.py for the fix (BTC/ETH/SOL now route through
+OrderFlowAdapter and tag strategy_id="orderflow_btc"; everything else
+still runs the legacy engines, now honestly registered below as NOT
+live-ready rather than being invisible to this registry).
+
+ENFORCE_LIVE_READY_GATE: kill switch. Defaults to OFF while the above fix
+rolls out and gets verified against real trading again. Flip to "true" in
+.env once you're confident the strategy_id tagging is correct and you
+want live_ready to actually gate execution again. Leaving this off does
+NOT disable the strategies_enabled per-account toggle -- only the
+walk-forward-validation gate.
+"""
+import os
+
+ENFORCE_LIVE_READY_GATE = os.environ.get("ENFORCE_LIVE_READY_GATE", "false").lower() == "true"
 
 STRATEGY_DEFS = [
     {
@@ -92,13 +117,56 @@ STRATEGY_DEFS = [
         },
         "live_ready": False,  # FAILED — INCONSISTENT, linear degradation across folds
     },
+    {
+        "id":   "legacy_hybrid_live",
+        "name": "Legacy Hybrid (SMC+OrderFlow blend) — live default engine",
+        "description": (
+            "The ORIGINAL engines.hybrid_strategy.HybridStrategyAgent, still the "
+            "actual live signal generator for every symbol except gold and "
+            "BTC/ETH/SOL as of this fix. Never isolated-validated the way the "
+            "adapters above were -- btest.md's own blended-Hybrid numbers on "
+            "Silver (40.6% WR, +0.242R) were barely above that instrument's "
+            "coin-flip random baseline (+0.262R), and its walk-forward verdict "
+            "was 'INCONSISTENT / possibly curve-fit'. Registered here honestly "
+            "so the gate has something real to check, not because it has "
+            "passed validation -- it has not."
+        ),
+        "instruments": ["most non-gold, non-BTC/ETH/SOL symbols"],
+        "backtest_period": "See btest.md — blended Hybrid results, not isolated",
+        "static_backtest": {"win_rate": None, "profit_factor": None, "expectancy_r": None, "max_dd_pct": None, "trades": None, "rr": 2.0},
+        "live_ready": False,
+    },
+    {
+        "id":   "legacy_gold_pullback_live",
+        "name": "Legacy Gold Pullback — live default engine for XAUUSD",
+        "description": (
+            "engines.gold_strategy's dedicated pullback logic, routed for gold "
+            "specifically inside core/trading_loop.py._analyse_and_execute. "
+            "Never run through strategy_adapters.py or walk-forward validated "
+            "in isolation. Registered here for the same reason as "
+            "legacy_hybrid_live -- honesty, not endorsement."
+        ),
+        "instruments": ["XAUUSD=X"],
+        "backtest_period": "Not yet walk-forward validated",
+        "static_backtest": {"win_rate": None, "profit_factor": None, "expectancy_r": None, "max_dd_pct": None, "trades": None, "rr": 2.0},
+        "live_ready": False,
+    },
 ]
 
 
 def is_live_ready(strategy_id: str) -> bool:
     """The actual enforcement point Phase 5 was missing. Returns False
     for unknown strategy ids too -- an unrecognized strategy_id should
-    never be treated as approved by default."""
+    never be treated as approved by default.
+
+    Respects ENFORCE_LIVE_READY_GATE: while the gate is disabled (see
+    module docstring -- INCIDENT), this always returns True so execution
+    falls back to the pre-Phase-5 behavior (only strategies_enabled is
+    checked, not walk-forward status) rather than silently blocking
+    everything again if a caller forgets to check the flag itself.
+    """
+    if not ENFORCE_LIVE_READY_GATE:
+        return True
     for s in STRATEGY_DEFS:
         if s["id"] == strategy_id:
             return bool(s.get("live_ready", False))
@@ -110,8 +178,3 @@ def get_strategy(strategy_id: str) -> dict:
         if s["id"] == strategy_id:
             return s
     return {}
-
-def get_max_concurrent(strategy_id: str) -> Optional[int]:
-    """Return the max_concurrent limit for a strategy, if defined in its static_backtest."""
-    s = get_strategy(strategy_id)
-    return s.get("static_backtest", {}).get("max_concurrent")
