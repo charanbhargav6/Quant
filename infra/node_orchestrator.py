@@ -163,21 +163,36 @@ class NodeOrchestrator:
     # FAILOVER
     # ─────────────────────────────────────────────────────────────────────────
 
+    # How long to keep rechecking for a node (e.g. AWS finishing its boot)
+    # before declaring a real crisis. AWS heartbeats can't possibly exist
+    # yet at the instant trigger_failover() is first called -- HEARTBEAT_
+    # TIMEOUT_SECS alone guarantees that. This window gives the instance a
+    # realistic chance to come up before we page anyone.
+    FAILOVER_GRACE_SECS = 150
+    FAILOVER_POLL_INTERVAL_SECS = 10
+
     def trigger_failover(self, from_node: str, reason: str):
         """
         Trigger an immediate failover away from from_node.
         Called by thermal_monitor or detected by heartbeat timeout.
-        """
-        logger.warning(
-            f"[Orchestrator] FAILOVER: {from_node} → ? | Reason: {reason}"
-        )
 
+        IMPORTANT: laptop_sleep_watcher.py calls this synchronously from a
+        Windows suspend-event hook with a very small time budget -- it must
+        return almost instantly. All work below is either a fast local
+        heartbeat-file check or delegated to a background daemon thread;
+        nothing here blocks waiting on a network call or a sleep().
+        """
         # Mark the failing node as stale by zeroing its heartbeat
         if from_node in self._heartbeats:
             self._heartbeats[from_node]["last_seen"] = "2000-01-01T00:00:00+00:00"
             self._save_heartbeats()
 
         new_active = self._elect_active_node()
+
+        # FIX: log the actual elected node (or "none"), not a literal "?"
+        logger.warning(
+            f"[Orchestrator] FAILOVER: {from_node} → {new_active} | Reason: {reason}"
+        )
 
         # Notify
         try:
@@ -186,22 +201,61 @@ class NodeOrchestrator:
         except Exception:
             pass
 
-        # If no node available, alert
+        # FIX: don't fire the CRITICAL "manual intervention required" alert
+        # off the very first election -- an AWS instance just told to boot
+        # cannot have a heartbeat yet, so this branch previously fired on
+        # essentially every laptop sleep/reboot, even ones that self-
+        # resolved within a couple minutes with no real gap in coverage.
+        # Hand the escalation off to a bounded background poll instead.
         if new_active == "none":
-            msg = (
-                "🚨 <b>ALL NODES OFFLINE</b>\n"
-                "No active node available.\n"
-                "Open positions protected by broker SL only.\n"
-                "Manual intervention required."
+            logger.warning(
+                "[Orchestrator] No node active immediately after failover "
+                f"from {from_node} — watching for up to "
+                f"{self.FAILOVER_GRACE_SECS}s before escalating."
             )
-            logger.critical(msg.replace("<b>", "").replace("</b>", ""))
-            try:
-                from interfaces.telegram_interface import tg
-                tg.send(msg)
-            except Exception:
-                pass
+            import threading
+            threading.Thread(
+                target=self._watch_for_recovery,
+                args=(from_node, reason),
+                daemon=True,
+            ).start()
 
         return new_active
+
+    def _watch_for_recovery(self, from_node: str, reason: str):
+        """
+        Background poll after a failed immediate election. Runs off the
+        time-critical suspend-hook path. If a node comes up within the
+        grace window, log it and stop quietly (no false alarm was ever
+        sent). If the window elapses with still no node, THEN send the
+        CRITICAL alert -- this is now an accurate signal, not a race
+        against AWS's own boot time.
+        """
+        import time
+        elapsed = 0
+        while elapsed < self.FAILOVER_GRACE_SECS:
+            time.sleep(self.FAILOVER_POLL_INTERVAL_SECS)
+            elapsed += self.FAILOVER_POLL_INTERVAL_SECS
+            if self._elect_active_node() != "none":
+                logger.info(
+                    f"[Orchestrator] Recovered {elapsed}s after failover "
+                    f"from {from_node} — node now active, no alert needed."
+                )
+                return
+
+        msg = (
+            "🚨 <b>ALL NODES OFFLINE</b>\n"
+            f"No active node for {self.FAILOVER_GRACE_SECS}s after "
+            f"failover from {from_node} ({reason}).\n"
+            "Open positions protected by broker SL only.\n"
+            "Manual intervention required."
+        )
+        logger.critical(msg.replace("<b>", "").replace("</b>", ""))
+        try:
+            from interfaces.telegram_interface import tg
+            tg.send(msg)
+        except Exception:
+            pass
 
     def request_switch(self, target_node: str):
         """Request a manual node switch (from Telegram /switch command)."""

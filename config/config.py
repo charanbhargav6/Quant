@@ -164,18 +164,26 @@ INSTRUMENTS = {
         "pip_size": 0.001, "enabled": False,
     },
 
-    # ── Crypto (MT5 / XM Demo) ───────────────────────────────────────────
+    # ── Crypto (Binance) ──────────────────────────────────────────────────
+    # FIX (post-Phase5): these were left tagged "exchange": "mt5" from the
+    # original MT5/XM-demo-CFD setup. trading_loop.py's OrderFlowAdapter
+    # branch (_CRYPTO_ORDERFLOW_SYMBOLS = {BTCUSDT, ETHUSDT, SOLUSDT}) has
+    # generated validated, Council-approved signals for these two the whole
+    # time, but broker_router.execute() read this "exchange" field and sent
+    # every one of them into _execute_mt5() -> MetaQuotes-Demo, which has no
+    # BTCUSD/ETHUSD dealing -> silent failure on ~all BTC/ETH live attempts.
+    # SOLUSDT was already correctly tagged "binance"; these two now match it.
     "BTCUSDT": {
         "label": "Bitcoin", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
         "lot_size_type": "units", "currencies": ["BTC"],
         "pip_size": 0.1, "funding_check": True, "enabled": True,
     },
     "ETHUSDT": {
         "label": "Ethereum", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
         "lot_size_type": "units", "currencies": ["ETH"],
         "pip_size": 0.01, "funding_check": True, "enabled": True,
     },

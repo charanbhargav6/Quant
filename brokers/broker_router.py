@@ -604,8 +604,18 @@ class BrokerRouter:
                 return {"status": "failed", "reason": last_error}
 
         except Exception as e:
-            logger.error(f"[Router] MT5 execution error: {e}")
-            return {"status": "failed", "reason": str(e)}
+            # FIX: bare f"{e}" was rendering as an empty string for several
+            # exception types (e.g. AttributeError on a None returned by
+            # mt5.symbol_info()), which made every one of these failures
+            # silently unattributable. Log the type + repr + full traceback
+            # so the *actual* failure (bad symbol, invalid stops, no margin,
+            # disconnected terminal, etc.) is visible instead of blank.
+            logger.error(
+                f"[Router] MT5 execution error: {type(e).__name__}: {e!r}",
+                exc_info=True,
+            )
+            reason = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            return {"status": "failed", "reason": reason}
 
     # ─────────────────────────────────────────────────────────────────────────
     # STATUS
