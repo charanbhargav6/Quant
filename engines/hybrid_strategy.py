@@ -66,12 +66,27 @@ class HybridStrategyAgent(StrategyAgent):
         # ── If only SMC qualifies → keep SMC grade as-is ─────────────────
         elif take_smc and not take_of:
             # SMC signal stands on its own. Keep the raw grade and confidence.
-            # Apply a small penalty if OF doesn't confirm (5pts)
+            #
+            # FIX (confidence-gate dead zone): a flat -5pt penalty here was
+            # applied to EVERY non-OF-confirmed signal, including B+ — but
+            # B+ raw scores run 35-49 and live CONFIDENCE_GATES sit at
+            # 40-45%. After -5, almost the entire B+ band landed at 30-39%,
+            # permanently below gate, even though this class's own docstring
+            # says "SMC B+ or above -> tradeable". Confirmed in ~3 weeks of
+            # live logs: 30/35/40/45% were the ONLY confidence values ever
+            # observed, and B+-alone signals essentially never executed.
+            # A/A+ tier (50+ raw) has enough headroom above every gate to
+            # absorb the penalty without changing the pass/fail outcome, so
+            # only apply it there — B+ is the intended floor and should not
+            # be discounted below its own qualifying threshold.
             smc_context.setdefault("Confidence_Breakdown", {})
             smc_context["Confidence_Breakdown"]["OrderFlow"] = (
                 f"Not confirmed (OF grade: {of_grade})"
             )
-            smc_context["Confidence_Pct"] = max(0, smc_conf - 5)
+            if smc_letter == "B+":
+                smc_context["Confidence_Pct"] = smc_conf
+            else:
+                smc_context["Confidence_Pct"] = max(0, smc_conf - 5)
             logger.info(f"[Hybrid] {symbol}: SMC({smc_letter}) qualifies alone, OF={of_grade}")
         
         # ── If only OF qualifies → use OF direction and grade ────────────
