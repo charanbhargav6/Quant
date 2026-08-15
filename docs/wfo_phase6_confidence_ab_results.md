@@ -1,6 +1,6 @@
 # Phase 6a — Hybrid Confidence-Gate Fix: A/B Walk-Forward Validation
 
-Generated 2026-08-15T15:03:31.933596+00:00 by run_phase6_hybrid_confidence_ab.py
+Generated 2026-08-15T16:52:28.137866+00:00 by run_phase6_hybrid_confidence_ab.py
 
 Validates commit e6eace2's B+ confidence-penalty fix directly through engines/hybrid_strategy.py's blended HybridAdapter — the path Phase 4's isolated-adapter re-run never touched. Both variants below run on identical fold windows and identical underlying price data; only the confidence number attached to B+-tier, OF-unconfirmed signals differs between them.
 
@@ -50,26 +50,26 @@ Validates commit e6eace2's B+ confidence-penalty fix directly through engines/hy
 
 | Fold | Window | Signals (pre→post) | ΔSignals | WR (pre→post) | Expectancy R (pre→post) | ΔExpectancy R |
 |---|---|---|---|---|---|---|
-| 1 | 2026-06-30 to 2026-07-15 | 73→79 | +6 | 6.8%→6.3% | -0.714→-0.740 | -0.026 |
-| 2 | 2026-07-15 to 2026-07-30 | 111→129 | +18 | 34.2%→31.0% | +0.162→+0.035 | -0.127 |
-| 3 | 2026-07-30 to 2026-08-14 | 114→128 | +14 | 19.3%→17.2% | -0.199→-0.245 | -0.046 |
+| 1 | 2026-06-30 to 2026-07-15 | 58→73 | +15 | 6.9%→6.8% | -0.673→-0.714 | -0.041 |
+| 2 | 2026-07-15 to 2026-07-30 | 96→111 | +15 | 35.4%→34.2% | +0.209→+0.162 | -0.047 |
+| 3 | 2026-07-30 to 2026-08-14 | 99→114 | +15 | 20.2%→19.3% | -0.211→-0.199 | +0.012 |
 
-**pre_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy -0.25R)
+**pre_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy -0.225R)
 
-**post_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy -0.317R)
+**post_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy -0.25R)
 
-**Net effect of fix: +38 signals across all folds, avg Δexpectancy -0.066R/fold — REVIEW — reclaimed B+ trades measurably drag expectancy down; consider a partial fix (e.g. raise the B+ floor slightly) rather than the full penalty removal for this symbol**
+**Net effect of fix: +45 signals across all folds, avg Δexpectancy -0.025R/fold — REVIEW — reclaimed B+ trades measurably drag expectancy down; consider a partial fix (e.g. raise the B+ floor slightly) rather than the full penalty removal for this symbol**
 
 ## SI=F (live gate: 40%)
 
 | Fold | Window | Signals (pre→post) | ΔSignals | WR (pre→post) | Expectancy R (pre→post) | ΔExpectancy R |
 |---|---|---|---|---|---|---|
-| 1 | 2026-06-30 to 2026-07-15 | 44→57 | +13 | 56.8%→54.4% | +0.283→+0.200 | -0.083 |
-| 2 | 2026-07-15 to 2026-07-30 | 61→67 | +6 | 29.5%→31.3% | +0.036→+0.080 | +0.044 |
-| 3 | 2026-07-30 to 2026-08-14 | 89→98 | +9 | 27.0%→25.5% | -0.085→-0.132 | -0.047 |
+| 1 | 2026-06-30 to 2026-07-15 | 36→44 | +8 | 52.8%→56.8% | +0.270→+0.283 | +0.013 |
+| 2 | 2026-07-15 to 2026-07-30 | 49→61 | +12 | 28.6%→29.5% | -0.036→+0.036 | +0.072 |
+| 3 | 2026-07-30 to 2026-08-14 | 70→89 | +19 | 27.1%→27.0% | -0.098→-0.085 | +0.013 |
 
-**pre_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy 0.078R)
+**pre_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy 0.045R)
 
-**post_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy 0.049R)
+**post_fix verdict:** INCONSISTENT — treat as unproven / possibly curve-fit (mean expectancy 0.078R)
 
-**Net effect of fix: +28 signals across all folds, avg Δexpectancy -0.029R/fold — REVIEW — reclaimed B+ trades measurably drag expectancy down; consider a partial fix (e.g. raise the B+ floor slightly) rather than the full penalty removal for this symbol**
+**Net effect of fix: +39 signals across all folds, avg Δexpectancy +0.033R/fold — PASS — reclaimed B+ trades hold expectancy, safe to ship for this symbol**

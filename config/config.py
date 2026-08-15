@@ -1104,6 +1104,22 @@ _GOLD_TICKERS_SET   = {"GC=F", "XAUUSD=X"}
 _SILVER_TICKERS_SET = {"SI=F", "XAGUSD=X"}
 
 
+def is_metal(ticker: str) -> bool:
+    """True for gold/silver tickers, alias-aware. Added alongside the
+    Phase 6a A/B validation (docs/wfo_phase6_confidence_ab_results.md):
+    the B+ confidence-penalty removal in engines/hybrid_strategy.py helped
+    FX pairs directionally (still unproven, but less net-negative) while
+    measurably degrading BOTH metals -- Gold got worse, and Silver was the
+    one symbol with a positive baseline expectancy that the fix pulled
+    toward zero. Metals get the old (always-penalized) behavior back;
+    FX keeps the fix. Re-validate with run_phase6_hybrid_confidence_ab.py
+    before changing this again.
+    """
+    t = ticker.upper()
+    return t in _GOLD_TICKERS_SET or t in _SILVER_TICKERS_SET
+
+
+
 def get_asset_params(ticker: str) -> dict:
     """Return backtest-proven ATR multipliers, grade gates, and confidence thresholds."""
     t = ticker.upper()
