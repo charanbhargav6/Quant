@@ -51,27 +51,38 @@ import numpy as np
 
 from backtesting.verify_hybrid_backtest import HybridVerifyBacktestAgent
 from strategy_adapters import HybridAdapter
-from config.config import get_effective_min_confidence
+from config.config import get_effective_min_confidence, is_metal
 
 
 class _OldPenaltyHybridAdapter(HybridAdapter):
-    """Reconstructs the PRE-FIX confidence number for A/B comparison,
+    """Reconstructs the PRE-e6eace2 confidence number for A/B comparison,
     without a second, independently-variable call into the SMC/OrderFlow
     engines.
 
     Before e6eace2, the SMC-alone branch (OF not confirming) always applied
     `Confidence_Pct = max(0, smc_conf - 5)`, for every qualifying grade
-    including B+. After e6eace2, that branch keeps `Confidence_Pct = smc_conf`
-    unchanged specifically when grade == "B+"; A/A+ tier is untouched by the
-    fix (already `max(0, smc_conf - 5)` before and after).
+    including B+, on EVERY symbol.
 
-    That means: for a B+-tier, OF-unconfirmed signal, the CURRENT deployed
-    code's Confidence_Pct output IS smc_conf directly — so the pre-fix value
-    is recoverable exactly as `max(0, current_output - 5)`. No need to touch
-    engines/hybrid_strategy.py, re-run the SMC/OF math, or risk the two
-    variants seeing different signals due to any nondeterminism in that
-    calculation — both adapters below are built from one identical
-    analyze_market_context() call per candle.
+    After e6eace2, that branch dropped the penalty for B+ tier. After the
+    follow-up split fix (b0f2239, docs/wfo_phase6_confidence_ab_results.md),
+    the penalty removal only applies to non-metal symbols — metals
+    (is_metal() True) kept the original always-`-5` rule, because Phase 6a's
+    first A/B run showed the removal measurably degrading both Gold and
+    Silver while helping FX pairs.
+
+    So the live engine's CURRENT output already differs by asset class:
+      - FX, B+ tier:     Confidence_Pct = smc_conf            (no penalty)
+      - Metals, B+ tier: Confidence_Pct = max(0, smc_conf - 5) (penalty, same as pre-fix)
+      - Any symbol, A/A+ tier: max(0, smc_conf - 5)             (unchanged either way)
+
+    Reconstructing the TRUE pre-e6eace2 baseline therefore means: subtract
+    another 5 ONLY for the FX/B+ case, where the live engine no longer
+    applies it. For metals, the live output already IS the pre-fix value —
+    subtracting again would double-penalize them, which is exactly the bug
+    this docstring update fixes (first Phase 6a run subtracted unconditionally
+    and showed non-zero deltas for metals even after the split fix landed,
+    which was the harness lagging behind the deployed code, not a real
+    regression in Gold/Silver's live behavior).
     """
     name = "hybrid_smc_orderflow_blend_PRE_FIX_penalty"
 
@@ -92,9 +103,13 @@ class _OldPenaltyHybridAdapter(HybridAdapter):
 
         of_breakdown = context.get("Confidence_Breakdown", {}).get("OrderFlow", "")
         smc_alone = of_breakdown.startswith("Not confirmed")
-        if smc_alone and grade == "B+":
-            # Current/deployed code applies no penalty here; reconstruct
-            # what the pre-fix always-minus-5 rule would have produced.
+        if smc_alone and grade == "B+" and not is_metal(ctx["ticker"]):
+            # Current/deployed code applies no penalty here for non-metals;
+            # reconstruct what the pre-fix always-minus-5 rule would have
+            # produced. Metals are skipped: the live engine already applies
+            # this penalty for them post-split, so their output IS the
+            # pre-fix value already -- do not subtract twice.
+
             confidence = max(0, confidence - 5)
         return {"direction": direction, "confidence": confidence, "grade": grade}
 
