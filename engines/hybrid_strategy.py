@@ -2,6 +2,7 @@ import pandas as pd
 import logging
 from core.strategy_agent import StrategyAgent
 from engines.orderflow_strategy import analyze_orderflow
+from config.config import is_metal
 
 logger = logging.getLogger("crave.hybrid_strategy")
 
@@ -83,7 +84,18 @@ class HybridStrategyAgent(StrategyAgent):
             smc_context["Confidence_Breakdown"]["OrderFlow"] = (
                 f"Not confirmed (OF grade: {of_grade})"
             )
-            if smc_letter == "B+":
+            # FIX (Phase 6a A/B validation, docs/wfo_phase6_confidence_ab_
+            # results.md): the B+-penalty removal above helps FX pairs
+            # directionally (still net-negative, but measurably less so)
+            # while it CONFIRMED-DEGRADES both metals — Gold's expectancy
+            # got worse, and Silver was the one symbol with a positive
+            # pre-fix baseline that this pulled toward zero. Applying one
+            # rule uniformly across asset classes that react in opposite
+            # directions was the mistake; metals keep the old (always
+            # -5pt) penalty, FX gets the fix. Re-run
+            # run_phase6_hybrid_confidence_ab.py against this before
+            # changing it again.
+            if smc_letter == "B+" and not is_metal(symbol):
                 smc_context["Confidence_Pct"] = smc_conf
             else:
                 smc_context["Confidence_Pct"] = max(0, smc_conf - 5)
