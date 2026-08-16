@@ -1016,7 +1016,25 @@ class TradingLoop:
                                  confidence, grade_str, context, df_1h=df_15m)
                 return None
         except Exception as e:
-            logger.debug(f"[TradingLoop] Portfolio gate error (non-fatal): {e}")
+            # FIX: this used to log at DEBUG (invisible at normal verbosity)
+            # and let the trade through as if the portfolio gate had
+            # approved it -- fail-OPEN on exactly the check meant to bound
+            # aggregate exposure. That was always a gap; it matters more
+            # now that GBPUSD/USDJPY signal volume runs 2-36x higher
+            # post-fix (docs/wfo_phase6_confidence_ab_results.md), since
+            # this heat/currency/correlation gate is the only thing capping
+            # aggregate FX exposure at that frequency. Fail CLOSED instead:
+            # skip the trade and log loudly, matching every other pre-trade
+            # gate in this file.
+            logger.error(
+                f"[TradingLoop] {symbol}: Portfolio gate raised "
+                f"{type(e).__name__}: {e!r} — failing closed, skipping trade",
+                exc_info=True,
+            )
+            self._log_signal(symbol, "skip",
+                             f"Portfolio gate error: {type(e).__name__}: {e}",
+                             confidence, grade_str, context, df_1h=df_15m)
+            return None
 
         risk_agent = RiskAgent()
         risk_agent.max_risk_per_trade = risk_pct / 100
