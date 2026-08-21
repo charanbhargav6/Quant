@@ -200,10 +200,16 @@ class BrokerRouter:
 
         accounts = db.get_accounts()
         result = []
+        matching_broker_count = 0
         for acc in accounts:
-            if acc["status"] != "connected":
-                continue
             if (acc.get("broker") or "").lower() != broker:
+                continue
+            matching_broker_count += 1
+            if acc["status"] != "connected":
+                logger.debug(
+                    f"[Router] {broker} account {acc.get('login')} matched "
+                    f"broker but status={acc.get('status')!r} (need 'connected'), skipping."
+                )
                 continue
             try:
                 enabled = json.loads(acc.get("strategies_enabled", '["all"]'))
@@ -213,6 +219,28 @@ class BrokerRouter:
                 logger.debug(f"[Router] Strategy {strategy_id} not enabled for account {acc.get('login')}, skipping.")
                 continue
             result.append(acc)
+
+        # FIX: this used to return an empty list here with ZERO logging when
+        # no account matched broker+status at all (as opposed to matching
+        # but having the wrong strategy enabled, which already logged at
+        # DEBUG above). That silence was invisible in engine.log and made
+        # two separate real failures (BTCUSDT/ETHUSDT misrouted to MT5
+        # pre-fix, then a missing/misconfigured Binance account post-fix)
+        # indistinguishable from "everything's fine, just not trading yet".
+        if not result:
+            if matching_broker_count == 0:
+                logger.warning(
+                    f"[Router] No account with broker='{broker}' found in "
+                    f"accounts table at all — check the account was added "
+                    f"and its 'broker' field matches exactly (case-insensitive)."
+                )
+            else:
+                logger.warning(
+                    f"[Router] {matching_broker_count} {broker} account(s) exist "
+                    f"but none are both status='connected' and have "
+                    f"strategy '{strategy_id}' enabled — check status/"
+                    f"strategies_enabled fields for that account."
+                )
         return result
 
     def _execute_binance(self, validated: dict, current_price: float) -> dict:
@@ -531,8 +559,29 @@ class BrokerRouter:
                 # NOTE: acc["password"] is Fernet-encrypted at rest (core/secrets_vault.py)
                 # since account_endpoints_patch.py started writing accounts via
                 # verify_and_connect(). Must decrypt before handing to MT5.
+                #
+                # FIX: decrypt_secret() previously ran uncaught inside this
+                # per-account loop, so an InvalidToken on ONE account's
+                # stored password (stale/rotated ACCOUNT_ENCRYPTION_KEY,
+                # corrupted ciphertext) propagated out and aborted the
+                # WHOLE batch, skipping every other account that might have
+                # decrypted fine. Isolate it: log clearly what to check,
+                # skip only this account, keep going.
                 from core.secrets_vault import decrypt_secret
-                real_password = decrypt_secret(acc.get("password") or "")
+                try:
+                    real_password = decrypt_secret(acc.get("password") or "")
+                except Exception as e:
+                    logger.error(
+                        f"[Router] Could not decrypt stored password for MT5 "
+                        f"account {acc.get('login')}: {type(e).__name__}: {e!r}. "
+                        f"Likely ACCOUNT_ENCRYPTION_KEY doesn't match the key "
+                        f"this password was originally encrypted with (env var "
+                        f"changed/regenerated since onboarding?) — re-enter this "
+                        f"account's credentials to re-encrypt under the current "
+                        f"key. Skipping this account, trying any others."
+                    )
+                    last_error = f"Credential decrypt failed for {acc.get('login')}: {type(e).__name__}"
+                    continue
                 if not agent.connect(login=acc.get("login"), password=real_password, server=acc.get("server")):
                     logger.warning(f"[Router] MT5 login failed for account {acc.get('login')}")
                     continue
