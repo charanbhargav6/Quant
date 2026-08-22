@@ -854,36 +854,19 @@ class TradingLoop:
             logger.info(f"[TradingLoop] {symbol}: StructureAdapter (SMC/ICT) strategy")
 
         else:
-            # Forex — StructureAdapter (pure SMC/ICT structure, no OrderFlow blend).
-            # Replaces HybridStrategyAgent: Hybrid blended SMC + OrderFlow into one
-            # score, making it impossible to isolate edge per component. StrategyAgent
-            # (the pure SMC parent class) gives the same FVG/OB/structure signals
-            # without the OrderFlow modification layer — identical interface, different
-            # internals, cleanly matching the trend_pa_forex WFO adapter.
-            # strategy_id_for_signal already = "trend_pa_forex" (set above)
-            import numpy as np
-            df_15m = df_15m.copy()
-            df_15m['EMA_21']  = df_15m['close'].ewm(span=21, adjust=False).mean()
-            df_15m['SMA_50']  = df_15m['close'].rolling(50).mean()
-            df_15m['SMA_200'] = df_15m['close'].rolling(200).mean()
-            _delta = df_15m['close'].diff()
-            df_15m['rsi_14'] = 100 - (100 / (1 + _delta.clip(lower=0).rolling(14).mean() /
-                                             (-_delta.clip(upper=0)).rolling(14).mean().replace(0, np.nan)))
-
-            from core.strategy_agent import StrategyAgent
-            _smc = StrategyAgent()
-            # Pre-compute SMC catalogs (matching backtest architecture)
-            fvg_catalog = _smc._build_fvg_catalog(df_15m)
-            ob_catalog  = _smc._build_ob_catalog(df_15m)
-            structure   = _smc._build_structure(df_15m)
-            context = _smc.analyze_market_context(
-                symbol, df_15m,
-                i=len(df_15m) - 1,
-                fvg_catalog=fvg_catalog,
-                ob_catalog=ob_catalog,
-                structure=structure
+            # Forex — TrendPriceActionAdapter (EMA50/200 trend, ADX, EMA21 pullback).
+            # This perfectly matches the logic tested by TrendPriceActionAdapter in
+            # run_phase4_walk_forward.py, which earned the STABLE / live_ready: True verdict.
+            # PREVIOUS BUG: This was mistakenly invoking StrategyAgent (SMC structure)
+            # while tagging it with the 'trend_pa_forex' ID, creating a mismatch between
+            # validated logic and live execution.
+            strategy_id_for_signal = "trend_pa_forex"
+            from engines.gold_strategy import (
+                attach_gold_indicators, analyze_gold_context
             )
-            logger.info(f"[TradingLoop] {symbol}: StructureAdapter (SMC/ICT) strategy")
+            df_15m = attach_gold_indicators(df_15m)
+            context = analyze_gold_context(symbol, df_15m, len(df_15m) - 1)
+            logger.info(f"[TradingLoop] {symbol}: TrendPriceAction (Forex) strategy")
 
         if "error" in context:
             return None
