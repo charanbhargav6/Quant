@@ -1,6 +1,6 @@
 # Phase 4 — Walk-Forward Validation Results
 
-Generated 2026-08-14T09:11:16.382088+00:00 by run_phase4_walk_forward.py
+Generated 2026-08-22T08:12:55.238780+00:00 by run_phase4_walk_forward.py
 
 Each strategy tested in isolation (its own adapter class, not the blended Hybrid) — correcting two labeling issues found during review: orderflow_btc was previously a single-period run mislabeled as WFO, and structure_silver's numbers were actually the blended Hybrid result, not an isolated Structure-adapter test.
 
@@ -8,10 +8,10 @@ Each strategy tested in isolation (its own adapter class, not the blended Hybrid
 
 ```
 === Walk-forward: BTC-USD (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-30 to 2026-07-15): 95 trades | WR 65.3% | Exp +0.962R | Additive return +182.80% | max-concurrent 24
-  Fold 2 (2026-07-15 to 2026-07-30): 66 trades | WR 68.2% | Exp +0.799R | Additive return +105.45% | max-concurrent 23
-  Fold 3 (2026-07-30 to 2026-08-14): 74 trades | WR 54.1% | Exp +0.453R | Additive return +67.10% | max-concurrent 21
-Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.738, 'expectancy_std': 0.212, 'verdict': 'STABLE — edge holds up across independent folds'}
+  Fold 1 (2026-07-08 to 2026-07-23): 95 trades | WR 64.2% | Exp +0.614R | Additive return +116.60% | max-concurrent 29
+  Fold 2 (2026-07-23 to 2026-08-07): 47 trades | WR 80.9% | Exp +1.095R | Additive return +102.95% | max-concurrent 17
+  Fold 3 (2026-08-07 to 2026-08-22): 86 trades | WR 38.4% | Exp +0.239R | Additive return +41.13% | max-concurrent 21
+Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.649, 'expectancy_std': 0.35, 'verdict': 'STABLE — edge holds up across independent folds'}
 ```
 
 **Verdict: STABLE — edge holds up across independent folds**
@@ -20,10 +20,10 @@ Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100
 
 ```
 === Walk-forward: GC=F (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-30 to 2026-07-15): 84 trades | WR 21.4% | Exp -0.272R | Additive return -45.73% | max-concurrent 16
-  Fold 2 (2026-07-15 to 2026-07-30): 86 trades | WR 36.0% | Exp +0.196R | Additive return +33.78% | max-concurrent 20
-  Fold 3 (2026-07-30 to 2026-08-14): 132 trades | WR 29.5% | Exp +0.022R | Additive return +5.76% | max-concurrent 16
-Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': -0.018, 'expectancy_std': 0.193, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
+  Fold 1 (2026-07-07 to 2026-07-22): 117 trades | WR 32.5% | Exp +0.108R | Additive return +25.21% | max-concurrent 16
+  Fold 2 (2026-07-22 to 2026-08-06): 93 trades | WR 37.6% | Exp +0.124R | Additive return +23.09% | max-concurrent 20
+  Fold 3 (2026-08-06 to 2026-08-21): 104 trades | WR 26.9% | Exp -0.038R | Additive return -8.00% | max-concurrent 14
+Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': 0.065, 'expectancy_std': 0.073, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
 ```
 
 **Verdict: INCONSISTENT — treat as unproven / possibly curve-fit**
@@ -32,22 +32,22 @@ Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.
 
 ```
 === Walk-forward: EURUSD=X (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-30 to 2026-07-15): 87 trades | WR 12.6% | Exp -0.348R | Additive return -60.61% | max-concurrent 13
-  Fold 2 (2026-07-15 to 2026-07-30): 100 trades | WR 39.0% | Exp +0.210R | Additive return +41.95% | max-concurrent 16
-  Fold 3 (2026-07-30 to 2026-08-14): 109 trades | WR 33.0% | Exp +0.177R | Additive return +38.61% | max-concurrent 13
-Stability: {'folds_valid': 3, 'folds_profitable': 2, 'pct_folds_profitable': 66.7, 'expectancy_mean': 0.013, 'expectancy_std': 0.256, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
+  Fold 1 (2026-07-07 to 2026-07-22): 125 trades | WR 30.4% | Exp +0.050R | Additive return +12.60% | max-concurrent 16
+  Fold 2 (2026-07-22 to 2026-08-06): 113 trades | WR 28.3% | Exp +0.035R | Additive return +7.81% | max-concurrent 11
+  Fold 3 (2026-08-06 to 2026-08-21): 101 trades | WR 36.6% | Exp +0.209R | Additive return +42.12% | max-concurrent 13
+Stability: {'folds_valid': 3, 'folds_profitable': 3, 'pct_folds_profitable': 100.0, 'expectancy_mean': 0.098, 'expectancy_std': 0.079, 'verdict': 'STABLE — edge holds up across independent folds'}
 ```
 
-**Verdict: INCONSISTENT — treat as unproven / possibly curve-fit**
+**Verdict: STABLE — edge holds up across independent folds**
 
 ## structure_silver — SI=F (StructureAdapter)
 
 ```
 === Walk-forward: SI=F (folds are independent, non-overlapping time windows) ===
-  Fold 1 (2026-06-30 to 2026-07-15): 35 trades | WR 57.1% | Exp +0.144R | Additive return +10.05% | max-concurrent 10
-  Fold 2 (2026-07-15 to 2026-07-30): 37 trades | WR 24.3% | Exp -0.091R | Additive return -6.70% | max-concurrent 14
-  Fold 3 (2026-07-30 to 2026-08-14): 54 trades | WR 31.5% | Exp -0.031R | Additive return -3.30% | max-concurrent 11
-Stability: {'folds_valid': 3, 'folds_profitable': 1, 'pct_folds_profitable': 33.3, 'expectancy_mean': 0.007, 'expectancy_std': 0.1, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
+  Fold 1 (2026-07-07 to 2026-07-22): 53 trades | WR 45.3% | Exp +0.184R | Additive return +19.55% | max-concurrent 14
+  Fold 2 (2026-07-22 to 2026-08-06): 54 trades | WR 27.8% | Exp -0.128R | Additive return -13.80% | max-concurrent 12
+  Fold 3 (2026-08-06 to 2026-08-21): 37 trades | WR 29.7% | Exp -0.231R | Additive return -17.10% | max-concurrent 12
+Stability: {'folds_valid': 3, 'folds_profitable': 1, 'pct_folds_profitable': 33.3, 'expectancy_mean': -0.058, 'expectancy_std': 0.176, 'verdict': 'INCONSISTENT — treat as unproven / possibly curve-fit'}
 ```
 
 **Verdict: INCONSISTENT — treat as unproven / possibly curve-fit**

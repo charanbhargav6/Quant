@@ -105,11 +105,36 @@ class MT5Agent:
             import MetaTrader5 as mt5
             self._mt5 = mt5
 
+            # IPC TIMEOUT FIX: mt5.initialize()/login() are process-wide calls
+            # against a single running terminal.exe — not per-account sessions.
+            # The multi-account loop in broker_router._execute_mt5() calls
+            # connect() for each account in sequence. Without a clean shutdown()
+            # first, the terminal IPC handle is still in whatever state the
+            # previous account's failed login left it in, causing the next
+            # login to hit (-10005, 'IPC timeout') on the settling pipe.
+            # mt5.shutdown() is safe to call even if nothing is initialized.
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            self._connected = False
+
             terminal_path = os.environ.get("MT5_TERMINAL_PATH")
+            # If no env var, try standard Windows installation paths
+            if not terminal_path:
+                for p in [
+                    r"C:\Program Files\MetaTrader 5\terminal64.exe",
+                    r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe"
+                ]:
+                    if os.path.exists(p):
+                        terminal_path = p
+                        break
+
             if terminal_path and os.path.exists(terminal_path):
                 init_ok = mt5.initialize(path=terminal_path)
             else:
                 init_ok = mt5.initialize()
+
 
             if not init_ok:
                 logger.error(f"[MT5] initialize() failed: {mt5.last_error()}")
@@ -129,7 +154,15 @@ class MT5Agent:
                 )
                 if not authorized:
                     logger.error(f"[MT5] login failed for {use_login}: {mt5.last_error()}")
-                    # Don't shutdown completely, just return False so we can try next account
+                    # FIX: previously left the terminal initialized-but-not-logged-in
+                    # here (old comment: "don't shutdown, try next account"). That
+                    # stale initialized state is exactly what caused the NEXT
+                    # account's login to IPC-timeout. Shut down cleanly so the
+                    # next account starts from zero.
+                    try:
+                        mt5.shutdown()
+                    except Exception:
+                        pass
                     return False
 
             info = mt5.account_info()

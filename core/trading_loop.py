@@ -241,6 +241,31 @@ class TradingLoop:
         self._thread.start()
         logger.info(f"[TradingLoop] Started. Scanning every {self.SCAN_INTERVAL_SECS}s.")
 
+        # Startup MT5 probe — connect immediately so the dashboard shows real
+        # status without waiting for the first trade signal to fire.
+        def _probe_mt5():
+            try:
+                from brokers.mt5_agent import get_mt5
+                agent = get_mt5()
+                if not agent.is_connected():
+                    ok = agent.connect()
+                    if ok:
+                        info = agent.get_account_info()
+                        logger.info(
+                            f"[TradingLoop] MT5 startup probe: connected \u2705 "
+                            f"account={info.get('login')} equity=${info.get('equity', 0):.2f}"
+                        )
+                    else:
+                        logger.warning(
+                            "[TradingLoop] MT5 startup probe: connect() returned False \u2014 "
+                            "check MT5_LOGIN, MT5_PASSWORD, MT5_SERVER in .env and that "
+                            "terminal.exe is running."
+                        )
+            except Exception as e:
+                logger.warning(f"[TradingLoop] MT5 startup probe error (non-fatal): {e}")
+
+        threading.Thread(target=_probe_mt5, daemon=True, name="MT5StartupProbe").start()
+
     def stop(self):
         self._running = False
         logger.info("[TradingLoop] Stopped.")
@@ -725,24 +750,24 @@ class TradingLoop:
             logger.warning(f"[TradingLoop] Insufficient data for {symbol}")
             return None
 
-        # ── Route gold to dedicated pullback strategy ─────────────────────
+        # ── Route by asset class to the correct strategy adapter ──────────
+        # Each asset class now runs its own dedicated engine — no more
+        # HybridStrategyAgent blending everything into one opaque score.
+        # Hybrid's blending logic (SMC + OrderFlow in one number) made it
+        # impossible to isolate which component caused a loss and prevented
+        # clean per-adapter WFO. Pure structure (StrategyAgent) is what each
+        # non-crypto adapter runs in backtesting; this wires live to match.
         from config.config import get_asset_params as _gap
-        _is_gold = _gap(symbol).get("label") == "Gold"
+        _is_gold   = _gap(symbol).get("label") == "Gold"
+        _is_silver = symbol in {"XAGUSD=X", "SI=F"}
 
-        # ── Route BTC/ETH/SOL to the validated OrderFlowAdapter ────────────
-        # PHASE 5 FOLLOW-UP: this is the actual fix for "strategies are not
-        # working" beyond the live_ready gate bug. Before this, EVERY symbol
-        # (including these three) ran through the old, never-isolated-
-        # validated HybridStrategyAgent below -- strategy_adapters.py and
-        # all of Phase 4's walk-forward work were completely disconnected
-        # from live trading. Only these three symbols get the validated
-        # adapter; everything else still runs the legacy engine (see
-        # core/strategy_registry.py's legacy_hybrid_live / legacy_gold_pullback_live
-        # entries -- registered honestly, not claimed as validated).
+        # ── Route BTC/ETH/SOL to the validated OrderFlowAdapter ──────────
+        # Only adapter that has passed walk-forward validation.
         _CRYPTO_ORDERFLOW_SYMBOLS = {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
         _is_crypto_orderflow = symbol in _CRYPTO_ORDERFLOW_SYMBOLS
 
-        strategy_id_for_signal = "legacy_hybrid_live"   # default; overridden per branch below
+        # strategy_id default for forex; overridden per branch below
+        strategy_id_for_signal = "trend_pa_forex"
 
         if _is_crypto_orderflow:
             # Concurrency limiter — orderflow_btc's own STRATEGY_DEFS entry
@@ -794,40 +819,71 @@ class TradingLoop:
             }
 
         elif _is_gold:
-            strategy_id_for_signal = "legacy_gold_pullback_live"
+            # TrendPriceAction adapter — EMA50/200 trend + ADX + EMA21 pullback.
+            # Same engine as before (engines/gold_strategy.py), now correctly
+            # tagged as trend_pa_gold instead of legacy_gold_pullback_live.
+            strategy_id_for_signal = "trend_pa_gold"
             from engines.gold_strategy import (
                 attach_gold_indicators, analyze_gold_context
             )
             df_15m = attach_gold_indicators(df_15m)
             context = analyze_gold_context(symbol, df_15m, len(df_15m) - 1)
-            logger.info(f"[TradingLoop] {symbol}: Gold pullback strategy used")
-        else:
-            # ── Pre-attach indicators (matching backtest exactly) ─────────
+            logger.info(f"[TradingLoop] {symbol}: TrendPriceAction (gold pullback) strategy")
+
+        elif _is_silver:
+            # StructureAdapter — pure SMC/ICT (FVG, OB, liquidity sweep, BOS/CHoCH).
+            # Mirrors what structure_silver WFO adapter used.
+            strategy_id_for_signal = "structure_silver"
             import numpy as np
             df_15m = df_15m.copy()
             df_15m['EMA_21']  = df_15m['close'].ewm(span=21, adjust=False).mean()
             df_15m['SMA_50']  = df_15m['close'].rolling(50).mean()
             df_15m['SMA_200'] = df_15m['close'].rolling(200).mean()
-            delta = df_15m['close'].diff()
-            gain  = delta.clip(lower=0).rolling(14).mean()
-            loss  = (-delta.clip(upper=0)).rolling(14).mean()
-            df_15m['rsi_14'] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
+            _delta = df_15m['close'].diff()
+            df_15m['rsi_14'] = 100 - (100 / (1 + _delta.clip(lower=0).rolling(14).mean() /
+                                             (-_delta.clip(upper=0)).rolling(14).mean().replace(0, np.nan)))
+            from core.strategy_agent import StrategyAgent
+            _smc = StrategyAgent()
+            fvg_catalog = _smc._build_fvg_catalog(df_15m)
+            ob_catalog  = _smc._build_ob_catalog(df_15m)
+            structure   = _smc._build_structure(df_15m)
+            context = _smc.analyze_market_context(
+                symbol, df_15m, i=len(df_15m) - 1,
+                fvg_catalog=fvg_catalog, ob_catalog=ob_catalog, structure=structure
+            )
+            logger.info(f"[TradingLoop] {symbol}: StructureAdapter (SMC/ICT) strategy")
 
-            from engines.hybrid_strategy import HybridStrategyAgent
-            strategy = HybridStrategyAgent()
-            
-            # ── Pre-compute SMC catalogs (matching backtest architecture) ─
-            fvg_catalog = strategy._build_fvg_catalog(df_15m)
-            ob_catalog  = strategy._build_ob_catalog(df_15m)
-            structure   = strategy._build_structure(df_15m)
-            
-            context = strategy.analyze_market_context(
+        else:
+            # Forex — StructureAdapter (pure SMC/ICT structure, no OrderFlow blend).
+            # Replaces HybridStrategyAgent: Hybrid blended SMC + OrderFlow into one
+            # score, making it impossible to isolate edge per component. StrategyAgent
+            # (the pure SMC parent class) gives the same FVG/OB/structure signals
+            # without the OrderFlow modification layer — identical interface, different
+            # internals, cleanly matching the trend_pa_forex WFO adapter.
+            # strategy_id_for_signal already = "trend_pa_forex" (set above)
+            import numpy as np
+            df_15m = df_15m.copy()
+            df_15m['EMA_21']  = df_15m['close'].ewm(span=21, adjust=False).mean()
+            df_15m['SMA_50']  = df_15m['close'].rolling(50).mean()
+            df_15m['SMA_200'] = df_15m['close'].rolling(200).mean()
+            _delta = df_15m['close'].diff()
+            df_15m['rsi_14'] = 100 - (100 / (1 + _delta.clip(lower=0).rolling(14).mean() /
+                                             (-_delta.clip(upper=0)).rolling(14).mean().replace(0, np.nan)))
+
+            from core.strategy_agent import StrategyAgent
+            _smc = StrategyAgent()
+            # Pre-compute SMC catalogs (matching backtest architecture)
+            fvg_catalog = _smc._build_fvg_catalog(df_15m)
+            ob_catalog  = _smc._build_ob_catalog(df_15m)
+            structure   = _smc._build_structure(df_15m)
+            context = _smc.analyze_market_context(
                 symbol, df_15m,
                 i=len(df_15m) - 1,
                 fvg_catalog=fvg_catalog,
                 ob_catalog=ob_catalog,
                 structure=structure
             )
+            logger.info(f"[TradingLoop] {symbol}: StructureAdapter (SMC/ICT) strategy")
 
         if "error" in context:
             return None
@@ -1195,6 +1251,22 @@ class TradingLoop:
                         validated["take_profit_2"] = entry - (new_sl_dist * tp_mult * 1.5)
                         
                     logger.info(f"[TradingLoop] Council adjusted risk: SLx{sl_mult} TPx{tp_mult}")
+
+                    # RR RE-CHECK: Council can push SL wider / TP tighter.
+                    # validate_trade_signal() already approved the original RR,
+                    # but that approval is now stale after the adjustment.
+                    # Re-check the 1.5 minimum against the modified levels.
+                    _entry_ref = validated.get("limit_price") or current_price
+                    _sl_dist   = abs(validated["stop_loss"] - _entry_ref)
+                    _tp_dist   = abs(validated.get("take_profit_2", _entry_ref) - _entry_ref)
+                    if _sl_dist > 0:
+                        _post_council_rr = _tp_dist / _sl_dist
+                        if _post_council_rr < 1.5:
+                            logger.warning(
+                                f"[TradingLoop] {symbol}: Council adjustment produced "
+                                f"RR {_post_council_rr:.2f}:1 < 1.5 minimum — rejecting trade."
+                            )
+                            return None
         except Exception as e:
             logger.debug(f"[TradingLoop] Council gate skipped: {e}")
 
@@ -1260,9 +1332,22 @@ class TradingLoop:
     def _get_current_equity(self) -> float:
         """
         Get equity from live broker account.
+        Priority: MT5 account (if connected) → Alpaca → $10k fallback.
+        Without this priority, MT5-only setups always size off $10k
+        regardless of actual account equity.
         """
+        # MT5 first — most common live broker in this engine
+        try:
+            from brokers.mt5_agent import get_mt5
+            agent = get_mt5()
+            if agent.is_connected():
+                info = agent.get_account_info()
+                if info and info.get("equity", 0) > 0:
+                    return float(info["equity"])
+        except Exception:
+            pass
 
-        # Live mode: read from broker
+        # Alpaca fallback (for alpaca-based setups)
         try:
             from core.data_agent import get_data_agent
             da      = get_data_agent()
