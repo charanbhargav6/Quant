@@ -197,10 +197,17 @@ class RiskAgent:
         """
         Master trade validation.
 
-        v10.6: Now uses ASSET_PARAMS for sl_mult and rr to match backtest exactly.
-        Before: hardcoded sl_mult=2.0, rr=2.0 for everything.
-        After:  Gold=2.0/2.0, Forex=2.5/3.0, BTC=1.5/2.0, Stocks=1.8/2.5
-        This is critical for paper/live results to match backtest performance.
+        v11.0: Structural SL/TP priority — uses signal's pre-computed stop_loss
+        if present (from strategy engine's structure-based levels), falling back
+        to the ATR formula only when the signal has no structural levels.
+
+        PREVIOUS BUG: SL and TP were ALWAYS computed as entry ± (atr × sl_mult),
+        making actual_rr = sl_mult×rr×atr / (sl_mult×atr) = rr = 2.0 always.
+        The 1.5 minimum check was a mathematical identity — it never fired.
+        A structural SL placed beyond the signal's natural invalidation point
+        could produce a genuinely bad RR that is now correctly caught.
+
+        v10.6: Uses ASSET_PARAMS for sl_mult and rr to match backtest exactly.
         """
         allowed, reason = self.check_drawdown_limit(current_equity)
         if not allowed:
@@ -234,32 +241,67 @@ class RiskAgent:
             sl_mult = 3.5
             rr      = 3.0
 
-        if direction in ("buy", "long"):
-            sl_price  = entry_price - (atr * sl_mult)
-            tp2_price = entry_price + (atr * sl_mult * rr)
-            tp1_price = entry_price + (atr * sl_mult * 1.0)
+        # ── Structural SL/TP priority ──────────────────────────────────────────
+        # If the strategy engine already computed structural levels (swing low,
+        # OB boundary, etc.) those are more accurate than the ATR formula.
+        # Use them for the RR check. ATR formula is the fallback only.
+        structural_sl = signal.get("stop_loss")
+        structural_tp = signal.get("take_profit") or signal.get("take_profit_2")
 
-        elif direction in ("sell", "short"):
-            sl_price  = entry_price + (atr * sl_mult)
-            tp2_price = entry_price - (atr * sl_mult * rr)
-            tp1_price = entry_price - (atr * sl_mult * 1.0)
-
+        if structural_sl and structural_sl > 0:
+            sl_price  = float(structural_sl)
+            if structural_tp and structural_tp > 0:
+                tp2_price = float(structural_tp)
+            else:
+                # TP not provided — compute from the structural SL distance
+                sl_dist = abs(entry_price - sl_price)
+                if direction in ("buy", "long"):
+                    tp2_price = entry_price + sl_dist * rr
+                else:
+                    tp2_price = entry_price - sl_dist * rr
+            # TP1 at 1:1 from the structural SL distance
+            sl_dist   = abs(entry_price - sl_price)
+            if direction in ("buy", "long"):
+                tp1_price = entry_price + sl_dist
+            else:
+                tp1_price = entry_price - sl_dist
+            source = "structural"
         else:
+            # ATR formula fallback (used when no structural levels available,
+            # e.g. OrderFlow-only signals that have no OB/swing level)
+            if direction in ("buy", "long"):
+                sl_price  = entry_price - (atr * sl_mult)
+                tp2_price = entry_price + (atr * sl_mult * rr)
+                tp1_price = entry_price + (atr * sl_mult * 1.0)
+            elif direction in ("sell", "short"):
+                sl_price  = entry_price + (atr * sl_mult)
+                tp2_price = entry_price - (atr * sl_mult * rr)
+                tp1_price = entry_price - (atr * sl_mult * 1.0)
+            else:
+                return {"approved": False, "reason": f"Invalid direction: '{direction}'"}
+            source = "atr_formula"
+
+        if direction not in ("buy", "long", "sell", "short"):
             return {"approved": False, "reason": f"Invalid direction: '{direction}'"}
 
-        actual_rr = abs(tp2_price - entry_price) / abs(entry_price - sl_price)
+        sl_dist   = abs(entry_price - sl_price)
+        tp_dist   = abs(tp2_price - entry_price)
+        actual_rr = tp_dist / sl_dist if sl_dist > 0 else 0.0
+
         if actual_rr < self.min_rr_ratio:
             return {
                 "approved": False,
-                "reason":   f"RR {actual_rr:.2f}:1 below minimum {self.min_rr_ratio}:1.",
+                "reason":   (
+                    f"RR {actual_rr:.2f}:1 below minimum {self.min_rr_ratio}:1 "
+                    f"(entry={entry_price}, sl={sl_price:.5f}, tp={tp2_price:.5f}, "
+                    f"source={source})"
+                ),
             }
 
         lot_size        = self.size_position(current_equity, entry_price, sl_price)
-        # Use the actual risk_fraction computed above (Kelly / tier / default),
-        # not max_risk_per_trade which ignores Kelly and tier scaling.
-        price_risk      = abs(entry_price - sl_price)
+        price_risk      = sl_dist
         capital_risked  = round(lot_size * price_risk, 2)
-        sl_distance_pct = round(abs(entry_price - sl_price) / entry_price * 100, 3)
+        sl_distance_pct = round(sl_dist / entry_price * 100, 3)
 
         return {
             "approved":         True,
@@ -275,11 +317,10 @@ class RiskAgent:
             "sl_distance_pct":  sl_distance_pct,
             "capital_risked":   capital_risked,
             "atr":              round(atr, 5),
-            # FIX: Expose ATR explicitly for ExecutionAgent's trailing SL
             "atr_value":        atr,
-            # Also expose SL multiplier so the trail distance is consistent
             "sl_multiplier":    sl_mult,
             "confidence_pct":   confidence_pct,
+            "sl_source":        source,       # "structural" or "atr_formula" — for logs
         }
 
     # ─────────────────────────────────────────────────────────────────────────
