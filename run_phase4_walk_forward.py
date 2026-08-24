@@ -49,10 +49,13 @@ from strategy_adapters import StructureAdapter, OrderFlowAdapter, TrendPriceActi
 # is capped at ~60 days total — raise total_days only if your data source
 # has more history than that.
 RUNS = [
-    ("orderflow_btc",    "BTC-USD",   OrderFlowAdapter(),           3, 45),
-    ("trend_pa_gold",    "GC=F",      TrendPriceActionAdapter(),    3, 45),
-    ("trend_pa_forex",   "EURUSD=X",  TrendPriceActionAdapter(),    3, 45),
-    ("structure_silver", "SI=F",      StructureAdapter(),           3, 45),
+    ("orderflow_btc",      "BTC-USD",   OrderFlowAdapter(),           3, 45),
+    ("trend_pa_gold",      "GC=F",      TrendPriceActionAdapter(),    3, 45),
+    ("trend_pa_forex",     "EURUSD=X",  TrendPriceActionAdapter(),    3, 45),
+    ("structure_silver",   "SI=F",      StructureAdapter(),           3, 45),
+    ("trend_pa_forex_gbp", "GBPUSD=X",  TrendPriceActionAdapter(),    3, 45),
+    ("trend_pa_forex_jpy", "USDJPY=X",  TrendPriceActionAdapter(),    3, 45),
+    ("trend_pa_forex_aud", "AUDUSD=X",  TrendPriceActionAdapter(),    3, 45),
 ]
 
 

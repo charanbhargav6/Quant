@@ -28,8 +28,8 @@ STRATEGY_DEFS = [
         "description": (
             "Pure Order Flow footprint proxy. Trades volume-profile POC/VAH/VAL levels with delta confirmation. "
             "A+/A-grade signals only. PASSED 3-fold walk-forward on BTC-USD: 100% folds profitable, "
-            "mean +0.649R ± 0.350 (Fold1 +0.614R, Fold2 +1.095R, Fold3 +0.239R). "
-            "⚠ Max-concurrent trades up to 29 per fold — rate-limiter/cooldown must be implemented "
+            "mean +0.417R ± 0.215 (Fold1 +0.635R, Fold2 +0.492R, Fold3 +0.125R). "
+            "⚠ Max-concurrent trades up to 23 per fold — rate-limiter/cooldown must be implemented "
             "before live deployment to avoid over-exposure."
         ),
         "instruments": ["BTC-USD", "ETH-USD", "SOL-USD"],
@@ -37,10 +37,11 @@ STRATEGY_DEFS = [
         "style": "Intraday",
         "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, verified)",
         "static_backtest": {
-            "win_rate": 61.1, "profit_factor": None, "expectancy_r": 0.649,
-            "expectancy_std": 0.350, "max_concurrent": 29, "trades_per_fold": "47–95", "rr": 2.0,
+            "win_rate": 49.9, "profit_factor": None, "expectancy_r": 0.417,
+            "expectancy_std": 0.215, "max_concurrent": 23, "trades_per_fold": "59–90", "rr": 2.0,
         },
         "live_ready": True,   # PASSED — STABLE verdict, all 3 folds profitable
+
 
     },
     {
@@ -48,7 +49,7 @@ STRATEGY_DEFS = [
         "name": "Trend/Price-Action — Gold (GC=F)",
         "description": (
             "EMA50/200 trend filter + ADX strength gate + EMA21 pullback entries confirmed by Keltner, RSI, Stochastic. "
-            "Phase 4 WFO result: INCONSISTENT — Fold 3 negative (-0.038R), mean +0.065R ± 0.073 across 3 folds, "
+            "Phase 4 WFO result: INCONSISTENT — Fold 3 negative (-0.077R), mean +0.112R ± 0.134 across 3 folds, "
             "66.7% folds profitable. Not approved for live trading."
         ),
         "instruments": ["GC=F", "XAUUSD=X"],
@@ -56,8 +57,8 @@ STRATEGY_DEFS = [
         "style": "Intraday",
         "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, INCONSISTENT verdict)",
         "static_backtest": {
-            "win_rate": 32.3, "profit_factor": None, "expectancy_r": 0.065,
-            "expectancy_std": 0.073, "trades_per_fold": "93–117", "rr": 2.0,
+            "win_rate": 32.2, "profit_factor": None, "expectancy_r": 0.112,
+            "expectancy_std": 0.134, "trades_per_fold": "89–107", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT verdict
 
@@ -68,15 +69,15 @@ STRATEGY_DEFS = [
         "description": (
             "Same Trend/PA engine as Gold adapter applied to Forex. "
             "Phase 4 WFO result: STABLE — 100% of folds profitable. "
-            "Mean edge +0.098R ± 0.079. Approved for live trading."
+            "Mean edge +0.191R ± 0.095. Approved for live trading."
         ),
         "instruments": ["EURUSD=X"],
         "timeframe": "M15",
         "style": "Intraday",
         "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, STABLE verdict)",
         "static_backtest": {
-            "win_rate": 31.7, "profit_factor": None, "expectancy_r": 0.098,
-            "expectancy_std": 0.079, "trades_per_fold": "101–125", "rr": 2.0,
+            "win_rate": 36.1, "profit_factor": None, "expectancy_r": 0.191,
+            "expectancy_std": 0.095, "trades_per_fold": "88–106", "rr": 2.0,
         },
         "live_ready": True,  # PASSED — STABLE, 100% folds profitable
 
@@ -87,16 +88,16 @@ STRATEGY_DEFS = [
         "description": (
             "FVG, Order Block, liquidity sweep, BOS/CHoCH engine on Silver. "
             "Phase 4 WFO result: INCONSISTENT — folds degenerate quickly "
-            "(Fold1 +0.184R → Fold2 -0.128R → Fold3 -0.231R). "
-            "Mean -0.058R edge. Strategy is actively losing money in current regime."
+            "(Fold1 +0.121R → Fold2 -0.131R → Fold3 -0.231R). "
+            "Mean -0.080R edge. Strategy is actively losing money in current regime."
         ),
         "instruments": ["SI=F", "XAGUSD=X"],
         "timeframe": "M15",
         "style": "Intraday",
         "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, INCONSISTENT verdict)",
         "static_backtest": {
-            "win_rate": 34.2, "profit_factor": None, "expectancy_r": -0.058,
-            "expectancy_std": 0.176, "trades_per_fold": "37–54", "rr": 2.0,
+            "win_rate": 31.7, "profit_factor": None, "expectancy_r": -0.080,
+            "expectancy_std": 0.148, "trades_per_fold": "35–56", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT, negative mean expectancy
     },
