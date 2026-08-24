@@ -177,6 +177,7 @@ STRATEGY_DEFS = [
                              "expectancy_r": None, "expectancy_std": None,
                              "trades_per_fold": None, "rr": 1.5},
         "live_ready": False,
+        "paper_only": True,
     },
     {
         "id":   "volatility_breakout_xau",
@@ -193,6 +194,7 @@ STRATEGY_DEFS = [
                              "expectancy_r": None, "expectancy_std": None,
                              "trades_per_fold": None, "rr": 2.0},
         "live_ready": False,
+        "paper_only": True,
     },
     {
         "id":   "structure_silver",

@@ -739,3 +739,5 @@ def get_router() -> BrokerRouter:
     return _router_instance
 
 router = get_router
+# Compatibility alias for older deployed close-path callers.
+get_broker_router = get_router

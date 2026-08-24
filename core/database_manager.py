@@ -228,6 +228,15 @@ class DatabaseManager:
             conn = self._get_conn()
             conn.executescript(SCHEMA_SQL)
             conn.commit()
+            # Apply idempotent account/process columns on fresh and existing
+            # databases. Account onboarding and supervisor code must not depend
+            # on an operator remembering a separate migration command.
+            try:
+                from core.migrate_accounts_supervisor import migrate
+                migrate(self)
+            except Exception as e:
+                logger.error(f"[DB] Account schema migration failed: {e}")
+                raise
             logger.info("[DB] Schema verified.")
 
     # ─────────────────────────────────────────────────────────────────────────

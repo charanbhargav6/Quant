@@ -1451,15 +1451,22 @@ class TradingLoop:
             return {"status": "failed", "reason": f"Live router error: {type(e).__name__}: {e}"}
 
     def _live_execute(self, validated: dict, current_price: float) -> dict:
+        """Execute only through the centralized, account-aware router.
+
+        The previous implementation instantiated the legacy global-credential
+        ExecutionAgent, which caused Binance ``apiKey`` crashes and could use a
+        different account from the one verified in onboarding. Keeping one live
+        boundary prevents that split-brain behavior.
+        """
         try:
-            from core.execution_agent import ExecutionAgent
-            from core.data_agent import get_data_agent
-            exchange = validated.get("exchange", "alpaca")
-            ea = ExecutionAgent(data_agent=get_data_agent())
-            return ea.execute_trade(validated, current_price, exchange=exchange)
+            from brokers.broker_router import get_router
+            return get_router().execute(validated, current_price, is_paper=False)
         except Exception as e:
-            logger.error(f"[TradingLoop] Live execution error: {e}")
-            return {"status": "failed", "reason": str(e)}
+            logger.error(
+                f"[TradingLoop] Live router execution error: "
+                f"{type(e).__name__}: {e!r}", exc_info=True
+            )
+            return {"status": "failed", "reason": f"Live router error: {type(e).__name__}: {e}"}
 
     # ─────────────────────────────────────────────────────────────────────────
     # FIX 4 - Paper equity used for sizing

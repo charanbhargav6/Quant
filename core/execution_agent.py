@@ -139,6 +139,17 @@ class ExecutionAgent:
                            "status": "filled", "entry": fill_price}
 
             elif exchange == "binance" and self.data_agent and self.data_agent.binance:
+                # This legacy agent is retained for compatibility, but a
+                # public ccxt client is data-only. Never turn it into an
+                # unauthenticated live-order attempt; live Binance orders
+                # must come through BrokerRouter/MultiTenantBrokerManager.
+                if not (os.environ.get("BINANCE_API_KEY") and os.environ.get("BINANCE_API_SECRET")):
+                    reason = (
+                        "Binance live execution requires verified account credentials; "
+                        "route the signal through BrokerRouter instead of the global data client"
+                    )
+                    logger.warning(f"[ExecutionAgent] Blocked: {reason}")
+                    return {"status": "blocked", "reason": reason}
                 side     = 'buy' if direction in ('buy', 'long') else 'sell'
                 sl_side  = 'sell' if side == 'buy' else 'buy'
 

@@ -97,6 +97,27 @@ def _verify_mt5(credentials: dict) -> dict:
         if not info:
             return _fail("Connected but could not read account info from MT5.")
 
+        # Identity verification: a terminal connection alone is not enough;
+        # confirm that the broker reports the exact requested account and
+        # server. This prevents saving a different already-logged-in account.
+        try:
+            requested_login = int(login)
+            reported_login = int(info.get("login"))
+        except (TypeError, ValueError):
+            return _fail("MT5 returned an invalid account login during verification.")
+        if reported_login != requested_login:
+            return _fail(
+                f"MT5 connected, but returned account {reported_login} instead of "
+                f"requested account {requested_login}."
+            )
+        requested_server = str(server).strip().lower()
+        reported_server = str(info.get("server") or "").strip().lower()
+        if requested_server and reported_server != requested_server:
+            return _fail(
+                f"MT5 connected to server '{info.get('server')}', not requested "
+                f"server '{server}'."
+            )
+
         return {
             "ok": True,
             "balance": info["balance"],
