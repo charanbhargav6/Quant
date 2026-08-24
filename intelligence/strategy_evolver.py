@@ -83,6 +83,8 @@ DEFAULT_PARAMS = {
 
 # Maximum allowed change per evolution cycle (safety)
 MAX_CHANGE_PCT = 0.20  # 20% max swing per parameter
+ALLOW_AUTO_PROMOTE = os.environ.get("ALLOW_EVOLVER_AUTO_PROMOTE", "false").lower() == "true"
+ALLOW_HEURISTIC_EVOLUTION = os.environ.get("ALLOW_HEURISTIC_EVOLUTION", "false").lower() == "true"
 
 
 class StrategyEvolver:
@@ -432,9 +434,15 @@ Be concise. List 3-5 actionable recommendations."""
     def _test_proposals(self, proposals: List[dict],
                          trade_analysis: dict) -> Optional[dict]:
         """
-        Test each proposal. In a full system this would run backtests.
-        For now, we score based on how well the changes address the diagnosis.
+        Test each proposal. Heuristic scores are disabled by default because
+        they are not a substitute for a chronological, cost-aware backtest.
         """
+        if not ALLOW_HEURISTIC_EVOLUTION:
+            logger.warning(
+                "[Evolver] Proposal staging disabled: no real backtest adapter is configured"
+            )
+            return None
+
         current_score = (
             trade_analysis["win_rate"] * 0.4 +
             max(trade_analysis["avg_r"] * 20 + 50, 0) * 0.4 +
@@ -497,8 +505,11 @@ Be concise. List 3-5 actionable recommendations."""
             json.dump(staged, f, indent=2)
 
     def _check_staged_promotion(self):
-        """Promote staged params if they've been staged for 1 week."""
+        """Promote staged params only after an explicit environment opt-in."""
         if not self._staged_params:
+            return
+        if not ALLOW_AUTO_PROMOTE:
+            logger.info("[Evolver] Auto-promotion disabled; staged params remain pending manual review")
             return
 
         promote_at = self._staged_params.get("promote_at", "")

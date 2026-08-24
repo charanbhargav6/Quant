@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 User=ubuntu
-WorkingDirectory=/home/ubuntu/CRAVE
+WorkingDirectory=/home/ubuntu/Quant
 ExecStart=/usr/bin/python3 run_bot.py --paper
 Restart=always
 RestartSec=5

@@ -11,7 +11,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-_root = str(Path(__file__).resolve().parents[2])
+_root = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, _root)
 sys.path.insert(0, str(Path(__file__).parent))
 

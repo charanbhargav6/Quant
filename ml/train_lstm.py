@@ -146,16 +146,19 @@ def main():
             if X.shape[0] == 0:
                 continue
 
-            # Chronological split: earliest sequences train, latest validate.
-            # Holding out the tail measures generalization to unseen future bars
-            # instead of reporting accuracy on the training data itself.
+            # Chronological split with a purge gap. Each label uses the next
+            # FUTURE_LOOKAHEAD candles, so the final training samples must be
+            # removed before validation begins to prevent overlapping outcome
+            # windows from leaking information across the boundary.
             split = int(len(X) * (1 - VAL_FRACTION))
-            if split < 1 or split >= len(X):
+            purge = FUTURE_LOOKAHEAD
+            train_end = max(0, split - purge)
+            if train_end < 1 or split >= len(X):
                 train_X.append(X)
                 train_y.append(y)
             else:
-                train_X.append(X[:split]); train_y.append(y[:split])
-                val_X.append(X[split:]);   val_y.append(y[split:])
+                train_X.append(X[:train_end]); train_y.append(y[:train_end])
+                val_X.append(X[split:]);       val_y.append(y[split:])
         except Exception as e:
             logger.error(f"Failed to process {sym}: {e}")
 

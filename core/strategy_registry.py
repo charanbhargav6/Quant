@@ -9,17 +9,21 @@ Adapter→Asset mapping (core/trading_loop.py):
   orderflow_btc       → BTCUSDT, ETHUSDT, SOLUSDT  (validated ✅)
   trend_pa_gold       → XAUUSD=X                    (WFO: INCONSISTENT ⚠)
   structure_silver    → XAGUSD=X                    (WFO: INCONSISTENT ⚠)
-  trend_pa_forex      → EURUSD=X, GBPUSD=X,         (WFO: INCONSISTENT ⚠)
-                        USDJPY=X, AUDUSD=X
+  trend_pa_forex      → EURUSD=X                    (WFO: STABLE ✅)
+  trend_pa_forex_gbp  → GBPUSD=X                    (WFO: INCONSISTENT ⚠)
+  trend_pa_forex_jpy  → USDJPY=X                    (WFO: INCONSISTENT ⚠)
+  trend_pa_forex_aud  → AUDUSD=X                    (WFO: INCONSISTENT ⚠)
+  mean_reversion_ranging → staged for WFO; not live-ready
+  volatility_breakout_xau → staged for WFO; paper-only
 
-ENFORCE_LIVE_READY_GATE: kill switch. Defaults to OFF while non-crypto
-strategies are still unvalidated. Flip to "true" in .env once walk-forward
-validation passes for the strategy you want to gate. While OFF, only the
-per-account strategies_enabled toggle is enforced.
+ENFORCE_LIVE_READY_GATE: kill switch. Defaults to ON so strategies that
+are unvalidated or failed cannot execute live. Set it to "false" only for an
+explicit paper/staging run. The per-account strategies_enabled toggle can
+further narrow access but cannot override a failed validation when the gate is on.
 """
 import os
 
-ENFORCE_LIVE_READY_GATE = os.environ.get("ENFORCE_LIVE_READY_GATE", "false").lower() == "true"
+ENFORCE_LIVE_READY_GATE = os.environ.get("ENFORCE_LIVE_READY_GATE", "true").lower() == "true"
 
 STRATEGY_DEFS = [
     {
@@ -158,6 +162,39 @@ STRATEGY_DEFS = [
         "live_ready": False,  # Never tested — do not enable without WFO first
     },
     {
+        "id":   "mean_reversion_ranging",
+        "name": "Mean Reversion — Ranging Regime",
+        "description": (
+            "Bollinger-band extreme plus RSI and volume-exhaustion setup in a "
+            "RANGING regime. Staged as a complementary strategy, but it has "
+            "not yet passed instrument-specific walk-forward validation."
+        ),
+        "instruments": [],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Not tested in the current WFO report",
+        "static_backtest": {"win_rate": None, "profit_factor": None,
+                             "expectancy_r": None, "expectancy_std": None,
+                             "trades_per_fold": None, "rr": 1.5},
+        "live_ready": False,
+    },
+    {
+        "id":   "volatility_breakout_xau",
+        "name": "Volatility Breakout — Gold",
+        "description": (
+            "First-close Bollinger expansion with ADX, RSI, and candle-body "
+            "confirmation. Paper-only research candidate pending longer WFO."
+        ),
+        "instruments": ["XAUUSD=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "2025-01-02 to 2026-07-31 (candidate folds)",
+        "static_backtest": {"win_rate": None, "profit_factor": None,
+                             "expectancy_r": None, "expectancy_std": None,
+                             "trades_per_fold": None, "rr": 2.0},
+        "live_ready": False,
+    },
+    {
         "id":   "structure_silver",
         "name": "Structure (SMC/ICT) — Silver (SI=F)",
         "description": (
@@ -184,11 +221,10 @@ def is_live_ready(strategy_id: str) -> bool:
     for unknown strategy ids too -- an unrecognized strategy_id should
     never be treated as approved by default.
 
-    Respects ENFORCE_LIVE_READY_GATE: while the gate is disabled (see
-    module docstring -- INCIDENT), this always returns True so execution
-    falls back to the pre-Phase-5 behavior (only strategies_enabled is
-    checked, not walk-forward status) rather than silently blocking
-    everything again if a caller forgets to check the flag itself.
+    Respects ENFORCE_LIVE_READY_GATE: when explicitly disabled, this returns
+    True for backward-compatible paper or staging runs. Live deployments
+    should leave the default enabled so unknown or failed strategies are
+    rejected rather than silently treated as approved.
     """
     if not ENFORCE_LIVE_READY_GATE:
         return True

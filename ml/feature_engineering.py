@@ -67,7 +67,14 @@ def extract_features(symbol: str,
       session_name: 'london' / 'ny' / 'asian'
     """
     features = {}
-    now      = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    raw_signal_time = context.get("signal_time") if isinstance(context, dict) else None
+    try:
+        if raw_signal_time:
+            parsed = pd.Timestamp(raw_signal_time).to_pydatetime()
+            now = parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    except Exception:
+        logger.debug("[ML] Invalid signal_time; using current UTC time")
 
     # ── Time features ─────────────────────────────────────────────────────
     features["utc_hour"]    = now.hour

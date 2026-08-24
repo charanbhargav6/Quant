@@ -45,7 +45,7 @@ import os
 
 logger = logging.getLogger("crave.economic_calendar")
 
-CRAVE_ROOT = Path(os.environ.get("CRAVE_ROOT", Path(__file__).resolve().parents[2]))
+CRAVE_ROOT = Path(os.environ.get("CRAVE_ROOT", Path(__file__).resolve().parents[1]))
 CACHE_PATH  = CRAVE_ROOT / "data" / "calendar_cache.json"
 CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 

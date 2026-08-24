@@ -58,7 +58,7 @@ try:
 except ImportError:
     from pathlib import Path
     import os
-    CRAVE_ROOT = os.environ.get('CRAVE_ROOT', str(Path(__file__).resolve().parent.parent.parent))
+    CRAVE_ROOT = os.environ.get('CRAVE_ROOT', str(Path(__file__).resolve().parent.parent))
 
 logger = logging.getLogger("crave.sentinel")
 
