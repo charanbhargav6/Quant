@@ -83,6 +83,81 @@ STRATEGY_DEFS = [
 
     },
     {
+        "id":   "trend_pa_forex_gbp",
+        "name": "Trend/Price-Action — Forex (GBPUSD)",
+        "description": (
+            "Same Trend/PA engine as trend_pa_forex, tested separately on GBPUSD "
+            "(never assume one pair's edge transfers to another — see docs/"
+            "wfo_phase4_results.md). Phase 4 WFO result: INCONSISTENT — only "
+            "1 of 3 folds profitable (+0.256R → -0.072R → -0.144R). "
+            "Mean +0.013R ± 0.174, essentially zero edge. Not approved for live trading."
+        ),
+        "instruments": ["GBPUSD=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, INCONSISTENT verdict)",
+        "static_backtest": {
+            "win_rate": 31.6, "profit_factor": None, "expectancy_r": 0.013,
+            "expectancy_std": 0.174, "trades_per_fold": "100–128", "rr": 2.0,
+        },
+        "live_ready": False,  # FAILED — INCONSISTENT, near-zero mean edge
+    },
+    {
+        "id":   "trend_pa_forex_jpy",
+        "name": "Trend/Price-Action — Forex (USDJPY)",
+        "description": (
+            "Same Trend/PA engine as trend_pa_forex, tested separately on USDJPY. "
+            "Phase 4 WFO result: INCONSISTENT — only 1 of 3 folds profitable "
+            "(-0.054R → +0.063R → -0.294R). Mean -0.095R ± 0.149, net-negative edge. "
+            "Not approved for live trading."
+        ),
+        "instruments": ["USDJPY=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, INCONSISTENT verdict)",
+        "static_backtest": {
+            "win_rate": 27.4, "profit_factor": None, "expectancy_r": -0.095,
+            "expectancy_std": 0.149, "trades_per_fold": "56–167", "rr": 2.0,
+        },
+        "live_ready": False,  # FAILED — INCONSISTENT, negative mean expectancy
+    },
+    {
+        "id":   "trend_pa_forex_aud",
+        "name": "Trend/Price-Action — Forex (AUDUSD)",
+        "description": (
+            "Same Trend/PA engine as trend_pa_forex, tested separately on AUDUSD. "
+            "Phase 4 WFO result: INCONSISTENT — 2 of 3 folds profitable but high "
+            "variance (+0.169R → +0.381R → -0.451R). Mean +0.033R ± 0.353 — the "
+            "single worst-fold swing of any tested pair. Not approved for live trading."
+        ),
+        "instruments": ["AUDUSD=X"],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, INCONSISTENT verdict)",
+        "static_backtest": {
+            "win_rate": 29.3, "profit_factor": None, "expectancy_r": 0.033,
+            "expectancy_std": 0.353, "trades_per_fold": "88–109", "rr": 2.0,
+        },
+        "live_ready": False,  # FAILED — INCONSISTENT, worst fold-to-fold variance tested
+    },
+    {
+        "id":   "trend_pa_forex_untested",
+        "name": "Trend/Price-Action — Forex (any other pair)",
+        "description": (
+            "Catch-all tag for any forex pair besides EURUSD/GBPUSD/USDJPY/AUDUSD "
+            "that reaches the live Trend/PA routing branch. Never walk-forward "
+            "tested at all — registered explicitly as not live_ready rather than "
+            "silently reusing trend_pa_forex's passing id for an untested instrument."
+        ),
+        "instruments": [],
+        "timeframe": "M15",
+        "style": "Intraday",
+        "backtest_period": "Not tested",
+        "static_backtest": {"win_rate": None, "profit_factor": None, "expectancy_r": None,
+                             "expectancy_std": None, "trades_per_fold": None, "rr": None},
+        "live_ready": False,  # Never tested — do not enable without WFO first
+    },
+    {
         "id":   "structure_silver",
         "name": "Structure (SMC/ICT) — Silver (SI=F)",
         "description": (
