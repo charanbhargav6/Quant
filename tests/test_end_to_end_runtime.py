@@ -118,3 +118,67 @@ def test_runtime_verifier_handles_fresh_database(tmp_path, monkeypatch):
     monkeypatch.setattr("core.database_manager.get_db", lambda: FakeDB())
     snapshot = verify_runtime.db_snapshot()
     assert snapshot["accounts"] == []
+
+
+def test_xm_helper_does_not_persist_failed_verification(monkeypatch):
+    import add_xm_account as helper
+
+    db_ctor = MagicMock()
+    monkeypatch.setattr(helper, "DatabaseManager", db_ctor)
+    monkeypatch.setattr(helper, "parse_args", lambda: SimpleNamespace(
+        login="108904459", server="XMGlobal-MT5 4", profile=None,
+        strategies='["all"]',
+    ))
+    monkeypatch.setattr(helper.getpass, "getpass", lambda prompt: "secret")
+    monkeypatch.setattr(helper, "verify_and_connect", lambda *args, **kwargs: {
+        "ok": False, "reason": "identity mismatch",
+    })
+
+    assert helper.main() == 1
+    db_ctor.assert_not_called()
+
+
+def test_xm_helper_persists_verified_balance_as_capital(monkeypatch):
+    import add_xm_account as helper
+
+    db = MagicMock()
+    db.query_one.side_effect = [None, {"id": 42}]
+    db.add_account.return_value = True
+    db_ctor = MagicMock(return_value=db)
+    monkeypatch.setattr(helper, "DatabaseManager", db_ctor)
+    monkeypatch.setattr(helper, "parse_args", lambda: SimpleNamespace(
+        login="108904459", server="XMGlobal-MT5 4", profile="xm_verified",
+        strategies='["trend_pa_forex"]',
+    ))
+    monkeypatch.setattr(helper.getpass, "getpass", lambda prompt: "secret")
+    monkeypatch.setattr(helper, "verify_and_connect", lambda *args, **kwargs: {
+        "ok": True, "balance": 3127.45, "server": "XMGlobal-MT5 4",
+    })
+    monkeypatch.setattr(helper, "encrypt_secret", lambda value: "encrypted-secret")
+
+    assert helper.main() == 0
+    db.add_account.assert_called_once()
+    kwargs = db.add_account.call_args.kwargs
+    assert kwargs["capital"] == 3127.45
+    assert kwargs["status"] == "verified"
+    assert kwargs["password"] == "encrypted-secret"
+    assert "balance" not in kwargs
+    assert all("DELETE FROM accounts" not in str(call) for call in db.execute.call_args_list)
+    db.execute.assert_called_once()
+    assert "broker='mt5'" in db.execute.call_args.args[0]
+    assert "profile" in db.execute.call_args.args[0]
+
+
+def test_news_sentinel_empty_asset_result_has_stable_schema(monkeypatch):
+    from intelligence.news_sentinel import NewsSentinel
+
+    sentinel = NewsSentinel.__new__(NewsSentinel)
+    monkeypatch.setattr(sentinel, "get_recent_news", lambda max_age_mins: [])
+    result = sentinel.get_asset_sentiment("UNMATCHED", max_age_mins=120)
+    assert result == {
+        "sentiment": "neutral",
+        "score": 0.0,
+        "headlines": [],
+        "impact": "low",
+        "count": 0,
+    }

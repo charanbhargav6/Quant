@@ -65,6 +65,7 @@ STRATEGY_DEFS = [
             "expectancy_std": 0.134, "trades_per_fold": "89–107", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT verdict
+        "paper_only": True,
 
     },
     {
@@ -105,6 +106,7 @@ STRATEGY_DEFS = [
             "expectancy_std": 0.174, "trades_per_fold": "100–128", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT, near-zero mean edge
+        "paper_only": True,
     },
     {
         "id":   "trend_pa_forex_jpy",
@@ -124,6 +126,7 @@ STRATEGY_DEFS = [
             "expectancy_std": 0.149, "trades_per_fold": "56–167", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT, negative mean expectancy
+        "paper_only": True,
     },
     {
         "id":   "trend_pa_forex_aud",
@@ -143,6 +146,7 @@ STRATEGY_DEFS = [
             "expectancy_std": 0.353, "trades_per_fold": "88–109", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT, worst fold-to-fold variance tested
+        "paper_only": True,
     },
     {
         "id":   "trend_pa_forex_untested",
@@ -160,6 +164,7 @@ STRATEGY_DEFS = [
         "static_backtest": {"win_rate": None, "profit_factor": None, "expectancy_r": None,
                              "expectancy_std": None, "trades_per_fold": None, "rr": None},
         "live_ready": False,  # Never tested — do not enable without WFO first
+        "paper_only": True,
     },
     {
         "id":   "mean_reversion_ranging",
@@ -214,6 +219,7 @@ STRATEGY_DEFS = [
             "expectancy_std": 0.148, "trades_per_fold": "35–56", "rr": 2.0,
         },
         "live_ready": False,  # FAILED — INCONSISTENT, negative mean expectancy
+        "paper_only": True,
     },
 ]
 
