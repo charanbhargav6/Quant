@@ -86,10 +86,16 @@ class BinanceAgent:
         return False
 
     def _map_symbol(self, crave_symbol: str) -> str:
-        """Map crave symbol (e.g. BTCUSD) to Binance symbol (BTC/USDT)."""
-        sym = crave_symbol.upper()
-        if sym.endswith("USD"):
-            sym = sym[:-3] + "/USDT"
+        """Map internal symbols to Binance USD-M futures CCXT symbols."""
+        sym = str(crave_symbol or "").upper().strip()
+        if "/" in sym:
+            return sym if ":" in sym else f"{sym}:USDT"
+        if sym.endswith("-USD"):
+            sym = sym[:-4] + "USDT"
+        if sym.endswith("USD") and not sym.endswith("USDT"):
+            sym = sym[:-3] + "USDT"
+        if sym.endswith("USDT"):
+            return f"{sym[:-4]}/USDT:USDT"
         return sym
 
     def get_symbol_info(self, crave_symbol: str) -> Optional[dict]:

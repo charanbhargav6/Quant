@@ -13,6 +13,7 @@ Round 3 (Verdict): Director reads the full transcript and rules,
 import os
 import json
 import logging
+import math
 import time
 import requests
 from datetime import datetime, timezone
@@ -34,6 +35,7 @@ class BaseAgent:
         self._openai_compat_key = os.environ.get("COUNCIL_OPENAI_API_KEY", "")
         self._openai_compat_base = os.environ.get("COUNCIL_OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         self._openai_compat_model = os.environ.get("COUNCIL_OPENAI_MODEL", "gpt-5-mini")
+        self._last_call_ok = False
         try:
             from config.config import LLM_COUNCIL
             self.config = LLM_COUNCIL
@@ -68,12 +70,14 @@ class BaseAgent:
                     res = None
 
                 if res and len(res.strip()) > 5:
+                    self._last_call_ok = True
                     return res
                 logger.debug(f"[Council] {self.name}: {provider} returned empty, trying next")
             except Exception as e:
                 logger.debug(f"[Council] {self.name}: {provider} error: {e}")
 
-        logger.warning(f"[Council] {self.name}: ALL LLMs failed, using rule-based fallback")
+        self._last_call_ok = False
+        logger.warning(f"[Council] {self.name}: ALL LLMs failed; no model-backed evidence available")
         return None
 
     # ── Groq (ultra-fast, free tier) ─────────────────────────────────────
@@ -348,11 +352,20 @@ class DirectorAgent(BaseAgent):
                     cleaned = cleaned[start:end]
 
                 data = json.loads(cleaned)
+                if not isinstance(data, dict):
+                    raise ValueError("verdict must be a JSON object")
+                decision = str(data.get("decision", "reject")).lower().strip()
+                if decision not in {"execute", "reject"}:
+                    raise ValueError(f"unknown decision: {decision!r}")
+                sl_multiplier = float(data.get("sl_multiplier", 1.5))
+                tp_multiplier = float(data.get("tp_multiplier", 2.0))
+                if not math.isfinite(sl_multiplier) or not math.isfinite(tp_multiplier):
+                    raise ValueError("SL/TP multipliers must be finite")
                 return {
-                    "decision": str(data.get("decision", "reject")).lower().strip(),
-                    "sl_multiplier": max(0.5, min(3.0, float(data.get("sl_multiplier", 1.5)))),
-                    "tp_multiplier": max(1.0, min(5.0, float(data.get("tp_multiplier", 2.0)))),
-                    "reasoning": str(data.get("reasoning", "Parsed from LLM")),
+                    "decision": decision,
+                    "sl_multiplier": max(0.5, min(3.0, sl_multiplier)),
+                    "tp_multiplier": max(1.0, min(5.0, tp_multiplier)),
+                    "reasoning": str(data.get("reasoning", "Parsed from LLM"))[:1000],
                     "raw": res,
                 }
             except Exception as e:
@@ -432,6 +445,24 @@ class TradingCouncil:
         r3_time = time.time() - t3
         total_time = time.time() - t0
 
+        # A synthetic fallback pitch is not evidence. Require every debate
+        # role, including the Director, to have returned a usable model
+        # response; otherwise force a hold/reject even if a stale or partial
+        # response appears to approve the trade.
+        role_status = {
+            "Quant": self.quant._last_call_ok,
+            "Sentiment": self.sentiment._last_call_ok,
+            "DevilsAdvocate": self.devil._last_call_ok,
+            "Risk": self.risk._last_call_ok,
+            "Director": self.director._last_call_ok,
+        }
+        if not all(role_status.values()):
+            verdict = {
+                **verdict,
+                "decision": "reject",
+                "reasoning": "Council incomplete; one or more required roles lacked valid model evidence",
+            }
+
         decision_emoji = "✅" if verdict["decision"] == "execute" else "❌"
         logger.info(
             f"[Council] {decision_emoji} VERDICT: {verdict['decision'].upper()} "
@@ -460,6 +491,8 @@ class TradingCouncil:
             "transcript": transcript,
             "debate_time_s": round(total_time, 1),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "role_status": role_status,
+            "complete": all(role_status.values()),
         }
         self._last_council = result
         return result

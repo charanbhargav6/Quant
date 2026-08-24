@@ -88,6 +88,22 @@ def _tz_localize_utc(df: pd.DataFrame) -> pd.DataFrame:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _binance_market_symbol(symbol: str) -> str:
+    """Map internal symbols to CCXT Binance USD-M futures symbols."""
+    sym = str(symbol or "").upper().strip()
+    if "/" in sym:
+        return sym if ":" in sym else f"{sym}:USDT"
+    if sym.endswith("-USD"):
+        sym = sym[:-4] + "USDT"
+    if sym.endswith("=X"):
+        return sym
+    if sym.endswith("USD") and not sym.endswith("USDT"):
+        sym = sym[:-3] + "USDT"
+    if sym.endswith("USDT"):
+        return f"{sym[:-4]}/USDT:USDT"
+    return sym
+
+
 class DataAgent:
 
     def __init__(self):
@@ -103,21 +119,22 @@ class DataAgent:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _init_apis(self):
-        # ── Binance via CCXT ──
+        # ── Binance USD-M Futures via CCXT ──
         try:
             import ccxt
             k = os.environ.get("BINANCE_API_KEY", "")
             s = os.environ.get("BINANCE_API_SECRET", "")
+            opts = {
+                'enableRateLimit': True,
+                'options': {'defaultType': 'future'},
+            }
             if k and s:
-                self.binance = ccxt.binance({
-                    'apiKey': k, 'secret': s,
-                    'enableRateLimit': True,
-                    'options': {'defaultType': 'future'},
-                })
-                logger.info("[DataAgent] Binance Futures connected.")
+                opts.update({'apiKey': k, 'secret': s})
+                self.binance = ccxt.binanceusdm(opts)
+                logger.info("[DataAgent] Binance USD-M Futures connected.")
             else:
-                self.binance = ccxt.binance({'enableRateLimit': True})
-                logger.info("[DataAgent] Binance connected (no auth — read-only).")
+                self.binance = ccxt.binanceusdm(opts)
+                logger.info("[DataAgent] Binance USD-M Futures connected (no auth — read-only).")
         except ImportError:
             logger.warning("[DataAgent] ccxt not installed. Binance unavailable.")
 
@@ -178,7 +195,7 @@ class DataAgent:
                 # Normalise timeframe: Binance uses "1w" not "1wk"
                 bn_tf_map = {"1wk": "1w"}
                 bn_tf = bn_tf_map.get(timeframe, timeframe)
-                bars = self.binance.fetch_ohlcv(symbol, bn_tf, limit=limit)
+                bars = self.binance.fetch_ohlcv(_binance_market_symbol(symbol), bn_tf, limit=limit)
                 df   = pd.DataFrame(
                     bars, columns=['time', 'open', 'high', 'low', 'close', 'volume']
                 )
@@ -321,11 +338,24 @@ class DataAgent:
     # ORDER BOOK DEPTH — unchanged from v9.0
     # ─────────────────────────────────────────────────────────────────────────
 
-    def get_order_book_imbalance(self, symbol: str, depth: int = 20) -> dict:
+    def get_order_book_imbalance(self, symbol: str, depth: int = 20, exchange: str = None) -> dict:
+        """Return Binance book imbalance only for Binance-routed symbols.
+
+        MT5/forex/CFD and Zerodha symbols must not be sent to Binance. Their
+        order books are venue-specific and may not exist on Binance at all.
+        """
+        if exchange is None:
+            try:
+                from config.config import get_instrument
+                exchange = get_instrument(symbol).get("exchange")
+            except Exception:
+                exchange = None
+        if str(exchange or "").lower() != "binance":
+            return {"available": False, "reason": f"No Binance book for exchange={exchange!r}"}
         if not self.binance:
-            return {"available": False}
+            return {"available": False, "reason": "Binance client unavailable"}
         try:
-            ob      = self.binance.fetch_order_book(symbol, limit=depth)
+            ob      = self.binance.fetch_order_book(_binance_market_symbol(symbol), limit=depth)
             bids    = ob.get('bids', [])
             asks    = ob.get('asks', [])
             bid_vol = sum(b[1] for b in bids)
@@ -474,7 +504,7 @@ class DataAgent:
         if not self.binance:
             return {"available": False}
         try:
-            data   = self.binance.fetch_funding_rate(symbol)
+            data   = self.binance.fetch_funding_rate(_binance_market_symbol(symbol))
             rate   = data.get('fundingRate', 0) * 100
             signal = (
                 "Crowded Longs (Bearish Bias)"  if rate > 0.05  else

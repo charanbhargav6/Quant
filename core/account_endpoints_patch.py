@@ -25,6 +25,8 @@ WIRING INTO quant_server.py:
 """
 
 from pathlib import Path
+import os
+import re
 from flask import request, jsonify, Response
 
 from core.account_connector import verify_and_connect, complete_zerodha_login
@@ -81,6 +83,12 @@ def _write_profile_env(profile: str, values: dict):
 
     with open(new_env, "w", encoding="utf-8") as f:
         f.writelines(new_lines)
+    try:
+        os.chmod(new_env, 0o600)
+    except OSError:
+        # Windows may not support POSIX mode bits; the file is still
+        # protected by the OS ACL and contains encrypted secrets.
+        pass
 
 
 def register_account_routes(app, get_db_agent, log):
@@ -116,14 +124,26 @@ def register_account_routes(app, get_db_agent, log):
         except Exception:
             return jsonify({"status": "error", "reason": "Invalid JSON body"}), 400
 
-        acc_type = data.get("type", "demo")          # prop_firm | real | demo | binance
-        broker   = data.get("broker", "mt5")          # mt5 | binance | zerodha
-        prop_firm_key = data.get("prop_firm")          # e.g. "ftmo", only if acc_type == prop_firm
-        profile  = data.get("profile")
+        acc_type = str(data.get("type", "demo")).strip().lower()
+        broker   = str(data.get("broker", "mt5")).strip().lower()
+        prop_firm_key = data.get("prop_firm")
+        profile  = str(data.get("profile") or "").strip()
         nickname = data.get("nickname") or profile
 
         if not profile:
             return jsonify({"status": "error", "reason": "Profile name is required"})
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", profile):
+            return jsonify({"status": "error", "reason": "Profile must contain only letters, numbers, '_' or '-' (1-40 characters)"})
+        if acc_type not in {"prop_firm", "real", "demo", "binance"}:
+            return jsonify({"status": "error", "reason": f"Unknown account type '{acc_type}'"})
+        if broker not in {"mt5", "binance", "zerodha"}:
+            return jsonify({"status": "error", "reason": f"Unknown broker '{broker}'"})
+
+        requested_mode = str(data.get("trading_mode", "paper")).strip().lower()
+        if requested_mode not in {"paper", "live"}:
+            return jsonify({"status": "error", "reason": "trading_mode must be 'paper' or 'live'"})
+        if requested_mode == "live" and data.get("confirm_live") is not True:
+            return jsonify({"status": "error", "reason": "Live mode requires confirm_live=true; paper mode is the default"})
 
         if acc_type == "prop_firm" and prop_firm_key not in FIRM_RULES:
             return jsonify({"status": "error",
@@ -200,11 +220,22 @@ def register_account_routes(app, get_db_agent, log):
         # was cosmetic — the actual running process's PropFirmGuard fell
         # back to whatever PROP_FIRM happened to be in the base .env,
         # ignoring what the user selected for THIS account. Every account's
-        # own process now gets its own firm's rules and its own real
-        # (broker-verified, not user-typed) account size.
+        # own process now gets its own firm's rules. Keep the challenge's
+        # nominal size separate from the broker-returned live balance.
         prop_env = {}
+        configured_account_size = None
         if acc_type == "prop_firm" and prop_firm_key:
-            prop_env = {"PROP_FIRM": prop_firm_key, "ACCOUNT_SIZE": result["balance"]}
+            try:
+                configured_account_size = float(data.get("account_size", result["balance"]))
+            except (TypeError, ValueError):
+                return jsonify({"status": "error", "reason": "account_size must be numeric"})
+            if configured_account_size <= 0:
+                return jsonify({"status": "error", "reason": "account_size must be greater than zero"})
+            prop_env = {
+                "PROP_FIRM": prop_firm_key,
+                "ACCOUNT_SIZE": configured_account_size,
+                "BROKER_VERIFIED_BALANCE": result["balance"],
+            }
 
         if broker == "mt5":
             _write_profile_env(profile, {
@@ -214,6 +245,7 @@ def register_account_routes(app, get_db_agent, log):
                 "SERVER_PORT": data.get("port"),
                 "TELEGRAM_BOT_TOKEN": data.get("telegram"),
                 "MT5_TERMINAL_PATH": data.get("path"),
+                "TRADING_MODE": requested_mode,
                 **prop_env,
             })
         elif broker == "binance":
@@ -223,6 +255,7 @@ def register_account_routes(app, get_db_agent, log):
                 "BINANCE_API_SECRET": enc_password,
                 "SERVER_PORT": data.get("port"),
                 "TELEGRAM_BOT_TOKEN": data.get("telegram"),
+                "TRADING_MODE": requested_mode,
                 **prop_env,
             })
         # Zerodha's token is written by api_zerodha_complete() below, since
@@ -267,6 +300,8 @@ def register_account_routes(app, get_db_agent, log):
                 "type": acc_type,
                 "broker": broker,
                 "prop_firm": prop_firm_key,
+                "configured_account_size": configured_account_size,
+                "broker_verified_balance": result["balance"],
                 "rules": FIRM_RULES.get(prop_firm_key) if prop_firm_key else None,
                 "process": launch_result,   # None for zerodha/binance; {"ok","reason","port"} for mt5
             },
