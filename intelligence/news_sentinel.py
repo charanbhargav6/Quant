@@ -154,7 +154,7 @@ class NewsSentinel:
 
         if not relevant:
             return {"sentiment": "neutral", "score": 0.0,
-                    "headlines": [], "impact": "low"}
+                    "headlines": [], "impact": "low", "count": 0}
 
         scores = []
         for item in relevant:
