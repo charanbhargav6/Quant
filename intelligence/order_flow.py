@@ -139,16 +139,16 @@ def check_delta_confirmation(df: pd.DataFrame,
     """
     if df is None or len(df) < lookback_candles + 3:
         return {
-            "confirmed": True,  # Fail open — don't block on missing data
-            "signal":    "ENTER",
-            "reason":    "Insufficient candles for delta check — proceeding",
+            "confirmed": False,
+            "signal":    "WAIT",
+            "reason":    "Insufficient candles for delta check — waiting",
         }
 
     if "volume" not in df.columns or df["volume"].sum() == 0:
         return {
-            "confirmed": True,
-            "signal":    "ENTER",
-            "reason":    "No volume data — delta check skipped",
+            "confirmed": False,
+            "signal":    "WAIT",
+            "reason":    "No volume data — real delta unavailable",
         }
 
     ob_low, ob_high = ob_zone[0], ob_zone[1]
@@ -160,9 +160,9 @@ def check_delta_confirmation(df: pd.DataFrame,
 
     if len(at_ob) < 2:
         return {
-            "confirmed": True,
-            "signal":    "ENTER",
-            "reason":    f"Price not yet at OB [{ob_low}-{ob_high}] — proceeding",
+            "confirmed": False,
+            "signal":    "WAIT",
+            "reason":    f"Price not yet at OB [{ob_low}-{ob_high}] — waiting",
         }
 
     delta = _approximate_delta(at_ob)

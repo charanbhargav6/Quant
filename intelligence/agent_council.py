@@ -31,6 +31,9 @@ class BaseAgent:
         self._gemini_key = os.environ.get("GEMINI_API_KEY", "")
         self._groq_key = os.environ.get("GROQ_API_KEY", "")
         self._openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+        self._openai_compat_key = os.environ.get("COUNCIL_OPENAI_API_KEY", "")
+        self._openai_compat_base = os.environ.get("COUNCIL_OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        self._openai_compat_model = os.environ.get("COUNCIL_OPENAI_MODEL", "gpt-5-mini")
         try:
             from config.config import LLM_COUNCIL
             self.config = LLM_COUNCIL
@@ -45,7 +48,7 @@ class BaseAgent:
         chain = []
         if model_choice not in chain:
             chain.append(model_choice)
-        for fallback in ["groq", "gemini", "ollama"]:
+        for fallback in ["groq", "gemini", "openrouter", "openai_compat", "ollama"]:
             if fallback not in chain:
                 chain.append(fallback)
 
@@ -59,6 +62,8 @@ class BaseAgent:
                     res = self._call_ollama(prompt, system_prompt)
                 elif provider == "openrouter":
                     res = self._call_openrouter(prompt, system_prompt)
+                elif provider == "openai_compat":
+                    res = self._call_openai_compat(prompt, system_prompt)
                 else:
                     res = None
 
@@ -123,6 +128,35 @@ class BaseAgent:
                 logger.debug(f"[Gemini] HTTP {resp.status_code}: {resp.text[:120]}")
         except Exception as e:
             logger.debug(f"[Gemini] Error: {e}")
+        return None
+
+    # ── OpenAI-compatible provider (user-supplied key) ───────────────────
+    def _call_openai_compat(self, prompt: str, system_prompt: str) -> Optional[str]:
+        if not self._openai_compat_key:
+            return None
+        try:
+            resp = requests.post(
+                f"{self._openai_compat_base}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._openai_compat_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._openai_compat_model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 400,
+                    "temperature": 0.2,
+                },
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"].get("content", "")
+            logger.debug(f"[OpenAI-compatible] HTTP {resp.status_code}: {resp.text[:120]}")
+        except Exception as e:
+            logger.debug(f"[OpenAI-compatible] Error: {e}")
         return None
 
     # ── Ollama (local, offline backup) ───────────────────────────────────
@@ -324,11 +358,15 @@ class DirectorAgent(BaseAgent):
             except Exception as e:
                 logger.error(f"[Director] JSON parse error: {e} — Raw: {res[:200]}")
 
+        # Fail closed: an unavailable or malformed judge response must never
+        # approve a trade. Deterministic risk and execution code remains the
+        # source of truth; the council is an advisory gate.
         return {
-            "decision": "execute",
+            "decision": "reject",
             "sl_multiplier": 1.5,
             "tp_multiplier": 2.0,
-            "reasoning": "Fallback: LLM unavailable, default approval",
+            "reasoning": "LLM unavailable or invalid verdict; fail-closed rejection",
+            "raw": None,
         }
 
 
@@ -405,16 +443,17 @@ class TradingCouncil:
             f"(R1={r1_time:.1f}s R2={r2_time:.1f}s R3={r3_time:.1f}s)"
         )
 
+        votes = [
+            {"agent": "Quant", "vote": "approve", "reasoning": pitches["Quant"]},
+            {"agent": "Sentiment", "vote": "approve", "reasoning": pitches["Sentiment"]},
+            {"agent": "Devil's Advocate", "vote": "reject" if "reject" in critiques["DevilsAdvocate"].lower() else "approve", "reasoning": critiques["DevilsAdvocate"]},
+            {"agent": "Risk Manager", "vote": "reject" if "reject" in critiques["Risk"].lower() else "approve", "reasoning": critiques["Risk"]},
+            {"agent": "Director", "vote": "approve" if verdict["decision"] == "execute" else "reject", "reasoning": verdict["reasoning"]},
+        ]
         result = {
             "decision": verdict["decision"],
-            "approvals": 4 if verdict["decision"] == "execute" else 2, # Mocking approval count for UI
-            "votes": [
-                {"agent": "Quant", "vote": "approve", "reasoning": pitches["Quant"]},
-                {"agent": "Sentiment", "vote": "approve", "reasoning": pitches["Sentiment"]},
-                {"agent": "Devil's Advocate", "vote": "reject" if "reject" in critiques["DevilsAdvocate"].lower() else "approve", "reasoning": critiques["DevilsAdvocate"]},
-                {"agent": "Risk Manager", "vote": "reject" if "reject" in critiques["Risk"].lower() else "approve", "reasoning": critiques["Risk"]},
-                {"agent": "Director", "vote": "approve" if verdict["decision"] == "execute" else "reject", "reasoning": verdict["reasoning"]}
-            ],
+            "approvals": sum(v["vote"] == "approve" for v in votes),
+            "votes": votes,
             "reasoning": verdict["reasoning"],
             "sl_multiplier": verdict["sl_multiplier"],
             "tp_multiplier": verdict["tp_multiplier"],
@@ -439,16 +478,31 @@ class TradingCouncil:
             f"Reply with JSON: {{\"action\": \"hold\"|\"close\"|\"extend_tp\", \"reasoning\": \"...\", \"tp_multiplier\": 1.5}}"
         )
         try:
-            resp = self.director.llm._client.models.generate_content(
-                model=self.director.llm._model,
-                contents=prompt,
-                config={"response_mime_type": "application/json"}
+            raw = self.director._call_llm(
+                prompt,
+                "You are a conservative portfolio risk monitor. Output only JSON. "
+                "Never invent news or market data; if uncertain, choose hold."
             )
-            import json
-            return json.loads(resp.text)
+            if not raw:
+                return {"action": "hold", "reasoning": "No model response; holding"}
+            cleaned = raw.strip()
+            if "```" in cleaned:
+                cleaned = cleaned.split("```", 2)[1].replace("json", "", 1).strip()
+            start, end = cleaned.find("{"), cleaned.rfind("}") + 1
+            data = json.loads(cleaned[start:end]) if start >= 0 and end > start else {}
+            action = str(data.get("action", "hold")).lower().strip()
+            if action not in {"hold", "close", "extend_tp"}:
+                action = "hold"
+            result = {
+                "action": action,
+                "reasoning": str(data.get("reasoning", "Parsed council review")),
+            }
+            if action == "extend_tp":
+                result["tp_multiplier"] = max(1.5, min(3.0, float(data.get("tp_multiplier", 1.5))))
+            return result
         except Exception as e:
             logger.debug(f"[Council] Open trade check failed: {e}")
-            return {"action": "hold", "reasoning": "Error checking"}
+            return {"action": "hold", "reasoning": "Invalid or unavailable review; holding"}
 
     def get_telegram_summary(self, result: dict) -> str:
         emoji = "✅" if result["decision"] == "execute" else "❌"

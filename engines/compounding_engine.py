@@ -48,7 +48,7 @@ from typing import Optional
 
 logger = logging.getLogger("crave.compound")
 
-CRAVE_ROOT = Path(os.environ.get("CRAVE_ROOT", Path(__file__).resolve().parents[2]))
+CRAVE_ROOT = Path(os.environ.get("CRAVE_ROOT", Path(__file__).resolve().parents[1]))
 
 # ── Risk tiers (account_size → risk_pct) ─────────────────────────────────────
 RISK_TIERS = [

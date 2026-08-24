@@ -51,18 +51,21 @@ cd D:\Desktop\engine
 pip install -r requirements.txt
 
 # 3. Configure
-copy .env.example .env
-# Edit .env with your API keys
+cp .env.example .env
+# Edit .env with your API keys only when needed
 
-# 4. Run (paper mode by default)
-python run_bot.py
+# 4. Run paper mode (safe default)
+python run_bot.py --paper
 
 # 5. Other modes
-python run_bot.py --status      # Check state
-python run_bot.py --backtest    # Backtest a symbol
-python run_bot.py --readiness   # Check if ready for live
-python run_bot.py --setup       # Setup wizard
-python run_bot.py --live        # Live trading (needs readiness gate)
+python run_bot.py --status       # Check state
+python run_bot.py --backtest     # Backtest a symbol
+python run_bot.py --readiness    # Check paper/live readiness
+python run_bot.py --setup        # Setup wizard
+python run_bot.py --live         # Live trading; requires explicit credentials and gates
+
+# Opt-in paper-only Gold breakout research candidate
+# ENABLE_VOLATILITY_BREAKOUT=true in .env, then keep TRADING_MODE=paper
 ```
 
 ## 📊 Supported Markets
@@ -70,8 +73,8 @@ python run_bot.py --live        # Live trading (needs readiness gate)
 | Market | Broker | Status | Instruments |
 |--------|--------|--------|------------|
 | 🪙 Crypto | Binance | ✅ Enabled | BTC, ETH, SOL |
-| 💱 Forex | Alpaca | ✅ Enabled | EUR/USD, GBP/USD, USD/JPY, AUD/USD |
-| 🥇 Gold/Silver | Alpaca | ✅ Enabled | XAU/USD, XAG/USD |
+| 💱 Forex | MT5 | ✅ Enabled | EUR/USD, GBP/USD, USD/JPY, AUD/USD |
+| 🥇 Gold/Silver | MT5 | ✅ Enabled | XAU/USD, XAG/USD; optional paper-only XAUUSD volatility breakout |
 | 🇮🇳 India | Zerodha | ✅ Enabled | 14 stocks + NIFTY/BANKNIFTY F&O |
 | 🇺🇸 US Stocks | Alpaca | ⬜ Disabled | AAPL, NVDA, TSLA, MSFT, SPY, QQQ |
 | 📈 Options | Zerodha | ✅ Enabled | NIFTY/BANKNIFTY options |

@@ -45,9 +45,14 @@ class BrokerRouter:
     # MAIN EXECUTE
     # ─────────────────────────────────────────────────────────────────────────
 
-    def execute(self, validated: dict, current_price: float) -> dict:
+    def execute(self, validated: dict, current_price: float,
+                is_paper: Optional[bool] = None) -> dict:
         """
         Route a validated signal to the correct execution path.
+
+        Paper mode is handled before exchange dispatch. The optional argument
+        preserves compatibility with emergency-close callers; when omitted,
+        TRADING_MODE is the source of truth.
 
         For live mode:  routed to exchange-specific agent.
 
@@ -58,6 +63,19 @@ class BrokerRouter:
           4. PDT rule check (US stocks, accounts < $25k)
           5. Share size calculation (stocks replace lot_size with shares)
         """
+        if is_paper is None:
+            import os
+            is_paper = os.environ.get("TRADING_MODE", "paper").strip().lower() != "live"
+
+        if is_paper:
+            from core.paper_trading import get_paper_engine
+            if validated.get("direction", "").lower() == "close":
+                return get_paper_engine().close_position(
+                    validated.get("trade_id", ""), current_price,
+                    reason=validated.get("reason", "manual"),
+                )
+            return get_paper_engine().execute(validated, current_price)
+
         symbol   = validated.get("symbol", "UNKNOWN")
         from config.config import get_instrument, get_asset_class
         inst     = get_instrument(symbol)

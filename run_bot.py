@@ -811,21 +811,42 @@ def main():
     # ── CLI Arguments ────────────────────────────────────────────────────────
     parser = argparse.ArgumentParser(description="Trading Engine v12.2")
     parser.add_argument("--backtest", action="store_true", help="Run in backtest mode")
-    parser.add_argument("--live",       action="store_true")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--live", action="store_true", help="Enable live order execution")
+    mode_group.add_argument("--paper", action="store_true", help="Force paper execution")
+    parser.add_argument("--readiness", action="store_true", help="Print the paper/live readiness report")
     parser.add_argument("--status",     action="store_true")
     parser.add_argument("--setup",      action="store_true")
     parser.add_argument("--node",       type=str)
     parser.add_argument("--profile",    type=str, help="Instance profile (e.g. xm, metaquotes)")
     args = parser.parse_args()
 
-    node             = args.node or detect_node()
-    has_exchange_keys = check_env()
-    mode = "LIVE"
+    # CLI flags override the environment. A configured TRADING_MODE=live is
+    # respected, but an unset or malformed value remains safely paper.
+    env_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
+    runtime_mode = "live" if (args.live or (env_mode == "live" and not args.paper)) else "paper"
+    os.environ["TRADING_MODE"] = runtime_mode
 
-    if not has_exchange_keys:
-        logger.warning("No API keys found. Engine might not execute trades.")
+    # config.py is imported earlier for logging, so synchronize its runtime
+    # mode/config dictionary after parsing CLI arguments.
+    import config.config as runtime_config
+    runtime_config.TRADING_MODE = runtime_mode
+    runtime_config.PAPER_TRADING["enabled"] = runtime_mode == "paper"
+
+    node              = args.node or detect_node()
+    has_exchange_keys = check_env()
+    mode              = runtime_mode.upper()
+
+    if not has_exchange_keys and runtime_mode == "live":
+        logger.warning("No broker API keys found. Live execution cannot place trades.")
 
     print_banner(node, mode)
+
+    if args.readiness:
+        from core.paper_trading import get_paper_engine
+        _, report = get_paper_engine().check_readiness()
+        print(report)
+        return
 
     if args.status:
         from core.streak_state   import streak
@@ -926,9 +947,10 @@ def run_setup_wizard():
         print(f"   {market:<12}: {status} (broker: {cfg.get('broker', 'N/A')})")
 
     print("\n✅ Setup check complete.")
-    print("Next: python run_bot.py  (starts in live trading mode)")
+    print("Next: python run_bot.py --paper  (starts in safe paper mode)")
     print("      python run_bot.py --status  (check state)")
     print("      python run_bot.py --backtest  (backtest a symbol)")
+    print("      python run_bot.py --readiness (check paper/live readiness)")
 
 
 if __name__ == "__main__":

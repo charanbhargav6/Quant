@@ -35,7 +35,8 @@ STRATEGY LOGIC:
     - Time-based exit: if no move within 8 bars, exit (trend overpowered)
     - SL: beyond swing extreme + 0.5× ATR buffer
   
-  R:R: 1:1.2 minimum (lower than trend, compensated by higher win rate)
+      R:R: 1:1.5 minimum (kept consistent with the global risk validator)
+
 """
 
 import logging
@@ -54,7 +55,7 @@ class MeanReversionEngine:
         self.rsi_period    = 14
         self.rsi_oversold  = 35     # Classic oversold threshold (was 32 — docstring said 30)
         self.rsi_overbought = 65    # Classic overbought threshold (was 68)
-        self.min_rr        = 1.0    # Lower than SMC's 1.5 — MR trades are more frequent
+        self.min_rr        = 1.5    # Must match RiskAgent.min_rr_ratio
         self.max_risk_pct  = 0.008  # 0.8% max risk (lower than SMC's 1-2%)
         self.time_exit_bars = 8     # Exit if no progress after N bars
 
@@ -104,7 +105,9 @@ class MeanReversionEngine:
                 tp1 = bb_mid
                 tp2 = bb_upper
                 sl  = close - (bb_width * 0.4)
-                rr  = abs(tp1 - close) / abs(close - sl) if close != sl else 0
+                # The strategy declares TP2 as its final target. Use TP2
+                # for the RR gate; TP1 is only a partial realization.
+                rr  = abs(tp2 - close) / abs(close - sl) if close != sl else 0
 
                 if rr < self.min_rr:
                     return {"signal": None, "reason": f"MR long failed: R:R {rr:.2f} below {self.min_rr}"}
@@ -149,7 +152,9 @@ class MeanReversionEngine:
                 tp1 = bb_mid
                 tp2 = bb_lower
                 sl  = close + (bb_width * 0.4)
-                rr  = abs(close - tp1) / abs(sl - close) if close != sl else 0
+                # The strategy declares TP2 as its final target. Use TP2
+                # for the RR gate; TP1 is only a partial realization.
+                rr  = abs(close - tp2) / abs(sl - close) if close != sl else 0
 
                 if rr < self.min_rr:
                     return {"signal": None, "reason": f"MR short failed: R:R {rr:.2f} below {self.min_rr}"}

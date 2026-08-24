@@ -40,6 +40,8 @@ FIXES vs v10.0 (audit-driven):
 import logging
 import time
 import threading
+import os
+import pandas as pd
 
 try:
     from core.terminal_ui import dashboard
@@ -230,7 +232,8 @@ class TradingLoop:
         self.calendar = EconomicCalendar()
 
         logger.info(
-            f"[TradingLoop] Initialised. Mode: 💰 LIVE"
+            f"[TradingLoop] Initialised. Mode: "
+            f"{os.environ.get('TRADING_MODE', 'paper').upper()}"
         )
 
     def start(self):
@@ -667,6 +670,66 @@ class TradingLoop:
         logger.info(f"[TradingLoop] {symbol}: No SMC setup found. Regime={regime} prevents MR fallback. Skipping.")
         return None
 
+    def _execute_breakout_signal(self, symbol: str, breakout: dict,
+                                  df_15m: pd.DataFrame,
+                                  prop_risk_multiplier: float = 1.0) -> Optional[dict]:
+        """Apply the normal risk validator/execution path to the paper candidate."""
+        try:
+            from core.risk_agent import get_risk_agent
+            equity = self.prop_firm_guard.get_current_equity()
+            risk_agent = get_risk_agent()
+        except Exception as e:
+            logger.error(f"[TradingLoop] Breakout risk-agent unavailable: {e!r}")
+            return None
+
+        signal = {
+            "action": breakout["signal"],
+            "price": breakout["entry"],
+            "symbol": symbol,
+            "is_swing_trade": False,
+            "stop_loss": breakout["stop_loss"],
+            "take_profit": breakout["take_profit_2"],
+        }
+        validated = risk_agent.validate_trade_signal(
+            current_equity=equity,
+            signal=signal,
+            df=df_15m,
+            confidence_pct=breakout["confidence"],
+        )
+        if not validated.get("approved"):
+            logger.info(f"[TradingLoop] {symbol}: breakout rejected by risk gate: {validated.get('reason')}")
+            return None
+
+        validated.update({
+            "action": breakout["signal"],
+            "direction": breakout["signal"],
+            "price": breakout["entry"],
+            "entry": breakout["entry"],
+            "symbol": symbol,
+            "is_swing_trade": False,
+            "approved": True,
+            "reason": breakout["reason"],
+            "strategy_id": "volatility_breakout_xau",
+            "grade": "A",
+            "risk_pct": breakout["risk_pct"] * 100.0 * prop_risk_multiplier,
+            "exchange": self._get_exchange_for(symbol),
+            "node": self._get_node_name(),
+            "order_type": "market",
+            "strict_post_only": False,
+            "signal_id": str(uuid.uuid4())[:8].upper(),
+            "stop_loss": breakout["stop_loss"],
+            "take_profit": breakout["take_profit_2"],
+            "take_profit_1": breakout["take_profit_1"],
+            "take_profit_2": breakout["take_profit_2"],
+            "atr_value": breakout["atr"],
+            "confidence_pct": breakout["confidence"],
+        })
+        result = self._execute(validated, breakout["entry"])
+        if result and result.get("status") in ("filled", "paper_filled"):
+            self._trades_today += 1
+            return {"executed": True, "trade_id": result.get("trade_id")}
+        return None
+
     def _analyse_mean_reversion(self, symbol: str, kz_name: str, regime: str, prop_risk_multiplier: float = 1.0) -> Optional[dict]:
         session_tag = f" [{kz_name}]" if kz_name else ""
         logger.info(f"[TradingLoop] {symbol}: No SMC setup. Regime=RANGING. Fallback to Mean Reversion.{session_tag}")
@@ -702,6 +765,7 @@ class TradingLoop:
                 "is_swing_trade": False,
                 "approved": True,
                 "reason": mr_result["reason"],
+                "strategy_id": "mean_reversion_ranging",
                 "grade": "B",
                 "risk_pct": final_risk,
                 "exchange": self._get_exchange_for(symbol),
@@ -740,6 +804,17 @@ class TradingLoop:
                               kz_name: str = "",
                               prop_risk_multiplier: float = 1.0) -> Optional[dict]:
         logger.info(f"[TradingLoop] Analysing {symbol} ({kz_name})...")
+
+        # One position per instrument by default. Repeated five-minute scans
+        # must not stack identical entries while the first trade is open.
+        try:
+            from core.position_tracker import positions
+            if positions.has_open_position(symbol):
+                logger.info(f"[TradingLoop] {symbol}: existing position open — skipping new entry")
+                return None
+        except Exception as e:
+            logger.error(f"[TradingLoop] Position uniqueness check failed: {e!r}")
+            return None
 
         # FIX: Fetch 500 candles so SMA_200 is fully warmed (matches backtest)
         df_15m = _get_ohlcv_with_ws_fallback(symbol, "15m", 500)
@@ -818,6 +893,28 @@ class TradingLoop:
                 "Order_Blocks":    [],
             }
 
+        elif _is_gold and os.environ.get("ENABLE_VOLATILITY_BREAKOUT", "false").lower() == "true" and os.environ.get("TRADING_MODE", "paper").lower() == "paper":
+            # Research candidate: keep the breakout hypothesis paper-only until
+            # longer instrument-specific WFO confirms it. Downstream confidence,
+            # sizing, portfolio, and paper-execution gates remain unchanged.
+            strategy_id_for_signal = "volatility_breakout_xau"
+            from engines.volatility_breakout_engine import get_volatility_breakout_engine
+            breakout = get_volatility_breakout_engine().analyze(symbol, df_15m)
+            if not breakout.get("signal"):
+                logger.info(f"[TradingLoop] {symbol}: breakout scan — {breakout.get('reason', 'no setup')}")
+                return None
+            context = {
+                "Confidence_Pct": breakout["confidence"],
+                "Structure_Score": "Grade A",
+                "Macro_Trend": "Bullish" if breakout["signal"] == "buy" else "Bearish",
+                "Current_Price": breakout["entry"],
+                "Is_Swing_Trade": False,
+                "Liquidity_Sweep": False,
+                "Order_Blocks": [],
+                "breakout_result": breakout,
+            }
+            logger.info(f"[TradingLoop] {symbol}: VolatilityBreakout candidate — paper only")
+
         elif _is_gold:
             # TrendPriceAction adapter — EMA50/200 trend + ADX + EMA21 pullback.
             # Same engine as before (engines/gold_strategy.py), now correctly
@@ -892,6 +989,12 @@ class TradingLoop:
 
         if "error" in context:
             return None
+
+        # The opt-in breakout branch already owns the exact risk levels; do not
+        # reconstruct them from the Gold/SMC context fields below.
+        if context.get("breakout_result"):
+            breakout = context["breakout_result"]
+            return self._execute_breakout_signal(symbol, breakout, df_15m, prop_risk_multiplier)
 
         confidence   = context.get("Confidence_Pct", 0)
         grade_str    = context.get("Structure_Score", "C")
@@ -996,21 +1099,24 @@ class TradingLoop:
                 ob_zone = obs[0].get("zone", [0, 0])
                 if ob_zone[0] > 0:
                     df_5m = _get_ohlcv_with_ws_fallback(symbol, "5m", 50)
-                    if df_5m is not None and len(df_5m) >= 10:
-                        delta_check = check_delta_confirmation(
-                            df_5m, ob_zone, direction
+                    if df_5m is None or len(df_5m) < 10:
+                        logger.info(f"[TradingLoop] {symbol}: Delta gate WAIT — no usable 5m feed")
+                        return None
+                    delta_check = check_delta_confirmation(
+                        df_5m, ob_zone, direction
+                    )
+                    if delta_check.get("signal") in ("SKIP", "WAIT"):
+                        logger.info(
+                            f"[TradingLoop] {symbol}: "
+                            f"Delta gate ({delta_check.get('signal')}) — {delta_check['reason']}"
                         )
-                        if delta_check.get("signal") in ("SKIP", "WAIT"):
-                            logger.info(
-                                f"[TradingLoop] {symbol}: "
-                                f"Delta Warning ({delta_check.get('signal')}) — {delta_check['reason']} (Proceeding anyway)"
-                            )
-                            # Downgrade grade instead of blocking
-                            if grade == "A+": grade = "A"
-                            elif grade == "A": grade = "B+"
-                            elif grade == "B+": grade = "B"
+                        # No real/confirmed delta means no entry. The
+                        # OHLCV approximation is evidence, not a substitute
+                        # for an unavailable footprint feed.
+                        return None
         except Exception as e:
-            logger.debug(f"[TradingLoop] Delta check error (non-fatal): {e}")
+            logger.warning(f"[TradingLoop] Delta gate error — rejecting signal: {e}")
+            return None
 
         # ── Zone 2: Jarvis Sentiment Override ────────────────────────────
         # Check macro narrative before executing signal.
@@ -1022,11 +1128,10 @@ class TradingLoop:
                 action   = override.get("action", "PROCEED")
                 if action == "NO_TRADE":
                     logger.info(
-                        f"[TradingLoop] {symbol}: Jarvis veto advisory — "
-                        f"{override['reason']} (Proceeding anyway with half size)"
+                        f"[TradingLoop] {symbol}: Jarvis veto — {override['reason']}"
                     )
-                    self._jarvis_half_size = True
-                if action == "HALF_SIZE":
+                    return None
+                elif action == "HALF_SIZE":
                     self._jarvis_half_size = True
                     logger.info(
                         f"[TradingLoop] {symbol}: Jarvis half-size — "
@@ -1174,7 +1279,7 @@ class TradingLoop:
         logger.info(
             f"[TradingLoop] SIGNAL: {symbol} {direction.upper()} "
             f"grade={grade} conf={confidence}% risk={risk_pct:.2f}% "
-            f"[LIVE]"
+            f"[{os.environ.get('TRADING_MODE', 'paper').upper()}]"
         )
 
         # Generate signal_id BEFORE execution so it can be stored in position
@@ -1195,7 +1300,7 @@ class TradingLoop:
             }
             council_result = get_council().deliberate(validated, council_context)
 
-            if council_result["decision"] == "reject":
+            if str(council_result.get("decision", "reject")).lower() != "execute":
                 logger.info(
                     f"[TradingLoop] ❌ COUNCIL REJECTED: {symbol} {direction.upper()} "
                     f"({council_result['approvals']}/6 approve) — {council_result['reasoning']}"
@@ -1273,7 +1378,15 @@ class TradingLoop:
                             )
                             return None
         except Exception as e:
-            logger.debug(f"[TradingLoop] Council gate skipped: {e}")
+            # The council is a configured pre-trade gate. If its call fails,
+            # do not silently turn an unavailable judge into an approval.
+            logger.warning(f"[TradingLoop] Council gate error — rejecting signal: {e}")
+            self._log_signal(
+                symbol, "council_error", str(e), confidence, grade_str,
+                context if isinstance(context, dict) else {}, df_1h=df_1h,
+                signal_id=signal_id,
+            )
+            return None
 
         result = self._execute(validated, current_price)
 
@@ -1312,12 +1425,30 @@ class TradingLoop:
           - Market-specific pre-checks (earnings, circuit breakers, PDT)
           - Share vs unit sizing (stocks need shares, not lot_size)
         """
+        mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
+        if mode == "paper":
+            try:
+                from core.paper_trading import get_paper_engine
+                return get_paper_engine().execute(validated, current_price)
+            except Exception as e:
+                # Paper-mode failures must never fall through to a live broker.
+                logger.error(
+                    f"[TradingLoop] Paper execution error: "
+                    f"{type(e).__name__}: {e!r}", exc_info=True
+                )
+                return {"status": "failed", "reason": f"Paper execution error: {type(e).__name__}: {e}"}
+
         try:
             from brokers.broker_router import get_router
             return get_router().execute(validated, current_price)
         except Exception as e:
-            logger.error(f"[TradingLoop] Router error: {e}")
-            return self._live_execute(validated, current_price)
+            # Fail closed. The legacy fallback bypassed the centralized router,
+            # so a router exception could skip broker/account/readiness checks.
+            logger.error(
+                f"[TradingLoop] Live router error: {type(e).__name__}: {e!r}",
+                exc_info=True,
+            )
+            return {"status": "failed", "reason": f"Live router error: {type(e).__name__}: {e}"}
 
     def _live_execute(self, validated: dict, current_price: float) -> dict:
         try:
@@ -1337,10 +1468,20 @@ class TradingLoop:
     def _get_current_equity(self) -> float:
         """
         Get equity from live broker account.
-        Priority: MT5 account (if connected) → Alpaca → $10k fallback.
-        Without this priority, MT5-only setups always size off $10k
-        regardless of actual account equity.
+        In paper mode, use the simulator's current equity. In live mode,
+        prioritize MT5, then Alpaca, then the conservative $10k fallback.
         """
+        if os.environ.get("TRADING_MODE", "paper").strip().lower() == "paper":
+            try:
+                from core.paper_trading import get_paper_engine
+                return float(get_paper_engine().get_equity())
+            except Exception as e:
+                logger.error(
+                    f"[TradingLoop] Paper equity unavailable: "
+                    f"{type(e).__name__}: {e!r}"
+                )
+                return 10000.0
+
         # MT5 first — most common live broker in this engine
         try:
             from brokers.mt5_agent import get_mt5
@@ -1390,9 +1531,22 @@ class TradingLoop:
             # Generate signal_id if not provided
             sid = signal_id or str(uuid.uuid4())[:8].upper()
 
-            # FIX M2: Correct session detection
-            h            = datetime.now(timezone.utc).hour
+            # Resolve the market-bar timestamp when the feed provides one;
+            # fall back to wall clock only when the feed has no timestamp.
+            signal_dt = datetime.now(timezone.utc)
+            raw_signal_time = context.get("signal_time") if isinstance(context, dict) else None
+            if not raw_signal_time and df_1h is not None and "time" in df_1h.columns:
+                raw_signal_time = df_1h["time"].iloc[-1]
+            try:
+                if raw_signal_time:
+                    parsed = pd.Timestamp(raw_signal_time).to_pydatetime()
+                    signal_dt = parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+            except Exception:
+                logger.debug("[TradingLoop] Invalid feed timestamp; using current UTC time")
+            h            = signal_dt.hour
             session_name = _get_session_name(h)
+            feature_context = dict(context) if isinstance(context, dict) else {}
+            feature_context["signal_time"] = signal_dt.isoformat()
 
             db.save_signal({
                 "signal_id":       sid,
@@ -1426,14 +1580,14 @@ class TradingLoop:
                 "structure_event": context.get(
                     "Market_Structure", {}
                 ).get("event", ""),
-                "signal_time":     datetime.now(timezone.utc).isoformat(),
+                "signal_time":     signal_dt.isoformat(),
             })
 
             # FIX 3: Use feature_engineering for complete ML feature set
             if df_1h is not None:
                 try:
                     from ml.feature_engineering import extract_features
-                    features = extract_features(symbol, df_1h, context, session_name)
+                    features = extract_features(symbol, df_1h, feature_context, session_name)
                 except Exception as fe:
                     logger.debug(f"[TradingLoop] Feature extraction failed: {fe}")
                     # Fallback to basic features if extraction fails
@@ -1449,7 +1603,7 @@ class TradingLoop:
             db.save_ml_features(
                 signal_id   = sid,
                 symbol      = symbol,
-                signal_time = datetime.now(timezone.utc).isoformat(),
+                signal_time = signal_dt.isoformat(),
                 features    = features,
             )
             

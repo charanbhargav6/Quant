@@ -32,7 +32,7 @@ if sys.stderr.encoding.lower() != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────
-CRAVE_ROOT = Path(os.environ.get("CRAVE_ROOT", Path(__file__).resolve().parents[3]))
+CRAVE_ROOT = Path(os.environ.get("CRAVE_ROOT", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(CRAVE_ROOT))
 
 # ── Logging ────────────────────────────────────────────────────────────────

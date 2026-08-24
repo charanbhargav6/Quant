@@ -80,6 +80,27 @@ except ValueError:
     ACCOUNT_SIZE = 10000.0
 
 USE_DEEP_REGIME = os.environ.get("USE_DEEP_REGIME", "false").lower() == "true"
+ENABLE_VOLATILITY_BREAKOUT = os.environ.get("ENABLE_VOLATILITY_BREAKOUT", "false").lower() == "true"
+
+# Runtime mode is deliberately paper by default. Live execution must be an
+# explicit choice, so a missing or malformed environment variable cannot turn
+# a fresh checkout into an order-placing process.
+TRADING_MODE = os.environ.get("TRADING_MODE", "paper").strip().lower()
+if TRADING_MODE not in {"paper", "live"}:
+    TRADING_MODE = "paper"
+
+try:
+    MIN_TRADES_FOR_LIVE = int(os.environ.get("MIN_TRADES_FOR_LIVE", "30"))
+except ValueError:
+    MIN_TRADES_FOR_LIVE = 30
+
+PAPER_TRADING = {
+    "enabled": TRADING_MODE == "paper",
+    "starting_equity": ACCOUNT_SIZE,
+    "min_trades_for_live": max(1, MIN_TRADES_FOR_LIVE),
+    "min_win_rate": 50.0,
+    "max_drawdown_pct": 10.0,
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NODE DETECTION
@@ -743,8 +764,11 @@ KILL_ZONES = {
 
 MARKETS = {
     "crypto":    {"enabled": True,  "broker": "binance",  "max_heat_pct": 3.0},
-    "forex":     {"enabled": True,  "broker": "alpaca",   "max_heat_pct": 2.0},
-    "gold":      {"enabled": True,  "broker": "alpaca",   "max_heat_pct": 2.0},
+    # Forex and metals are routed by INSTRUMENTS through MT5. Keep the
+    # market metadata aligned with that execution truth; Alpaca credentials
+    # are not sufficient for these symbols in the current implementation.
+    "forex":     {"enabled": True,  "broker": "mt5",      "max_heat_pct": 2.0},
+    "gold":      {"enabled": True,  "broker": "mt5",      "max_heat_pct": 2.0},
     "us_stocks": {"enabled": False, "broker": "alpaca",   "max_heat_pct": 2.0},
     "india":     {"enabled": True,  "broker": "zerodha",  "max_heat_pct": 2.5},
     "options":   {"enabled": True,  "broker": "zerodha",  "max_heat_pct": 1.5},
