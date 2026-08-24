@@ -70,7 +70,7 @@ STRATEGY_DEFS = [
             "Phase 4 WFO result: STABLE — 100% of folds profitable. "
             "Mean edge +0.098R ± 0.079. Approved for live trading."
         ),
-        "instruments": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"],
+        "instruments": ["EURUSD=X"],
         "timeframe": "M15",
         "style": "Intraday",
         "backtest_period": "Jul–Aug 2026 (45 days, 3-fold WFO, STABLE verdict)",
