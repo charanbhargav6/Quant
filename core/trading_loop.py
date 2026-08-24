@@ -856,17 +856,39 @@ class TradingLoop:
         else:
             # Forex — TrendPriceActionAdapter (EMA50/200 trend, ADX, EMA21 pullback).
             # This perfectly matches the logic tested by TrendPriceActionAdapter in
-            # run_phase4_walk_forward.py, which earned the STABLE / live_ready: True verdict.
-            # PREVIOUS BUG: This was mistakenly invoking StrategyAgent (SMC structure)
-            # while tagging it with the 'trend_pa_forex' ID, creating a mismatch between
-            # validated logic and live execution.
-            strategy_id_for_signal = "trend_pa_forex"
+            # run_phase4_walk_forward.py, which earned the STABLE / live_ready: True verdict
+            # -- but ONLY for EURUSD. GBPUSD/USDJPY/AUDUSD were separately walk-forward
+            # tested (trend_pa_forex_gbp/_jpy/_aud in docs/wfo_phase4_results.md) and all
+            # three came back INCONSISTENT.
+            #
+            # FIX: is_live_ready(strategy_id) only ever receives this string -- it has
+            # no idea which symbol the signal is for, and never reads the "instruments"
+            # list in strategy_registry.py. Every forex pair was previously tagged with
+            # the SAME "trend_pa_forex" id regardless of symbol, so the instrument-list
+            # restriction to ["EURUSD=X"] was enforced nowhere: GBP/JPY/AUD signals hit
+            # is_live_ready("trend_pa_forex"), found that entry's live_ready=True, and
+            # passed the gate identically to EURUSD -- even though all three are
+            # confirmed losing strategies in the very report meant to exclude them.
+            # Tag per-instrument so the gate actually has something distinct to check.
+            if symbol == "EURUSD=X":
+                strategy_id_for_signal = "trend_pa_forex"
+            elif symbol == "GBPUSD=X":
+                strategy_id_for_signal = "trend_pa_forex_gbp"
+            elif symbol == "USDJPY=X":
+                strategy_id_for_signal = "trend_pa_forex_jpy"
+            elif symbol == "AUDUSD=X":
+                strategy_id_for_signal = "trend_pa_forex_aud"
+            else:
+                # Any other forex pair has never been walk-forward tested at all --
+                # tag it as explicitly unvalidated rather than silently reusing
+                # EURUSD's passing id.
+                strategy_id_for_signal = "trend_pa_forex_untested"
             from engines.gold_strategy import (
                 attach_gold_indicators, analyze_gold_context
             )
             df_15m = attach_gold_indicators(df_15m)
             context = analyze_gold_context(symbol, df_15m, len(df_15m) - 1)
-            logger.info(f"[TradingLoop] {symbol}: TrendPriceAction (Forex) strategy")
+            logger.info(f"[TradingLoop] {symbol}: TrendPriceAction (Forex) strategy — tagged {strategy_id_for_signal}")
 
         if "error" in context:
             return None
