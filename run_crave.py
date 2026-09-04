@@ -27,10 +27,10 @@ def run():
     # 3. Wait for initialization
     time.sleep(4)
     
-    # 4. Open Browser
+    # 4. Open Browser (Disabled auto-open)
     url = "http://127.0.0.1:8765/?v=2"
-    print(f"\n[3/3] Opening dashboard at {url}...")
-    webbrowser.open(url)
+    print(f"\n[3/3] UI available at {url}")
+    # webbrowser.open(url)
     
     print("\n" + "-"*60)
     print("CRAVE Trading Engine is RUNNING.")

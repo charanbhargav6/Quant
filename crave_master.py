@@ -71,9 +71,9 @@ def main():
     print("==========================================================\n")
 
     # Automatically open the dashboard
-    import webbrowser
+    # import webbrowser
     time.sleep(3) # Wait for Flask to boot
-    webbrowser.open("http://127.0.0.1:8765/?v=2")
+    # webbrowser.open("http://127.0.0.1:8765/?v=2")
 
     try:
         # Keep master process alive and wait for children
