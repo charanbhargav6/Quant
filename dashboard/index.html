@@ -1,0 +1,2837 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="CRAVE Quant — Autonomous Multi-Broker Trading Engine Dashboard" />
+  <title>CRAVE Quant Dashboard</title>
+
+  <!-- BASE HREF: ensures css/js paths resolve correctly when served from /dashboard -->
+  <base href="/dashboard/" />
+
+  <!-- Design system -->
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+
+  <!-- ═══════════════════════════════════════════════════════════
+       AUTO API MODE DETECTION
+       When served from quant_server.py (port 8765), automatically
+       use real API data instead of mock data.
+       When served from a static server (port 9090 etc), falls back
+       to mock so the UI still renders for development.
+  ═══════════════════════════════════════════════════════════════ -->
+  <script>
+    (function() {
+      var port = parseInt(window.location.port || '80', 10);
+      // Port 8765 = quant_server.py = real engine data
+      if (port === 8765 || port === 80 || port === 443) {
+        window.CRAVE_DATA_MODE = 'api';
+        window.CRAVE_API_BASE  = '';  // same origin
+      } else {
+        // Static dev server — try to reach 8765, fall back to mock
+        window.CRAVE_DATA_MODE = 'api';  // api-provider auto-routes to :8765
+        window.CRAVE_API_BASE  = window.location.protocol + '//' + window.location.hostname + ':8765';
+      }
+      console.log('[CRAVE] Data mode:', window.CRAVE_DATA_MODE, '| API base:', window.CRAVE_API_BASE || '(same-origin)');
+    })();
+  </script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <!-- Connection Manager (must load before app scripts) -->
+  <script src="js/connection/conn-mgr.js"></script>
+
+  <!-- Supabase Dashboard Client (anon key only — lazy loads SDK if configured) -->
+  <script src="js/data/supabase-client.js"></script>
+  <script src="js/pages/india-markets.js"></script>
+  <script src="js/pages/markets-live.js"></script>
+  <script src="js/pages/options-page.js"></script>
+  <script src="js/account-selector.js"></script>
+  <script src="js/pages/risk-page.js"></script>
+
+  <style>
+    /* Page-specific inline overrides */
+    .chart-h-200 { height: 200px; }
+    .chart-h-280 { height: 280px; }
+    .chart-h-160 { height: 160px; }
+
+    /* ── Connection state chip styles ─────────────────────────── */
+    .status-chip.live         { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.1); }
+    .status-chip.stale        { border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.12); }
+    .status-chip.reconnecting { border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.1); }
+    .status-chip.offline      { border-color: rgba(239,68,68,0.4);  background: rgba(239,68,68,0.1); }
+    .status-chip.connecting   { border-color: rgba(148,163,184,0.3);background: rgba(148,163,184,0.08); }
+
+    .status-dot.live         { background: #10b981; box-shadow: 0 0 6px #10b981; animation: pulse 2s infinite; }
+    .status-dot.stale        { background: #f59e0b; box-shadow: 0 0 5px #f59e0b; animation: none; }
+    .status-dot.reconnecting { background: #3b82f6; animation: blink 0.8s infinite; }
+    .status-dot.offline      { background: #ef4444; animation: none; }
+    .status-dot.connecting   { background: #64748b; animation: blink 1.5s infinite; }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    /* ── Data mode bar states ─────────────────────────────────── */
+    .data-mode-bar.warn  { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3); color: #fbbf24; }
+    .data-mode-bar.error { background: rgba(239,68,68,0.1);  border-color: rgba(239,68,68,0.3);  color: #f87171; }
+
+    /* ── Live-update flash ───────────────────────────────────── */
+    @keyframes flash-green { 0%{background:rgba(16,185,129,0.25)} 100%{background:transparent} }
+    @keyframes flash-red   { 0%{background:rgba(239,68,68,0.25)}  100%{background:transparent} }
+    .flash-green { animation: flash-green 0.8s ease-out; }
+    .flash-red   { animation: flash-red   0.8s ease-out; }
+
+    .options-chain th { cursor: default; }
+    .options-chain td.atm { background: rgba(59,130,246,0.06); font-weight: 600; }
+
+    .pnl-calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+    }
+    .pnl-cal-day {
+      aspect-ratio: 1;
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: default;
+    }
+    .pnl-cal-day.pos   { background: rgba(16,185,129,0.18); color: var(--green-text); }
+    .pnl-cal-day.neg   { background: rgba(239,68,68,0.18);  color: var(--red-text); }
+    .pnl-cal-day.flat  { background: var(--bg-elevated); color: var(--text-muted); }
+    .pnl-cal-day.empty { background: transparent; }
+
+    .strategy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-4); }
+
+    .exposure-bar { display: flex; gap: 2px; height: 6px; border-radius: 99px; overflow: hidden; }
+    .exposure-segment { height: 100%; transition: width 0.5s ease; }
+
+    #page-chat .page-title { margin-bottom: 0; }
+
+    .settings-section { margin-bottom: var(--space-8); }
+    .settings-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--space-4) 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row-info { flex: 1; }
+    .settings-row-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .settings-row-desc  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative; width: 36px; height: 20px;
+      background: var(--bg-overlay); border-radius: 99px;
+      cursor: pointer; transition: background var(--transition);
+      border: 1px solid var(--border-default);
+      flex-shrink: 0;
+    }
+    .toggle::after {
+      content: ''; position: absolute;
+      left: 2px; top: 2px;
+      width: 14px; height: 14px;
+      background: var(--text-muted); border-radius: 50%;
+      transition: all var(--transition);
+    }
+    .toggle.on { background: var(--accent-primary); border-color: var(--accent-primary); }
+    .toggle.on::after { left: calc(100% - 16px); background: #fff; }
+
+    /* AI Council */
+    .council-flow { display: flex; flex-direction: column; gap: var(--space-4); }
+    .council-round-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--text-muted); padding: var(--space-2) var(--space-4);
+      border-top: 1px solid var(--border-subtle); margin-top: var(--space-2);
+    }
+
+    /* Analytics page */
+    .analytics-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
+    @media(max-width:1100px) { .analytics-summary { grid-template-columns: repeat(2,1fr); } }
+  </style>
+</head>
+<body>
+
+<div class="app-shell" id="app">
+
+  <!-- ═══════════════════════════════════════════════════════
+       SIDEBAR
+  ═══════════════════════════════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">C</div>
+      <div class="sidebar-logo-text">CRAVE <span>Quant</span></div>
+    </div>
+
+    <nav class="sidebar-nav" id="sidebar-nav">
+
+      <div class="nav-section-label">Main</div>
+
+      <a class="nav-item active" data-page="overview" href="#">
+        <span class="nav-item-icon"><i data-lucide="layout-dashboard" width="16" height="16"></i></span>
+        <span class="nav-item-label">Overview</span>
+      </a>
+      <a class="nav-item" data-page="markets" href="#">
+        <span class="nav-item-icon"><i data-lucide="globe" width="16" height="16"></i></span>
+        <span class="nav-item-label">Markets</span>
+      </a>
+      <a class="nav-item" data-page="positions" href="#">
+        <span class="nav-item-icon"><i data-lucide="trending-up" width="16" height="16"></i></span>
+        <span class="nav-item-label">Positions</span>
+        <span class="nav-item-badge" id="open-pos-count">3</span>
+      </a>
+      <a class="nav-item" data-page="orders" href="#">
+        <span class="nav-item-icon"><i data-lucide="list-ordered" width="16" height="16"></i></span>
+        <span class="nav-item-label">Orders</span>
+      </a>
+
+      <div class="nav-section-label">Strategy</div>
+
+      <a class="nav-item" data-page="strategies" href="#">
+        <span class="nav-item-icon"><i data-lucide="cpu" width="16" height="16"></i></span>
+        <span class="nav-item-label">Strategies</span>
+      </a>
+      <a class="nav-item" data-page="backtests" href="#">
+        <span class="nav-item-icon"><i data-lucide="flask-conical" width="16" height="16"></i></span>
+        <span class="nav-item-label">Backtests</span>
+      </a>
+      <a class="nav-item" data-page="options" href="#">
+        <span class="nav-item-icon"><i data-lucide="layers" width="16" height="16"></i></span>
+        <span class="nav-item-label">Options</span>
+      </a>
+
+      <div class="nav-section-label">Intelligence</div>
+
+      <a class="nav-item" data-page="ai-chat" href="#">
+        <span class="nav-item-icon"><i data-lucide="message-square" width="16" height="16"></i></span>
+        <span class="nav-item-label">AI Chat</span>
+      </a>
+      <a class="nav-item" data-page="ai-council" href="#">
+        <span class="nav-item-icon"><i data-lucide="users" width="16" height="16"></i></span>
+        <span class="nav-item-label">AI Council</span>
+      </a>
+      <a class="nav-item" data-page="ai-optimizer" href="#">
+        <span class="nav-item-icon"><i data-lucide="sparkles" width="16" height="16"></i></span>
+        <span class="nav-item-label">AI Optimizer</span>
+      </a>
+
+      <div class="nav-section-label">Analysis</div>
+
+      <a class="nav-item" data-page="analytics" href="#">
+        <span class="nav-item-icon"><i data-lucide="bar-chart-3" width="16" height="16"></i></span>
+        <span class="nav-item-label">Analytics</span>
+      </a>
+      <a class="nav-item" data-page="risk" href="#">
+        <span class="nav-item-icon"><i data-lucide="shield-alert" width="16" height="16"></i></span>
+        <span class="nav-item-label">Risk</span>
+      </a>
+      <a class="nav-item" data-page="accounts" href="#">
+        <span class="nav-item-icon"><i data-lucide="wallet" width="16" height="16"></i></span>
+        <span class="nav-item-label">Accounts</span>
+      </a>
+
+      <div class="nav-section-label">System</div>
+
+      <a class="nav-item" data-page="logs" href="#">
+        <span class="nav-item-icon"><i data-lucide="terminal" width="16" height="16"></i></span>
+        <span class="nav-item-label">Logs</span>
+      </a>
+      <a class="nav-item" data-page="system-health" href="#">
+        <span class="nav-item-icon"><i data-lucide="activity" width="16" height="16"></i></span>
+        <span class="nav-item-label">System Health</span>
+      </a>
+
+    </nav>
+
+    <div class="sidebar-footer">
+      <a class="nav-item" data-page="settings" href="#">
+        <span class="nav-item-icon"><i data-lucide="settings" width="16" height="16"></i></span>
+        <span class="nav-item-label">Settings</span>
+      </a>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════════════════════════════════════
+       HEADER
+  ═══════════════════════════════════════════════════════════ -->
+  <header class="app-header">
+    <button class="icon-btn" id="sidebar-toggle" aria-label="Toggle sidebar">
+      <i data-lucide="panel-left" width="17" height="17"></i>
+    </button>
+
+    <div class="header-breadcrumb">
+      <span class="header-sep">CRAVE</span>
+      <i data-lucide="chevron-right" width="13" height="13"></i>
+      <span class="header-breadcrumb-current" id="header-page-title">Overview</span>
+    </div>
+
+    <!-- Account selector -->
+    <div class="account-selector">
+      <i data-lucide="wallet" width="14" height="14" style="color:var(--text-muted)"></i>
+      <select id="account-select">
+        <option value="ALL">All Accounts</option>
+        <option value="84723901">XM-Live01</option>
+        <option value="PAPER">Paper Engine</option>
+        <option value="98012344">FTMO Challenge</option>
+      </select>
+      <i data-lucide="chevron-down" width="13" height="13" style="color:var(--text-muted)"></i>
+    </div>
+
+    <div class="header-status-group">
+      <div class="status-chip paper" id="broker-status-chip">
+        <span class="status-dot paper"></span>
+        <span id="broker-status-text">Paper Mode</span>
+      </div>
+      <div class="status-chip" id="data-status-chip">
+        <span class="status-dot stale" id="data-status-dot"></span>
+        <span id="data-status-text">Mock Data</span>
+      </div>
+    </div>
+
+    <div class="live-clock" id="live-clock">00:00:00 UTC</div>
+
+    <div class="header-actions">
+      <!-- Account selector — populated by account-selector.js -->
+      <div id="account-selector-wrap" style="margin-right:4px;display:flex;align-items:center"></div>
+      <button class="icon-btn has-notification" id="notif-btn" aria-label="Notifications" title="Alerts">
+        <i data-lucide="bell" width="17" height="17"></i>
+      </button>
+      <button class="icon-btn" id="refresh-btn" aria-label="Refresh data" title="Refresh">
+        <i data-lucide="refresh-cw" width="17" height="17"></i>
+      </button>
+    </div>
+
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MAIN CONTENT
+  ═══════════════════════════════════════════════════════════ -->
+  <main class="main-content" id="main-content">
+
+    <!-- ── Data mode banner ─────────────────────────────── -->
+    <div id="data-mode-bar-global" style="position:sticky;top:0;z-index:30;padding:0 var(--space-6)">
+      <div class="data-mode-bar" id="data-mode-bar" style="margin-top:var(--space-4)">
+        <i data-lucide="flask-conical" width="14" height="14"></i>
+        <strong>Mock Data Mode</strong> — UI is fully functional but using simulated data.
+        Set <code>window.CRAVE_DATA_MODE = 'api'</code> to connect the real trading engine.
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: OVERVIEW
+    ════════════════════════════════════════════════════════ -->
+    <div class="page active" id="page-overview">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Overview</h1>
+          <p class="page-subtitle" id="overview-subtitle">Loading trading engine status...</p>
+        </div>
+        <div class="page-actions">
+          <span class="text-sm text-muted mono" id="overview-server-time">—</span>
+        </div>
+      </div>
+
+      <!-- KPI Row 1 (5 cards) -->
+      <div class="kpi-grid-5" id="kpi-row-1">
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+      </div>
+
+      <!-- KPI Row 2 (5 cards) -->
+      <div class="kpi-grid-5" id="kpi-row-2">
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+        <div class="kpi-card skeleton" style="height:110px"></div>
+      </div>
+
+      <!-- Alerts -->
+      <div id="overview-alerts"></div>
+
+      <!-- Charts row -->
+      <div class="content-grid-3-1">
+        <!-- Equity curve -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title"><i data-lucide="trending-up" width="14" height="14"></i> Equity Curve</div>
+              <div class="panel-subtitle">Portfolio growth over time</div>
+            </div>
+            <div class="time-pills">
+              <button class="time-pill active" data-days="7">1W</button>
+              <button class="time-pill" data-days="30">1M</button>
+              <button class="time-pill" data-days="90">3M</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="chart-container chart-h-200">
+              <canvas id="equity-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Exposure pie -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="pie-chart" width="14" height="14"></i> Exposure</div>
+          </div>
+          <div class="panel-body">
+            <div class="chart-container" style="height:160px">
+              <canvas id="exposure-chart"></canvas>
+            </div>
+            <div id="exposure-legend" style="margin-top:var(--space-4)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom row: Top movers | Performance | Alerts -->
+      <div class="content-grid-3-1" style="margin-top:var(--space-4)">
+        <!-- Top movers + positions -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="zap" width="14" height="14"></i> Open Positions</div>
+            <a class="btn btn-ghost btn-sm" data-page="positions">View All</a>
+          </div>
+          <div class="panel-body-flush">
+            <div class="data-table-wrap" style="max-height:220px">
+              <table class="data-table" id="overview-positions-table">
+                <thead>
+                  <tr>
+                    <th>Symbol</th><th>Dir</th><th>Entry</th><th>Current</th><th>P&L</th><th>Strategy</th>
+                  </tr>
+                </thead>
+                <tbody><tr><td colspan="6" class="table-empty">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance stats -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="bar-chart-2" width="14" height="14"></i> Performance</div>
+          </div>
+          <div class="panel-body" id="overview-perf">
+            <div class="health-metric"><span class="health-metric-label">Win Rate</span><span class="health-metric-value" id="perf-winrate">—</span></div>
+            <div class="health-metric"><span class="health-metric-label">Profit Factor</span><span class="health-metric-value" id="perf-pf">—</span></div>
+            <div class="health-metric"><span class="health-metric-label">Expectancy</span><span class="health-metric-value" id="perf-exp">—</span></div>
+            <div class="health-metric"><span class="health-metric-label">Total Trades</span><span class="health-metric-value" id="perf-trades">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- P&L Calendar -->
+      <div class="panel" style="margin-top:var(--space-4)">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="calendar" width="14" height="14"></i> P&L Calendar</div>
+          <div class="panel-subtitle">Last 30 trading days</div>
+        </div>
+        <div class="panel-body">
+          <div class="pnl-calendar-grid" id="pnl-calendar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: MARKETS
+    ════════════════════════════════════════════════════════ -->
+    <!-- PAGE: MARKETS — All-market live matrix, SSE-driven -->
+    <div class="page" id="page-markets">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Markets</h1>
+          <p class="page-subtitle">Live price matrix — Forex &#183; Crypto &#183; Indices &#183; Commodities &#183; Indian &#183; US Stocks</p>
+        </div>
+        <div class="page-actions" style="gap:var(--space-3);display:flex;align-items:center;">
+          <span id="mkt-sse-chip" class="status-chip connecting" style="font-size:11px;padding:3px 10px;">
+            <span class="status-dot connecting"></span> SSE
+          </span>
+          <span id="mkt-last-updated" style="font-size:11px;color:var(--text-muted)">Loading&#8230;</span>
+          <button class="btn btn-secondary btn-sm" onclick="marketsPage.reload()">
+            <i data-lucide="refresh-cw" width="13" height="13"></i> Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div style="display:flex;gap:var(--space-2);align-items:center;margin-bottom:var(--space-4);flex-wrap:wrap;">
+        <button class="mkt-tab-btn active" data-tab="mkt-tab-all"    onclick="marketsPage.switchTab('mkt-tab-all')">All</button>
+        <button class="mkt-tab-btn" data-tab="mkt-tab-forex"   onclick="marketsPage.switchTab('mkt-tab-forex')">&#127760; Forex</button>
+        <button class="mkt-tab-btn" data-tab="mkt-tab-crypto"  onclick="marketsPage.switchTab('mkt-tab-crypto')">&#8383; Crypto</button>
+        <button class="mkt-tab-btn" data-tab="mkt-tab-gold"    onclick="marketsPage.switchTab('mkt-tab-gold')">&#128081; Commodities</button>
+        <button class="mkt-tab-btn" data-tab="mkt-tab-india"   onclick="marketsPage.switchTab('mkt-tab-india')">&#127470;&#127475; Indian</button>
+        <button class="mkt-tab-btn" data-tab="mkt-tab-us"      onclick="marketsPage.switchTab('mkt-tab-us')">&#127482;&#127480; US Stocks</button>
+        <button class="mkt-tab-btn" data-tab="mkt-tab-futures" onclick="marketsPage.switchTab('mkt-tab-futures')">Futures</button>
+        <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">Updates via SSE stream &#8212; no page refresh needed</span>
+        <input type="text" id="mkt-global-filter" placeholder="Filter symbols&#8230;" style="width:160px;font-size:11px;"
+          oninput="marketsPage.filterTab(this, document.querySelector('.mkt-tab-pane:not([style*=none])') ? document.querySelector('.mkt-tab-pane:not([style*=none])').id : 'mkt-tab-all')">
+      </div>
+
+      <!-- Shared table template (one per tab) -->
+      <style>
+        .mkt-tab-btn { padding:5px 14px;border-radius:100px;border:1px solid var(--border-subtle);background:transparent;color:var(--text-muted);font-size:12px;cursor:pointer;transition:all .15s; }
+        .mkt-tab-btn.active,.mkt-tab-btn:hover { background:var(--accent);color:#fff;border-color:var(--accent); }
+        .mkt-tab-pane table td { transition:background .4s; }
+        .flash-up   { background:rgba(16,185,129,.25) !important; }
+        .flash-down { background:rgba(239,68,68,.25) !important; }
+        .mkt-price  { font-weight:600;font-family:monospace; }
+        .mkt-chg.pos,.india-change.pos { color:var(--success); }
+        .mkt-chg.neg,.india-change.neg { color:var(--danger);  }
+        .mkt-chg.neu,.india-change.neu { color:var(--text-muted); }
+        .mkt-unavail { color:var(--danger);font-style:italic;font-size:11px; }
+        .opts-greek-grid   { display:grid;grid-template-columns:repeat(5,1fr);gap:var(--space-3); }
+        .opts-greek-card   { background:var(--surface-2);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:12px;text-align:center; }
+        .opts-greek-label  { font-size:10px;color:var(--text-muted);margin-bottom:4px; }
+        .opts-greek-val    { font-size:22px;font-weight:700; }
+        .opts-chain-summary{ display:flex;gap:var(--space-4);flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin-bottom:var(--space-3);padding:8px 0;border-bottom:1px solid var(--border-subtle); }
+        .opts-chain-summary strong { color:var(--text-primary); }
+        .opts-pcr-badge { display:inline-block;padding:1px 8px;border-radius:100px;font-size:10px;font-weight:600; }
+        .opts-pcr-badge.BULLISH { background:rgba(16,185,129,.15);color:#10b981; }
+        .opts-pcr-badge.NEUTRAL { background:rgba(148,163,184,.1);color:var(--text-muted); }
+        .opts-pcr-badge.BEARISH { background:rgba(239,68,68,.15);color:#ef4444; }
+        .opts-atm-row td  { background:rgba(59,130,246,.06);font-weight:600; }
+        .opts-strike-cell { background:rgba(59,130,246,.1);text-align:center;font-family:monospace; }
+        table.opts-chain-tbl thead tr:first-child th { font-size:11px;letter-spacing:.05em;text-align:center; }
+        table.opts-chain-tbl .ce-col { background:rgba(16,185,129,.03); }
+        table.opts-chain-tbl .pe-col { background:rgba(239,68,68,.03); }
+      </style>
+
+      <div id="mkt-tab-all" class="mkt-tab-pane panel">
+        <div class="panel-body-flush">
+          <table class="data-table" id="mkt-table-all">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="mkt-tab-forex" class="mkt-tab-pane panel" style="display:none">
+        <div class="panel-header"><div class="panel-title">&#127760; Forex Majors</div><div style="font-size:10px;color:var(--text-muted)">Source: MT5 broker</div></div>
+        <div class="panel-body-flush">
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread (pips)</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="mkt-tab-crypto" class="mkt-tab-pane panel" style="display:none">
+        <div class="panel-header"><div class="panel-title">&#8383; Crypto</div><div style="font-size:10px;color:var(--text-muted)">Source: Binance</div></div>
+        <div class="panel-body-flush">
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="mkt-tab-gold" class="mkt-tab-pane panel" style="display:none">
+        <div class="panel-header"><div class="panel-title">&#128081; Commodities &amp; CFDs</div><div style="font-size:10px;color:var(--text-muted)">Source: MT5 broker</div></div>
+        <div class="panel-body-flush">
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="mkt-tab-india" class="mkt-tab-pane panel" style="display:none">
+        <div class="panel-header"><div class="panel-title">&#127470;&#127475; Indian Markets</div><div style="font-size:10px;color:var(--text-muted)">Source: Zerodha Kite &#183; NSE</div></div>
+        <div class="panel-body-flush">
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="mkt-tab-us" class="mkt-tab-pane panel" style="display:none">
+        <div class="panel-header"><div class="panel-title">&#127482;&#127480; US Stocks</div><div style="font-size:10px;color:var(--text-muted)">Source: Alpaca</div></div>
+        <div class="panel-body-flush">
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="mkt-tab-futures" class="mkt-tab-pane panel" style="display:none">
+        <div class="panel-header"><div class="panel-title">Futures &amp; F&amp;O</div><div style="font-size:10px;color:var(--text-muted)">Source: Zerodha Kite &#183; NFO</div></div>
+        <div class="panel-body-flush">
+          <table class="data-table">
+            <thead><tr><th>Symbol</th><th>Name</th><th>Price</th><th>Change%</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Updated</th></tr></thead>
+            <tbody><tr><td colspan="10" class="table-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- ════════════════════════════════════════════════════
+         PAGE: POSITIONS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-positions">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Positions</h1>
+          <p class="page-subtitle">Live open positions across all accounts</p>
+        </div>
+      </div>
+
+      <div class="kpi-grid-4" id="positions-kpis"></div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="trending-up" width="14" height="14"></i> Open Positions</div>
+          <div class="panel-actions">
+            <span class="badge badge-muted" id="positions-count">0 positions</span>
+          </div>
+        </div>
+        <div class="panel-body-flush">
+          <div class="data-table-wrap">
+            <table class="data-table" id="positions-table">
+              <thead>
+                <tr>
+                  <th>Ticket</th><th>Symbol</th><th>Direction</th><th>Volume</th>
+                  <th>Entry</th><th>Current</th><th>SL</th><th>TP</th>
+                  <th>Pips</th><th>P&L $</th><th>P&L %</th><th>Strategy</th><th>Opened</th>
+                </tr>
+              </thead>
+              <tbody><tr><td colspan="13" class="table-empty">Loading positions...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: ORDERS (Closed Trades)
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-orders">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Order History</h1>
+          <p class="page-subtitle">Closed trades and execution history</p>
+        </div>
+        <div class="page-actions">
+          <select id="orders-filter-strategy" class="btn btn-secondary btn-sm" style="padding:6px 12px">
+            <option value="">All Strategies</option>
+            <option value="OrderFlow — Crypto">OrderFlow Crypto</option>
+            <option value="Trend/PA — Forex">Trend/PA Forex</option>
+            <option value="Manual">Manual</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="history" width="14" height="14"></i> Closed Trades</div>
+          <div class="panel-actions">
+            <span id="orders-summary" class="text-sm text-muted"></span>
+          </div>
+        </div>
+        <div class="panel-body-flush">
+          <div class="data-table-wrap">
+            <table class="data-table" id="orders-table">
+              <thead>
+                <tr>
+                  <th>Ticket</th><th>Symbol</th><th>Direction</th><th>Volume</th>
+                  <th>Exit $</th><th>P&L $</th><th>P&L %</th><th>Strategy</th><th>Closed</th>
+                </tr>
+              </thead>
+              <tbody><tr><td colspan="9" class="table-empty">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: STRATEGIES
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-strategies">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Strategies</h1>
+          <p class="page-subtitle">Registered strategy registry with WFO validation status</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" id="add-strategy-btn">
+            <i data-lucide="plus" width="14" height="14"></i> Add Strategy
+          </button>
+        </div>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="strategies-cards">Card View</button>
+        <button class="tab-btn" data-tab="strategies-table">Table View</button>
+      </div>
+
+      <div class="tab-panel active" id="strategies-cards">
+        <div class="strategy-grid" id="strategy-cards-grid"></div>
+      </div>
+
+      <div class="tab-panel" id="strategies-table">
+        <div class="panel">
+          <div class="panel-body-flush">
+            <div class="data-table-wrap">
+              <table class="data-table" id="strategies-table-el">
+                <thead>
+                  <tr>
+                    <th>Strategy</th><th>Market</th><th>TF</th><th>Trades</th>
+                    <th>Win Rate</th><th>Expectancy R</th><th>Max DD</th>
+                    <th>Status</th><th>Live Ready</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: ACCOUNTS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-accounts">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Accounts</h1>
+          <p class="page-subtitle">Multi-broker account management with strict isolation</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary" id="add-account-btn">
+            <i data-lucide="plus" width="14" height="14"></i> Add Account
+          </button>
+        </div>
+      </div>
+
+      <!-- Aggregate KPIs (All Accounts) -->
+      <div class="kpi-grid-4" id="accounts-agg-kpis"></div>
+
+      <!-- Account scope banner — shown when viewing a single account -->
+      <div id="account-scope-banner" style="
+        display:none; align-items:center; gap:8px;
+        padding:8px 14px; margin-bottom:var(--space-4);
+        background:rgba(59,130,246,.07); border:1px solid rgba(59,130,246,.2);
+        border-radius:var(--radius); font-size:12px; color:var(--accent-secondary);">
+      </div>
+
+      <!-- Account cards (flex-wrap so they never overflow at narrow widths) -->
+      <div class="flex-card-grid flex-card-grid-lg" id="accounts-list"></div>
+
+    </div>
+
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: RISK
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-risk">
+      <!-- Risk page scoped styles -->
+      <style>
+        .risk-status-banner { display:flex;align-items:center;gap:var(--space-3);padding:16px 20px;border-radius:var(--radius-lg);border:1px solid var(--border-subtle);background:var(--surface-2);margin-bottom:var(--space-4); }
+        .risk-status-label  { font-size:22px;font-weight:700;letter-spacing:.02em; }
+        .risk-status-sub    { font-size:11px;color:var(--text-muted);margin-top:2px; }
+        .risk-status.halted .risk-status-banner { border-color:#ef4444;background:rgba(239,68,68,.08); }
+        .risk-status.critical .risk-status-banner { border-color:#ef4444;background:rgba(239,68,68,.06); }
+        .risk-status.warning  .risk-status-banner { border-color:#f59e0b;background:rgba(245,158,11,.06); }
+
+        .risk-gauge-label   { font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:500; }
+        .risk-bar-wrap      { display:flex;flex-direction:column;gap:4px; }
+        .risk-bar-track     { height:10px;background:var(--surface-3);border-radius:100px;overflow:hidden; }
+        .risk-bar-fill      { height:100%;border-radius:100px;transition:width .6s cubic-bezier(.4,0,.2,1); }
+        .risk-bar-label     { font-size:12px;font-weight:600;font-family:monospace; }
+        .risk-na            { font-size:12px;color:var(--danger);font-style:italic; }
+
+        .risk-gauge-grid    { display:grid;grid-template-columns:repeat(2,1fr);gap:var(--space-4);margin-bottom:var(--space-4); }
+        @media(min-width:900px){ .risk-gauge-grid { grid-template-columns:repeat(4,1fr); } }
+
+        .risk-check-row     { display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle); }
+        .risk-check-row:last-child { border-bottom:none; }
+        .risk-check-icon    { font-size:16px;flex-shrink:0;margin-top:1px; }
+        .risk-check-body    { flex:1;display:flex;flex-wrap:wrap;gap:4px;align-items:center; }
+        .risk-check-label   { font-size:13px;font-weight:600;width:100%; }
+        .risk-check-detail  { font-size:12px;font-family:monospace;color:var(--text-primary); }
+        .risk-check-sub     { font-size:10px;color:var(--text-muted);width:100%;margin-top:1px; }
+
+        .risk-heat-item     { display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-subtle); }
+        .risk-heat-item:last-child { border-bottom:none; }
+        .risk-heat-mkt      { font-size:12px;font-weight:600;width:80px;text-transform:capitalize; }
+        .risk-heat-pct      { font-size:12px;font-family:monospace;font-weight:700;min-width:50px;text-align:right; }
+
+        .risk-flag          { padding:8px 12px;border-radius:var(--radius);margin-bottom:4px;font-size:12px; }
+        .risk-flag-ok       { background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2); }
+        .risk-flag-warn     { background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3); }
+
+        .acct-select-wrap   { display:flex;align-items:center;gap:6px; }
+        .acct-select        { padding:5px 10px;border-radius:var(--radius);border:1px solid var(--border-subtle);background:var(--surface-2);color:var(--text-primary);font-size:12px;cursor:pointer; }
+        .acct-dot           { width:9px;height:9px;border-radius:50%;background:#6b7280;flex-shrink:0; }
+      </style>
+
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Risk Management</h1>
+          <p class="page-subtitle">Live risk state &mdash; Circuit breakers &middot; Heat &middot; Drawdown &middot; Correlation &middot; VIX</p>
+        </div>
+        <div class="page-actions" style="gap:var(--space-3);display:flex;align-items:center;">
+          <span id="risk-last-updated" style="font-size:11px;color:var(--text-muted)">Loading&#8230;</span>
+          <button class="btn btn-secondary btn-sm" onclick="riskPage.refresh()">
+            <i data-lucide="refresh-cw" width="13" height="13"></i> Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Overall status banner -->
+      <div id="risk-status-banner" class="risk-status-banner" style="margin-bottom:var(--space-4)">
+        <div style="color:var(--text-muted);font-size:13px">Loading risk status&#8230;</div>
+      </div>
+
+      <!-- 4 Gauge bars -->
+      <div class="risk-gauge-grid" style="margin-bottom:var(--space-5)">
+        <div class="panel" style="padding:16px"><div id="risk-gauge-daily"></div></div>
+        <div class="panel" style="padding:16px"><div id="risk-gauge-dd"></div></div>
+        <div class="panel" style="padding:16px"><div id="risk-gauge-heat"></div></div>
+        <div class="panel" style="padding:16px"><div id="risk-gauge-corr"></div></div>
+      </div>
+
+      <!-- Main two-column grid -->
+      <div class="content-grid-2" style="margin-bottom:var(--space-4)">
+
+        <!-- Control checks -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="shield-check" width="14" height="14"></i> Risk Controls</div>
+            <div style="font-size:10px;color:var(--text-muted)">Source: engine circuit-breakers &amp; risk config</div>
+          </div>
+          <div class="panel-body" id="risk-checks">
+            <div class="india-na-block">Loading&#8230;</div>
+          </div>
+        </div>
+
+        <!-- Risk flags -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="flag" width="14" height="14"></i> Active Risk Flags</div>
+            <div style="font-size:10px;color:var(--text-muted)">Refreshes every 8 s</div>
+          </div>
+          <div class="panel-body" id="risk-flags">
+            <div class="india-na-block">Loading&#8230;</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Heat + Currency row -->
+      <div class="content-grid-2" style="margin-bottom:var(--space-4)">
+
+        <!-- Market heat -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="thermometer" width="14" height="14"></i> Portfolio Heat by Market</div>
+            <div style="font-size:10px;color:var(--text-muted)">Max: 6% total &middot; 3% per market &middot; 6.5% = emergency close</div>
+          </div>
+          <div class="panel-body" id="risk-heat-grid">
+            <div class="india-na-block">Loading&#8230;</div>
+          </div>
+        </div>
+
+        <!-- Currency exposure -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="currency" width="14" height="14"></i> Currency Exposure</div>
+            <div style="font-size:10px;color:var(--text-muted)">Max 40% in any single currency</div>
+          </div>
+          <div class="panel-body" id="risk-ccy-grid">
+            <div class="india-na-block">Loading&#8230;</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Win rate -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="trending-up" width="14" height="14"></i> Live Win Rate vs Backtest</div>
+          <div style="font-size:10px;color:var(--text-muted)">Flagged if live &lt; 80% of backtested baseline</div>
+        </div>
+        <div class="panel-body" id="risk-winrate">
+          <div class="india-na-block">Loading&#8230;</div>
+        </div>
+      </div>
+
+    </div>
+    <!-- ════════════════════════════════════════════════════
+         PAGE: OPTIONS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-options">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Options</h1>
+          <p class="page-subtitle" id="opts-ivrank-note">NIFTY &amp; BANKNIFTY option chain with B-S Greeks &middot; Source: NSE + engine</p>
+        </div>
+        <div class="page-actions" style="gap:var(--space-3);display:flex;align-items:center;">
+          <span id="opts-last-updated" style="font-size:11px;color:var(--text-muted)">Loading&#8230;</span>
+          <button class="btn btn-secondary btn-sm" id="opts-toggle-all" onclick="optionsPage.toggleAllStrikes()">Show All Strikes</button>
+          <button class="btn btn-secondary btn-sm" id="opts-refresh-btn" onclick="optionsPage.refresh()">
+            <i data-lucide="refresh-cw" width="13" height="13"></i> Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Portfolio Greeks Summary -->
+      <div class="panel" style="margin-bottom:var(--space-4)">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="activity" width="14" height="14"></i> Portfolio Greeks</div>
+          <div style="font-size:10px;color:var(--text-muted)">Source: engine greeks_monitor.py &middot; Aggregated across all open options positions</div>
+        </div>
+        <div class="panel-body" id="opts-portfolio-greeks">
+          <div class="india-na-block">Loading portfolio Greeks&#8230;</div>
+        </div>
+      </div>
+
+      <!-- Tab bar for NIFTY / BANKNIFTY -->
+      <div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-4);">
+        <button class="mkt-tab-btn active" onclick="this.parentNode.querySelectorAll('.mkt-tab-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');document.getElementById('opts-nifty-panel').style.display='';document.getElementById('opts-bnf-panel').style.display='none';">NIFTY</button>
+        <button class="mkt-tab-btn" onclick="this.parentNode.querySelectorAll('.mkt-tab-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');document.getElementById('opts-nifty-panel').style.display='none';document.getElementById('opts-bnf-panel').style.display='';">BANKNIFTY</button>
+      </div>
+
+      <!-- NIFTY Option Chain -->
+      <div id="opts-nifty-panel">
+        <div id="opts-nifty-summary"></div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="layers" width="14" height="14"></i> NIFTY Option Chain</div>
+            <div style="font-size:10px;color:var(--text-muted)">Lot size: 50 &middot; Expiry: Every Thursday &middot; Greeks: Black-Scholes (r=6.5%)</div>
+          </div>
+          <div class="panel-body-flush" style="overflow-x:auto">
+            <table class="data-table opts-chain-tbl" style="min-width:900px">
+              <thead>
+                <tr>
+                  <th colspan="7" style="text-align:center;color:#10b981;background:rgba(16,185,129,.08)">CALLS (CE)</th>
+                  <th style="background:rgba(59,130,246,.12);text-align:center">STRIKE</th>
+                  <th colspan="7" style="text-align:center;color:#ef4444;background:rgba(239,68,68,.06)">PUTS (PE)</th>
+                </tr>
+                <tr>
+                  <th>LTP</th><th>IV</th><th>Delta</th><th>Gamma</th><th>Theta</th><th>Vega</th><th>OI</th>
+                  <th style="background:rgba(59,130,246,.1)">&#8212;</th>
+                  <th>LTP</th><th>IV</th><th>Delta</th><th>Gamma</th><th>Theta</th><th>Vega</th><th>OI</th>
+                </tr>
+              </thead>
+              <tbody id="opts-nifty-chain"><tr><td colspan="15" class="table-empty">Loading&#8230;</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- BANKNIFTY Option Chain -->
+      <div id="opts-bnf-panel" style="display:none">
+        <div id="opts-bnf-summary"></div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="layers" width="14" height="14"></i> BANKNIFTY Option Chain</div>
+            <div style="font-size:10px;color:var(--text-muted)">Lot size: 15 &middot; Expiry: Every Wednesday &middot; Greeks: Black-Scholes (r=6.5%)</div>
+          </div>
+          <div class="panel-body-flush" style="overflow-x:auto">
+            <table class="data-table opts-chain-tbl" style="min-width:900px">
+              <thead>
+                <tr>
+                  <th colspan="7" style="text-align:center;color:#10b981;background:rgba(16,185,129,.08)">CALLS (CE)</th>
+                  <th style="background:rgba(59,130,246,.12);text-align:center">STRIKE</th>
+                  <th colspan="7" style="text-align:center;color:#ef4444;background:rgba(239,68,68,.06)">PUTS (PE)</th>
+                </tr>
+                <tr>
+                  <th>LTP</th><th>IV</th><th>Delta</th><th>Gamma</th><th>Theta</th><th>Vega</th><th>OI</th>
+                  <th style="background:rgba(59,130,246,.1)">&#8212;</th>
+                  <th>LTP</th><th>IV</th><th>Delta</th><th>Gamma</th><th>Theta</th><th>Vega</th><th>OI</th>
+                </tr>
+              </thead>
+              <tbody id="opts-bnf-chain"><tr><td colspan="15" class="table-empty">Loading&#8230;</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ════════════════════════════════════════════════════
+         PAGE: ANALYTICS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-analytics">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Analytics</h1>
+          <p class="page-subtitle">Deep performance analysis across strategies and accounts</p>
+        </div>
+        <div class="page-actions">
+          <select id="analytics-period" class="btn btn-secondary btn-sm" style="padding:6px 12px">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="analytics-summary" id="analytics-kpis"></div>
+
+      <div class="content-grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">P&L Distribution</div>
+          </div>
+          <div class="panel-body">
+            <div class="chart-container chart-h-200"><canvas id="pnl-dist-chart"></canvas></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Win/Loss by Strategy</div>
+          </div>
+          <div class="panel-body">
+            <div class="chart-container chart-h-200"><canvas id="strategy-wl-chart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:var(--space-4)">
+        <div class="panel-header">
+          <div class="panel-title">Trade History</div>
+        </div>
+        <div class="panel-body-flush">
+          <div class="data-table-wrap" style="max-height:340px">
+            <table class="data-table" id="analytics-trades-table">
+              <thead>
+                <tr><th>Date</th><th>Symbol</th><th>Dir</th><th>P&L $</th><th>P&L %</th><th>Strategy</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: AI CHAT
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-ai-chat">
+      <div class="page-header" style="margin-bottom:var(--space-4)">
+        <div class="page-title-group">
+          <h1 class="page-title">Jarvis — AI Chat</h1>
+          <p class="page-subtitle">Ask questions about your trading engine, positions, strategies, and risk</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" id="clear-chat">
+            <i data-lucide="trash-2" width="13" height="13"></i> Clear
+          </button>
+        </div>
+      </div>
+
+      <div class="panel" style="display:flex;flex-direction:column;height:calc(100vh - 220px)">
+        <div class="chat-messages" id="chat-messages">
+          <!-- Welcome message -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar ai">J</div>
+            <div>
+              <div class="chat-msg-bubble">
+                <strong>Jarvis online.</strong> I'm the CRAVE trading engine AI. I can answer questions about your positions, strategies, risk status, market conditions, and performance.<br><br>
+                Try asking: <em>"What are my open positions?"</em> or <em>"How is the orderflow strategy performing?"</em>
+              </div>
+              <div class="chat-msg-meta">Jarvis · Just now</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Suggested prompts -->
+        <div style="padding:0 var(--space-4) var(--space-3)">
+          <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm chat-prompt" data-prompt="What are my current open positions?">Open positions?</button>
+            <button class="btn btn-secondary btn-sm chat-prompt" data-prompt="How is the OrderFlow Crypto strategy performing?">Strategy performance?</button>
+            <button class="btn btn-secondary btn-sm chat-prompt" data-prompt="What is my current risk status and drawdown?">Risk status?</button>
+            <button class="btn btn-secondary btn-sm chat-prompt" data-prompt="Which strategies are live ready?">Live-ready strategies?</button>
+          </div>
+        </div>
+
+        <div class="chat-input-area">
+          <textarea class="chat-input form-input" id="chat-input" placeholder="Ask Jarvis anything about your trading engine..." rows="1"></textarea>
+          <button class="btn btn-primary" id="chat-send">
+            <i data-lucide="send" width="15" height="15"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: AI COUNCIL
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-ai-council">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">AI Council</h1>
+          <p class="page-subtitle">Multi-agent hedge fund debate — Quant, Sentiment, Devil's Advocate, Risk, Director</p>
+        </div>
+      </div>
+
+      <div class="content-grid-2">
+        <!-- Council feed -->
+        <div class="panel" style="height:calc(100vh - 240px);display:flex;flex-direction:column">
+          <div class="panel-header">
+            <div class="panel-title"><i data-lucide="users" width="14" height="14"></i> Latest Council Session</div>
+            <span class="badge badge-blue" id="council-decision-badge">—</span>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:var(--space-4)">
+            <div class="council-flow" id="council-flow"></div>
+          </div>
+        </div>
+
+        <!-- Signals & AI track record -->
+        <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="zap" width="14" height="14"></i> Signal Feed</div>
+            </div>
+            <div class="panel-body-flush">
+              <div class="data-table-wrap" style="max-height:280px">
+                <table class="data-table" id="council-signals-table">
+                  <thead><tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Grade</th><th>Confidence</th><th>Traded</th><th>Skip Reason</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="trophy" width="14" height="14"></i> AI Track Record</div>
+            </div>
+            <div class="panel-body" id="council-track"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: AI OPTIMIZER
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-ai-optimizer">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">AI Optimizer</h1>
+          <p class="page-subtitle">Strategy optimization proposals — all changes require explicit approval</p>
+        </div>
+      </div>
+
+      <div class="alert-banner alert-amber">
+        <i data-lucide="shield-alert" width="16" height="16"></i>
+        <div>
+          <strong>Safety Guarantee:</strong> The optimizer never automatically changes a live strategy. All proposals create a new version and require your approval before any testing or deployment.
+        </div>
+      </div>
+
+      <div class="kpi-grid-4" id="optimizer-kpis">
+        <div class="kpi-card">
+          <div class="kpi-card-header"><div class="kpi-card-label">Proposals Pending</div><div class="kpi-card-icon blue"><i data-lucide="clock" width="15" height="15"></i></div></div>
+          <div class="kpi-card-value">1</div>
+          <div class="kpi-card-meta">Awaiting review</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-header"><div class="kpi-card-label">Strategies Reviewed</div><div class="kpi-card-icon green"><i data-lucide="check-circle" width="15" height="15"></i></div></div>
+          <div class="kpi-card-value">4</div>
+          <div class="kpi-card-meta">This week</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-header"><div class="kpi-card-label">Strategies Degrading</div><div class="kpi-card-icon amber"><i data-lucide="trending-down" width="15" height="15"></i></div></div>
+          <div class="kpi-card-value">1</div>
+          <div class="kpi-card-meta">Needs investigation</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-header"><div class="kpi-card-label">Experiments Run</div><div class="kpi-card-icon purple"><i data-lucide="flask-conical" width="15" height="15"></i></div></div>
+          <div class="kpi-card-value">7</div>
+          <div class="kpi-card-meta">All time</div>
+        </div>
+      </div>
+
+      <!-- Optimizer proposal -->
+      <div class="panel" id="optimizer-proposal-panel">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="sparkles" width="14" height="14"></i> Active Proposal</div>
+          <span class="badge badge-amber">Pending Review</span>
+        </div>
+        <div class="panel-body" id="optimizer-proposal-body">
+          <div style="margin-bottom:var(--space-4)">
+            <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-2)">EMA Pullback — Stop Loss Expansion</div>
+            <p class="text-secondary" style="font-size:13px;line-height:1.7">Recent market conditions show increased volatility on USD pairs. Forward-testing data over the last 14 days indicates an optimal stop-loss expansion of 15% is required to avoid premature wick-outs.</p>
+          </div>
+          <div class="panel" style="background:var(--bg-elevated);margin-bottom:var(--space-4)">
+            <div class="panel-body">
+              <table class="data-table">
+                <thead><tr><th>Parameter</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="td-primary">Stop Loss ATR Multiplier</td>
+                    <td class="mono">1.5</td>
+                    <td class="mono text-green">1.8</td>
+                    <td><span class="badge badge-amber">+20%</span></td>
+                  </tr>
+                  <tr>
+                    <td class="td-primary">Target Risk:Reward</td>
+                    <td class="mono">2.4</td>
+                    <td class="mono text-red">2.0</td>
+                    <td><span class="badge badge-amber">-17%</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style="display:flex;gap:var(--space-3)">
+            <button class="btn btn-primary" id="optimizer-approve"><i data-lucide="check" width="14" height="14"></i> Approve &amp; Create v2</button>
+            <button class="btn btn-secondary"><i data-lucide="edit" width="14" height="14"></i> Improve</button>
+            <button class="btn btn-danger"><i data-lucide="x" width="14" height="14"></i> Reject</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: BACKTESTS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-backtests">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Backtests</h1>
+          <p class="page-subtitle">Walk-forward validation results and backtest history</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="flask-conical" width="14" height="14"></i> WFO Backtest Results</div>
+        </div>
+        <div class="panel-body-flush">
+          <table class="data-table" id="backtest-table">
+            <thead>
+              <tr>
+                <th>Strategy</th><th>Period</th><th>Verdict</th>
+                <th>Win Rate</th><th>Exp R</th><th>Std</th>
+                <th>Folds</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="backtest-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: LOGS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-logs">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Logs</h1>
+          <p class="page-subtitle">Trading engine audit trail and signal feed</p>
+        </div>
+        <div class="page-actions">
+          <select id="log-filter-level" class="btn btn-secondary btn-sm" style="padding:6px 12px">
+            <option value="">All Levels</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="terminal" width="14" height="14"></i> Compliance &amp; Audit Log</div>
+        </div>
+        <div class="panel-body-flush" style="max-height:600px;overflow-y:auto" id="logs-container">
+          <div class="table-empty">Loading audit log...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: SYSTEM HEALTH
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-system-health">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">System Health</h1>
+          <p class="page-subtitle">Engine status, broker connections, and infrastructure monitoring</p>
+        </div>
+      </div>
+
+      <div class="kpi-grid-4" id="health-kpis"></div>
+
+      <div class="content-grid-2" id="health-nodes"></div>
+
+      <div class="panel" style="margin-top:var(--space-4)">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="database" width="14" height="14"></i> Data Sources</div>
+        </div>
+        <div class="panel-body" id="health-data-sources"></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         PAGE: SETTINGS
+    ════════════════════════════════════════════════════════ -->
+    <div class="page" id="page-settings">
+      <div class="page-header">
+        <div class="page-title-group">
+          <h1 class="page-title">Settings</h1>
+          <p class="page-subtitle">Dashboard configuration and preferences</p>
+        </div>
+      </div>
+
+      <div class="content-grid-2">
+        <div>
+          <!-- Data connection -->
+          <div class="panel settings-section">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="plug" width="14" height="14"></i> Data Connection</div>
+            </div>
+            <div class="panel-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Data Mode</div>
+                  <div class="settings-row-desc">Current: <strong id="settings-data-mode">Mock (Development)</strong></div>
+                </div>
+                <div class="flex gap-2">
+                  <button class="btn btn-secondary btn-sm" id="toggle-data-mode">Switch to API Mode</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Engine Base URL</div>
+                  <div class="settings-row-desc">Flask server address (default: same origin)</div>
+                </div>
+                <input type="text" placeholder="http://127.0.0.1:8765" id="settings-base-url" style="width:220px">
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Auto-Refresh Interval</div>
+                  <div class="settings-row-desc">How often the dashboard polls the engine</div>
+                </div>
+                <select id="settings-refresh-interval" style="padding:6px 12px">
+                  <option value="2000">2 seconds</option>
+                  <option value="5000" selected>5 seconds</option>
+                  <option value="10000">10 seconds</option>
+                  <option value="30000">30 seconds</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Safety -->
+          <div class="panel settings-section">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="shield" width="14" height="14"></i> Safety Locks</div>
+            </div>
+            <div class="panel-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Read-Only Mode</div>
+                  <div class="settings-row-desc">Prevents any order execution or account mutation from dashboard</div>
+                </div>
+                <div class="toggle on" id="toggle-readonly"></div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">AI Action Approval</div>
+                  <div class="settings-row-desc">Require explicit approval before AI recommendations are acted on</div>
+                </div>
+                <div class="toggle on" id="toggle-ai-approval"></div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Live Strategy Deploy Gate</div>
+                  <div class="settings-row-desc">ENFORCE_LIVE_READY_GATE — prevents unvalidated strategies running live</div>
+                </div>
+                <div class="toggle on" id="toggle-live-gate" style="opacity:0.5;cursor:not-allowed" title="Controlled by engine — cannot be disabled from dashboard"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <!-- About -->
+          <div class="panel settings-section">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="info" width="14" height="14"></i> Engine Info</div>
+            </div>
+            <div class="panel-body">
+              <div class="health-metric"><span class="health-metric-label">Engine</span><span class="health-metric-value">CRAVE Quant v13.1</span></div>
+              <div class="health-metric"><span class="health-metric-label">Dashboard Version</span><span class="health-metric-value">v1.0.0</span></div>
+              <div class="health-metric"><span class="health-metric-label">Git Hash</span><span class="health-metric-value mono" id="settings-git-hash">—</span></div>
+              <div class="health-metric"><span class="health-metric-label">DB Size</span><span class="health-metric-value" id="settings-db-size">—</span></div>
+              <div class="health-metric"><span class="health-metric-label">Supported Brokers</span><span class="health-metric-value">MT5, Binance, Zerodha</span></div>
+            </div>
+          </div>
+
+          <!-- Notifications -->
+          <div class="panel settings-section">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="bell" width="14" height="14"></i> Notifications</div>
+            </div>
+            <div class="panel-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Circuit Breaker Alerts</div>
+                  <div class="settings-row-desc">Show alert when circuit breaker fires</div>
+                </div>
+                <div class="toggle on"></div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">High-Impact News Alerts</div>
+                  <div class="settings-row-desc">Alert 15 min before high-impact events</div>
+                </div>
+                <div class="toggle on"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     DATA LAYER
+═══════════════════════════════════════════════════════════════ -->
+<script src="js/data/mock-provider.js"></script>
+<script src="js/data/api-provider.js"></script>
+<script src="js/data/data-service.js"></script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     APP SCRIPT
+═══════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ── Chart.js global config ──────────────────────────────────
+Chart.defaults.color          = '#64748b';
+Chart.defaults.borderColor    = 'rgba(255,255,255,0.06)';
+Chart.defaults.font.family    = "'Inter', sans-serif";
+Chart.defaults.font.size      = 11;
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.plugins.tooltip.backgroundColor = '#1a2232';
+Chart.defaults.plugins.tooltip.borderColor     = 'rgba(255,255,255,0.1)';
+Chart.defaults.plugins.tooltip.borderWidth     = 1;
+Chart.defaults.plugins.tooltip.padding         = 10;
+Chart.defaults.plugins.tooltip.titleColor      = '#f1f5f9';
+Chart.defaults.plugins.tooltip.bodyColor       = '#94a3b8';
+
+// ── Lucide init ─────────────────────────────────────────────
+lucide.createIcons();
+
+// ── Chart registry ──────────────────────────────────────────
+const charts = {};
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+// ── Router ──────────────────────────────────────────────────
+const pageTitles = {
+  overview:      'Overview',
+  markets:       'Markets',
+  positions:     'Positions',
+  orders:        'Orders',
+  strategies:    'Strategies',
+  accounts:      'Accounts',
+  risk:          'Risk',
+  options:       'Options',
+  analytics:     'Analytics',
+  'ai-chat':     'AI Chat',
+  'ai-council':  'AI Council',
+  'ai-optimizer':'AI Optimizer',
+  backtests:     'Backtests',
+  logs:          'Logs',
+  'system-health':'System Health',
+  settings:      'Settings',
+};
+
+let currentPage = 'overview';
+let loadedPages  = new Set();
+
+function navigateTo(page) {
+  if (!pageTitles[page]) return;
+
+  // Update nav
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  // Update pages
+  document.querySelectorAll('.page').forEach(el => {
+    el.classList.toggle('active', el.id === `page-${page}`);
+  });
+  // Update header
+  document.getElementById('header-page-title').textContent = pageTitles[page];
+  currentPage = page;
+
+  // Trigger load if not loaded
+  if (!loadedPages.has(page)) {
+    loadedPages.add(page);
+    loadPage(page);
+  }
+}
+
+// ── Nav click listeners ────────────────────────────────────
+document.getElementById('sidebar-nav').addEventListener('click', e => {
+  const item = e.target.closest('[data-page]');
+  if (item) { e.preventDefault(); navigateTo(item.dataset.page); }
+});
+document.addEventListener('click', e => {
+  const item = e.target.closest('[data-page]');
+  if (item && !item.closest('#sidebar-nav')) {
+    e.preventDefault(); navigateTo(item.dataset.page);
+  }
+});
+
+// ── Sidebar collapse ────────────────────────────────────────
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  document.getElementById('app').classList.toggle('sidebar-collapsed');
+});
+
+// ── Refresh button ──────────────────────────────────────────
+document.getElementById('refresh-btn').addEventListener('click', () => {
+  DS.invalidate();
+  loadedPages.clear();
+  loadedPages.add(currentPage);
+  loadPage(currentPage);
+});
+
+// ── Live clock ──────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const utc = now.toISOString().slice(11, 19);
+  const ist = new Date(now.getTime() + 5.5 * 3600_000)
+    .toISOString().slice(11, 19);
+  document.getElementById('live-clock').textContent = `${utc} UTC`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Data mode banner ────────────────────────────────────────
+if (DS.isLive()) {
+  const bar = document.getElementById('data-mode-bar');
+  bar.classList.add('live-mode');
+  bar.innerHTML = `<i data-lucide="wifi" width="14" height="14"></i> <strong>Live Mode</strong> — Connected to CRAVE trading engine at ${ApiProvider.BASE_URL || 'same origin'}`;
+  document.getElementById('data-status-text').textContent = 'Live';
+  document.getElementById('data-status-dot').className = 'status-dot live';
+  document.getElementById('data-status-chip').classList.add('live');
+  document.getElementById('data-status-chip').classList.remove('paper');
+  lucide.createIcons();
+}
+
+// ── Tab switching ───────────────────────────────────────────
+document.addEventListener('click', e => {
+  const tabBtn = e.target.closest('.tab-btn[data-tab]');
+  if (!tabBtn) return;
+  const tabBar = tabBtn.closest('.tab-bar');
+  tabBar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  tabBtn.classList.add('active');
+  const panelId = tabBtn.dataset.tab;
+  tabBtn.closest('.page').querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === panelId);
+  });
+});
+
+// ── Toggles ─────────────────────────────────────────────────
+document.querySelectorAll('.toggle:not(#toggle-live-gate)').forEach(t => {
+  t.addEventListener('click', () => t.classList.toggle('on'));
+});
+
+// ══════════════════════════════════════════════════════════════
+//  PAGE LOADERS
+// ══════════════════════════════════════════════════════════════
+
+async function loadPage(page) {
+  try {
+    switch (page) {
+      case 'overview':      await loadOverview();     break;
+      case 'markets':       await loadMarkets();      break;
+      case 'positions':     await loadPositions();    break;
+      case 'orders':        await loadOrders();       break;
+      case 'strategies':    await loadStrategies();   break;
+      case 'accounts':      await loadAccounts();     break;
+      case 'risk':          await loadRisk();         break;
+      case 'options':       await loadOptions();      break;
+      case 'analytics':     await loadAnalytics();    break;
+      case 'ai-council':    await loadCouncil();      break;
+      case 'backtests':     await loadBacktests();    break;
+      case 'logs':          await loadLogs();         break;
+      case 'system-health': await loadSystemHealth(); break;
+      case 'settings':      await loadSettings();     break;
+      case 'ai-chat':       initChat();               break;
+      case 'ai-optimizer':  break; // static for now
+    }
+    lucide.createIcons();
+  } catch (err) {
+    console.error(`[Page] ${page} load error:`, err);
+  }
+}
+
+// ── OVERVIEW ────────────────────────────────────────────────
+async function loadOverview() {
+  const [cc, portfolio, equity, calendar, botStatus] = await Promise.all([
+    DS.getCommandCenter(),
+    DS.getPortfolio(),
+    DS.getEquityCurve(30),
+    DS.getPnLCalendar(),
+    DS.getBotStatus ? DS.getBotStatus() : Promise.resolve({}),
+  ]);
+
+  const fmt = DS.fmt;
+
+  // Compute derived
+  const totalEquity = portfolio.total_equity || cc.equity || 0;
+  const balance     = cc.balance || 0;
+  const todayPnl    = cc.today_pnl || 0;
+  const unrealized  = cc.unrealized || 0;
+  const openPos     = (cc.open_positions || 0) + (cc.paper_positions || 0);
+
+  // Bot / trading mode from real engine
+  const botSt       = botStatus.bot_status || (cc.bot_running ? 'RUNNING' : 'UNKNOWN');
+  const tradingMode = botStatus.trading_mode || (cc.trading_mode || 'PAPER').toUpperCase();
+  const botColor    = botSt === 'RUNNING' ? 'green' : botSt === 'HALTED' ? 'red' : 'amber';
+  const botValClass = botSt === 'RUNNING' ? 'positive' : 'negative';
+
+  // Drawdown (approximate from balance vs equity delta)
+  const drawdown = Math.abs(Math.min(0, (balance - totalEquity) / (balance || 1) * 100)) || 0;
+
+  // Exposure %
+  const exposure = portfolio.exposure || [];
+  const exposurePct = exposure.reduce((a, e) => a + e.pct, 0);
+
+  // Margin from first MT5 account
+  const mt5Acc = (portfolio.accounts || []).find(a => a.type !== 'paper');
+  const marginPct = mt5Acc ? Math.round((mt5Acc.margin || 0) / (mt5Acc.equity || 1) * 100) : 0;
+
+  // Active strategies: count live-ready ones
+  const activeStrats = 2; // Updated when strategies page loads
+
+  // KPI Row 1
+  document.getElementById('kpi-row-1').innerHTML = buildKpiCards([
+    { label: 'Total Equity',  value: fmt.currency(totalEquity, 'USD', true), icon: 'dollar-sign', iconClass: 'blue', meta: `Balance: ${fmt.currency(balance, 'USD', true)}` },
+    { label: 'Available Balance', value: fmt.currency(mt5Acc?.free_margin || balance, 'USD', true), icon: 'banknote', iconClass: 'green', meta: 'Free margin' },
+    { label: "Today's P&L",   value: fmt.currency(todayPnl), icon: 'trending-up', iconClass: todayPnl >= 0 ? 'green' : 'red', valueClass: todayPnl >= 0 ? 'positive' : 'negative', meta: `Unrealized: ${fmt.currency(unrealized)}` },
+    { label: 'Overall P&L',   value: fmt.currency((mt5Acc?.profit || 0) + (portfolio.accounts?.find(a=>a.type==='paper')?.profit||0), 'USD', true), icon: 'bar-chart-2', iconClass: 'purple', meta: 'All accounts' },
+    { label: 'Drawdown',      value: fmt.pct(-drawdown), icon: 'trending-down', iconClass: 'amber', valueClass: 'negative', meta: 'Current session' },
+  ]);
+
+  // KPI Row 2
+  document.getElementById('kpi-row-2').innerHTML = buildKpiCards([
+    { label: 'Exposure',        value: fmt.pct(exposurePct), icon: 'percent', iconClass: 'cyan', meta: `${exposure.length} instrument(s)` },
+    { label: 'Margin Usage',    value: `${marginPct}%`, icon: 'gauge', iconClass: marginPct > 70 ? 'red' : 'amber', meta: `${fmt.currency(mt5Acc?.margin || 0)} used` },
+    { label: 'Open Positions',  value: String(openPos), icon: 'layers', iconClass: 'blue', meta: `${cc.open_positions||0} live · ${cc.paper_positions||0} paper` },
+    { label: 'Active Strategies', value: String(activeStrats), icon: 'cpu', iconClass: 'purple', meta: '2 live-ready, 3 paper' },
+    { label: 'Bot Status',      value: botSt, icon: 'activity', iconClass: botColor,
+      meta: `${tradingMode} mode · ${cc.ping_ms || 0}ms`, valueClass: botValClass },
+  ]);
+
+  // Update badge count
+  document.getElementById('open-pos-count').textContent = openPos;
+
+  // Subtitle
+  document.getElementById('overview-subtitle').textContent =
+    `Engine ${DS.isMock() ? 'MOCK' : tradingMode + ' mode'} · ${cc.open_positions||0} live · ${cc.paper_positions||0} paper · ${cc.server_time || ''}`;
+  document.getElementById('overview-server-time').textContent = cc.server_time || '';
+
+  // Alerts
+  renderAlerts(cc.alerts || []);
+
+  // Equity curve chart
+  renderEquityChart(equity.data || []);
+
+  // Exposure pie chart
+  renderExposureChart(portfolio.exposure || []);
+
+  // Open positions table
+  renderOverviewPositions([]);  // Will load from execution data
+
+  // Performance
+  if (cc.performance?.win_rate) {
+    document.getElementById('perf-winrate').textContent = `${cc.performance.win_rate}%`;
+    document.getElementById('perf-pf').textContent = cc.performance.profit_factor;
+    document.getElementById('perf-exp').textContent = `+${cc.performance.expectancy_r}R`;
+    document.getElementById('perf-trades').textContent = cc.performance.total_trades;
+  }
+
+  // P&L Calendar
+  renderPnlCalendar(calendar.cells || []);
+
+  // Load positions for overview table
+  const execData = await DS.getExecution();
+  renderOverviewPositions(execData.orders || []);
+}
+
+function buildKpiCards(cards) {
+  return cards.map(c => `
+    <div class="kpi-card animate-fade-in">
+      <div class="kpi-card-header">
+        <div class="kpi-card-label">${c.label}</div>
+        <div class="kpi-card-icon ${c.iconClass || 'blue'}"><i data-lucide="${c.icon}" width="15" height="15"></i></div>
+      </div>
+      <div class="kpi-card-value ${c.valueClass || 'neutral'}">${c.value}</div>
+      <div class="kpi-card-meta">${c.meta || ''}</div>
+    </div>
+  `).join('');
+}
+
+function renderAlerts(alerts) {
+  const el = document.getElementById('overview-alerts');
+  if (!alerts.length) { el.innerHTML = ''; return; }
+  el.innerHTML = alerts.map(a => `
+    <div class="alert-banner alert-${a.level === 'red' ? 'red' : a.level === 'amber' ? 'amber' : 'green'} animate-fade-in">
+      <i data-lucide="${a.level === 'red' ? 'alert-triangle' : 'info'}" width="15" height="15"></i>
+      ${a.text}
+    </div>
+  `).join('');
+}
+
+function renderEquityChart(data) {
+  destroyChart('equity');
+  const ctx = document.getElementById('equity-chart');
+  if (!ctx || !data.length) return;
+
+  const labels  = data.map(d => d.date.slice(5));  // MM-DD
+  const values  = data.map(d => d.equity);
+  const isUp    = values[values.length-1] >= values[0];
+
+  charts.equity = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor:     isUp ? '#10b981' : '#ef4444',
+        backgroundColor: isUp ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { callback: v => '$' + (v/1000).toFixed(0) + 'K' } },
+      },
+      interaction: { mode: 'index', intersect: false },
+    },
+  });
+}
+
+function renderExposureChart(exposure) {
+  destroyChart('exposure');
+  const ctx = document.getElementById('exposure-chart');
+  if (!ctx || !exposure.length) return;
+
+  const colors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#06b6d4','#ef4444'];
+  charts.exposure = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: exposure.map(e => e.symbol),
+      datasets: [{
+        data: exposure.map(e => e.pct),
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: '#0d1117',
+        hoverOffset: 4,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '70%',
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}%` } } },
+    },
+  });
+
+  // Legend
+  const legend = document.getElementById('exposure-legend');
+  if (legend) {
+    legend.innerHTML = exposure.map((e, i) => `
+      <div class="flex items-center justify-between" style="margin-bottom:6px">
+        <div class="flex items-center gap-2">
+          <span style="width:8px;height:8px;border-radius:2px;background:${colors[i]};display:inline-block"></span>
+          <span class="text-sm text-secondary">${e.symbol}</span>
+        </div>
+        <span class="text-sm mono fw-600">${e.pct}%</span>
+      </div>
+    `).join('');
+  }
+}
+
+function renderOverviewPositions(orders) {
+  const tbody = document.querySelector('#overview-positions-table tbody');
+  if (!orders.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No open positions</td></tr>';
+    return;
+  }
+  tbody.innerHTML = orders.map(o => {
+    const pnl = o.profit_dollars || 0;
+    return `<tr>
+      <td class="td-primary">${o.symbol}</td>
+      <td>${DS.fmt.direction(o.direction)}</td>
+      <td class="mono">${DS.fmt.price(o.entry)}</td>
+      <td class="mono">${DS.fmt.price(o.current)}</td>
+      <td class="mono ${pnl >= 0 ? 'td-positive' : 'td-negative'}">${DS.fmt.currency(pnl)}</td>
+      <td><span class="badge badge-muted text-xs">${o.strategy_id || '—'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPnlCalendar(cells) {
+  const el = document.getElementById('pnl-calendar');
+  if (!el) return;
+  el.innerHTML = cells.map(c => {
+    const cls = c.pnl > 50 ? 'pos' : c.pnl < -50 ? 'neg' : 'flat';
+    const sign = c.pnl > 0 ? '+' : '';
+    return `<div class="pnl-cal-day ${cls}" title="${c.date}: ${sign}$${Math.abs(c.pnl).toFixed(0)}">
+      <span>${c.date.slice(8)}</span>
+      <span style="font-size:9px">${sign}${Math.abs(c.pnl) >= 100 ? Math.round(c.pnl/100)+'C' : Math.round(c.pnl)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── MARKETS ─────────────────────────────────────────────────
+async function loadMarkets() {
+  const data = await DS.getMarkets();
+  const fmt = DS.fmt;
+
+  // News bar
+  const soon = (data.news || []).filter(e => e.soon);
+  const newsBar = document.getElementById('markets-news-bar');
+  if (soon.length) {
+    newsBar.innerHTML = soon.map(e =>
+      `<div class="alert-banner alert-amber animate-fade-in">
+        <i data-lucide="clock" width="15" height="15"></i>
+        <strong>${e.currency} — ${e.title}</strong> in ${e.diff_min} min · ${e.time_ist} IST
+      </div>`
+    ).join('');
+  }
+
+  // Market matrix table
+  const tbody = document.querySelector('#markets-table tbody');
+  const matrix = data.matrix || [];
+  tbody.innerHTML = matrix.map(m => {
+    const chg = m.change || 0;
+    return `<tr>
+      <td class="td-primary mono">${m.label || m.symbol}</td>
+      <td class="mono fw-600">${fmt.price(m.price)}</td>
+      <td class="mono text-muted">${fmt.price(m.bid)}</td>
+      <td class="mono text-muted">${fmt.price(m.ask)}</td>
+      <td class="mono">${(m.spread || 0).toFixed(1)}</td>
+      <td class="mono ${chg >= 0 ? 'td-positive' : 'td-negative'}">${fmt.pct(chg, 3)}</td>
+      <td>${fmt.bias(m.bias)}</td>
+      <td>${fmt.regime(m.regime)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" class="table-empty">No market data available</td></tr>';
+
+  // Filter
+  document.getElementById('market-filter').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('#markets-table tbody tr').forEach(tr => {
+      tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+
+  // News table
+  const newsTbody = document.querySelector('#news-table tbody');
+  newsTbody.innerHTML = (data.news || []).map(ev => `
+    <tr>
+      <td class="td-primary">${ev.title}</td>
+      <td><span class="badge badge-muted">${ev.currency}</span></td>
+      <td><span class="badge ${ev.impact === 'high' ? 'badge-red' : 'badge-amber'}">${ev.impact}</span></td>
+      <td class="mono">${ev.time_utc}</td>
+      <td class="mono">${ev.time_ist || '—'}</td>
+      <td>${ev.soon ? '<span class="badge badge-red">⚠ Soon</span>' : '<span class="badge badge-muted">Upcoming</span>'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="table-empty">No news events</td></tr>';
+}
+
+// ── POSITIONS ────────────────────────────────────────────────
+async function loadPositions() {
+  const data = await DS.getExecution();
+  const fmt = DS.fmt;
+  const orders = data.orders || [];
+
+  // KPIs
+  const totalPnl = orders.reduce((s, o) => s + (o.profit_dollars || 0), 0);
+  const buyCount  = orders.filter(o => o.direction === 'buy').length;
+  const sellCount = orders.filter(o => o.direction === 'sell').length;
+  document.getElementById('positions-kpis').innerHTML = buildKpiCards([
+    { label: 'Open Positions', value: String(orders.length), icon: 'layers', iconClass: 'blue', meta: `${buyCount} long · ${sellCount} short` },
+    { label: 'Unrealized P&L', value: fmt.currency(totalPnl), icon: 'trending-up', iconClass: totalPnl >= 0 ? 'green' : 'red', valueClass: totalPnl >= 0 ? 'positive' : 'negative', meta: 'All open positions' },
+    { label: 'Fill Rate',    value: `${data.fill_stats?.fill_rate || 0}%`, icon: 'check-circle', iconClass: 'purple', meta: `${data.fill_stats?.total_live || 0} live trades total` },
+    { label: 'Last Update',  value: 'Live', icon: 'activity', iconClass: 'green', valueClass: 'positive', meta: DS.fmt.time(new Date().toISOString()) },
+  ]);
+
+  document.getElementById('positions-count').textContent = `${orders.length} position${orders.length !== 1 ? 's' : ''}`;
+
+  const tbody = document.querySelector('#positions-table tbody');
+  tbody.innerHTML = orders.map(o => {
+    const pnl = o.profit_dollars || 0;
+    return `<tr>
+      <td class="mono text-muted">#${o.id}</td>
+      <td class="td-primary fw-600">${o.symbol}</td>
+      <td>${fmt.direction(o.direction)}</td>
+      <td class="mono">${o.volume}</td>
+      <td class="mono">${fmt.price(o.entry)}</td>
+      <td class="mono fw-600">${fmt.price(o.current)}</td>
+      <td class="mono text-muted">${fmt.price(o.sl)}</td>
+      <td class="mono text-muted">${fmt.price(o.tp)}</td>
+      <td class="mono ${(o.pips_moved||0) >= 0 ? 'td-positive' : 'td-negative'}">${(o.pips_moved||0).toFixed(1)}</td>
+      <td class="mono fw-600 ${pnl >= 0 ? 'td-positive' : 'td-negative'}">${fmt.currency(pnl)}</td>
+      <td class="mono ${pnl >= 0 ? 'td-positive' : 'td-negative'}">${fmt.pct(o.profit_pct)}</td>
+      <td><span class="badge badge-muted text-xs">${o.strategy_id || '—'}</span></td>
+      <td class="text-muted">${fmt.time(o.open_time)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="13" class="table-empty">No open positions</td></tr>';
+}
+
+// ── ORDERS ───────────────────────────────────────────────────
+async function loadOrders() {
+  const data = await DS.getExecution();
+  const fmt = DS.fmt;
+  const trades = data.closed_trades || [];
+
+  const totalPnl = trades.reduce((s, t) => s + (t.profit_dollars || 0), 0);
+  const wins  = trades.filter(t => (t.profit_dollars || 0) > 0).length;
+  const losses = trades.filter(t => (t.profit_dollars || 0) < 0).length;
+  document.getElementById('orders-summary').textContent = `${trades.length} trades · WR ${trades.length ? Math.round(wins/trades.length*100) : 0}% · Net ${fmt.currency(totalPnl)}`;
+
+  const tbody = document.querySelector('#orders-table tbody');
+  let stratFilter = '';
+  document.getElementById('orders-filter-strategy').addEventListener('change', e => {
+    stratFilter = e.target.value;
+    renderOrdersTable();
+  });
+
+  function renderOrdersTable() {
+    const filtered = stratFilter ? trades.filter(t => t.strategy_id === stratFilter) : trades;
+    tbody.innerHTML = filtered.map(t => {
+      const pnl = t.profit_dollars || 0;
+      return `<tr>
+        <td class="mono text-muted">#${t.id}</td>
+        <td class="td-primary">${t.symbol}</td>
+        <td>${fmt.direction(t.direction)}</td>
+        <td class="mono">${t.volume}</td>
+        <td class="mono">${fmt.price(t.exit)}</td>
+        <td class="mono fw-600 ${pnl >= 0 ? 'td-positive' : 'td-negative'}">${fmt.currency(pnl)}</td>
+        <td class="mono ${pnl >= 0 ? 'td-positive' : 'td-negative'}">${fmt.pct(t.profit_pct)}</td>
+        <td><span class="badge badge-muted text-xs">${t.strategy_id || '—'}</span></td>
+        <td class="text-muted">${fmt.time(t.close_time)}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="9" class="table-empty">No closed trades</td></tr>';
+  }
+  renderOrdersTable();
+}
+
+// ── STRATEGIES ───────────────────────────────────────────────
+async function loadStrategies() {
+  const data = await DS.getStrategies();
+  const strategies = data.strategies || [];
+  const fmt = DS.fmt;
+
+  // Strategy cards
+  document.getElementById('strategy-cards-grid').innerHTML = strategies.map(s => {
+    const bt = s.static_backtest || {};
+    const isLive = s.live_ready;
+    const pnlClass = (s.overall_pnl || 0) >= 0 ? 'text-green' : 'text-red';
+    return `
+      <div class="strategy-card animate-fade-in" data-strategy="${s.id}">
+        <div class="strategy-card-header">
+          <div>
+            <div class="strategy-card-name">${s.name}</div>
+            <div class="strategy-card-meta">${s.instruments?.slice(0,2).join(', ') || '—'} · ${s.timeframe}</div>
+          </div>
+          <span class="badge ${isLive ? 'badge-green' : 'badge-amber'}">${isLive ? 'Live Ready' : 'Paper Only'}</span>
+        </div>
+        <div class="strategy-stats-grid">
+          <div class="strategy-stat">
+            <div class="strategy-stat-label">Win Rate</div>
+            <div class="strategy-stat-value">${bt.win_rate != null ? bt.win_rate + '%' : '—'}</div>
+          </div>
+          <div class="strategy-stat">
+            <div class="strategy-stat-label">Exp R</div>
+            <div class="strategy-stat-value">${bt.expectancy_r != null ? (bt.expectancy_r > 0 ? '+' : '') + bt.expectancy_r + 'R' : '—'}</div>
+          </div>
+          <div class="strategy-stat">
+            <div class="strategy-stat-label">Max DD</div>
+            <div class="strategy-stat-value ${(s.max_drawdown||0) < -15 ? 'text-red' : 'text-amber'}">${s.max_drawdown != null ? s.max_drawdown + '%' : '—'}</div>
+          </div>
+          <div class="strategy-stat">
+            <div class="strategy-stat-label">Live Trades</div>
+            <div class="strategy-stat-value">${s.trades_db || 0}</div>
+          </div>
+          <div class="strategy-stat">
+            <div class="strategy-stat-label">Today P&L</div>
+            <div class="strategy-stat-value ${(s.today_pnl||0) >= 0 ? 'text-green' : 'text-red'}">${fmt.currency(s.today_pnl || 0)}</div>
+          </div>
+          <div class="strategy-stat">
+            <div class="strategy-stat-label">Overall P&L</div>
+            <div class="strategy-stat-value ${pnlClass}">${fmt.currency(s.overall_pnl || 0, 'USD', true)}</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-muted">${s.backtest_period || 'Not tested'}</span>
+          <button class="btn btn-ghost btn-sm" onclick="showStrategyDetail('${s.id}','${s.name}')">
+            <i data-lucide="info" width="12" height="12"></i> Details
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Table view
+  const tbody = document.querySelector('#strategies-table-el tbody');
+  tbody.innerHTML = strategies.map(s => {
+    const bt = s.static_backtest || {};
+    return `<tr>
+      <td class="td-primary">${s.name}</td>
+      <td>${s.instruments?.slice(0,1).join(', ') || '—'}</td>
+      <td class="mono">${s.timeframe}</td>
+      <td class="mono">${s.trades_db || 0}</td>
+      <td class="mono">${bt.win_rate != null ? bt.win_rate + '%' : '—'}</td>
+      <td class="mono ${(bt.expectancy_r||0) >= 0.2 ? 'td-positive' : 'td-negative'}">${bt.expectancy_r != null ? (bt.expectancy_r > 0 ? '+' : '') + bt.expectancy_r + 'R' : '—'}</td>
+      <td class="mono ${(s.max_drawdown||0) < -15 ? 'td-negative' : ''}">${s.max_drawdown != null ? s.max_drawdown + '%' : '—'}</td>
+      <td><span class="badge badge-muted">${s.eligible || 'Unknown'}</span></td>
+      <td><span class="badge ${s.live_ready ? 'badge-green' : 'badge-amber'}">${s.live_ready ? '✓ Live' : '◌ Paper'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── ACCOUNTS ─────────────────────────────────────────────────
+async function loadAccounts() {
+  const data = await DS.getAccounts();
+  const accounts = data.accounts || [];
+  const fmt = DS.fmt;
+
+  // Aggregated KPIs
+  const totalEquity = accounts.reduce((s, a) => s + (a.equity || 0), 0);
+  const totalPnl    = accounts.reduce((s, a) => s + (a.overall_pnl || a.profit || 0), 0);
+  const totalPos    = accounts.reduce((s, a) => s + (a.open_positions || 0), 0);
+  const liveCount   = accounts.filter(a => a.connected).length;
+
+  document.getElementById('accounts-agg-kpis').innerHTML = buildKpiCards([
+    { label: 'Total Equity',    value: fmt.currency(totalEquity, 'USD', true), icon: 'dollar-sign', iconClass: 'blue', meta: `${accounts.length} accounts` },
+    { label: 'Total P&L',      value: fmt.currency(totalPnl, 'USD', true), icon: 'trending-up', iconClass: totalPnl >= 0 ? 'green' : 'red', valueClass: totalPnl >= 0 ? 'positive' : 'negative', meta: 'All accounts combined' },
+    { label: 'Open Positions', value: String(totalPos), icon: 'layers', iconClass: 'purple', meta: 'Across all accounts' },
+    { label: 'Connected',      value: `${liveCount}/${accounts.length}`, icon: 'wifi', iconClass: liveCount > 0 ? 'green' : 'amber', meta: 'Active broker connections' },
+  ]);
+
+  // Account cards
+  document.getElementById('accounts-list').innerHTML = accounts.map(a => {
+    const typeColor = a.type === 'prop_firm' ? 'badge-red' : a.type === 'paper' ? 'badge-purple' : 'badge-blue';
+    const pnl = a.overall_pnl || a.profit || 0;
+    return `
+      <div class="panel animate-fade-in">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">
+              <span class="status-dot ${a.connected ? 'live' : 'offline'}"></span>
+              ${a.name}
+            </div>
+            <div class="panel-subtitle">${a.server || ''} · ID: ${a.id}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <span class="badge ${typeColor}">${a.type?.replace('_', ' ') || 'Unknown'}</span>
+            <span class="badge ${a.connected ? 'badge-green' : 'badge-muted'}">${a.connected ? 'Connected' : 'Offline'}</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="kpi-grid-4" style="margin-bottom:var(--space-4)">
+            ${buildKpiCards([
+              { label: 'Balance',  value: fmt.currency(a.balance, 'USD', true), icon: 'banknote', iconClass: 'blue', meta: a.currency || 'USD' },
+              { label: 'Equity',   value: fmt.currency(a.equity,  'USD', true), icon: 'dollar-sign', iconClass: 'green', meta: `Margin: ${fmt.currency(a.margin||0)}` },
+              { label: "Today P&L", value: fmt.currency(a.today_pnl||0), icon: 'trending-up', iconClass: (a.today_pnl||0)>=0 ? 'green' : 'red', valueClass: (a.today_pnl||0)>=0?'positive':'negative', meta: 'Realized + unrealized' },
+              { label: 'Overall P&L', value: fmt.currency(pnl, 'USD', true), icon: 'bar-chart-2', iconClass: pnl>=0?'green':'red', valueClass: pnl>=0?'positive':'negative', meta: `DD: ${a.drawdown_pct || 0}%` },
+            ])}
+          </div>
+          <div class="flex items-center gap-4 text-sm text-muted">
+            <span>Positions: <strong class="text-primary">${a.open_positions || 0}</strong></span>
+            <span>Risk: <span class="badge ${a.risk_status === 'ok' ? 'badge-green' : 'badge-red'}">${a.risk_status || '—'}</span></span>
+            <span>Strategies: <strong class="text-primary">${Array.isArray(a.strategies_enabled) && a.strategies_enabled[0] === 'all' ? 'All' : (a.strategies_enabled||[]).length}</strong></span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') || '<div class="empty-state"><div class="empty-icon"><i data-lucide="wallet" width="24" height="24"></i></div><div class="empty-title">No accounts configured</div><div class="empty-desc">Add a broker account to get started.</div></div>';
+}
+
+// ── RISK ─────────────────────────────────────────────────────
+async function loadRisk() {
+  const data = await DS.getRisk();
+  const fmt = DS.fmt;
+
+  const dd = data.daily_loss_pct || 0;
+  const limit = data.daily_loss_limit || 4;
+  const ddPct = Math.min(100, (dd / limit * 100));
+
+  document.getElementById('risk-kpis').innerHTML = buildKpiCards([
+    { label: 'Daily Loss', value: fmt.pct(-dd), icon: 'trending-down', iconClass: dd > 2 ? 'red' : 'amber', valueClass: 'negative', meta: `Limit: ${fmt.pct(-limit)}` },
+    { label: 'Circuit Breaker', value: data.circuit_breaker ? 'ACTIVE' : 'Armed', icon: 'zap', iconClass: data.circuit_breaker ? 'red' : 'green', valueClass: data.circuit_breaker ? 'negative' : 'positive', meta: data.circuit_breaker ? 'Trading halted' : 'Monitoring' },
+    { label: 'Consecutive Losses', value: String(data.consecutive_losses || 0), icon: 'repeat', iconClass: (data.consecutive_losses||0) >= 3 ? 'red' : 'amber', meta: `Max: 5` },
+    { label: 'Live Win Rate', value: `${data.live_win_rate || '—'}%`, icon: 'percent', iconClass: 'purple', meta: `Backtest: ${data.backtest_win_rate || '—'}%` },
+  ]);
+
+  // Risk flags
+  const flagsEl = document.getElementById('risk-flags');
+  flagsEl.innerHTML = (data.flags || []).map(f => `
+    <div class="risk-flag ${f.ok ? 'ok' : 'danger'}" style="margin-bottom:var(--space-2)">
+      <span class="risk-flag-icon">${f.ok ? '✅' : '⚠️'}</span>
+      <span class="risk-flag-text">${f.text}</span>
+    </div>
+  `).join('') || '<div class="text-muted text-sm">No risk flags</div>';
+
+  // Exposure pie
+  destroyChart('risk-exposure');
+  const ctx = document.getElementById('risk-exposure-chart');
+  if (ctx && (data.exposure||[]).length) {
+    const colors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444'];
+    charts['risk-exposure'] = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: data.exposure.map(e => e.symbol),
+        datasets: [{ data: data.exposure.map(e => e.pct), backgroundColor: colors, borderWidth: 2, borderColor: '#0d1117' }],
+      },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { display: true, position: 'bottom', labels: { color: '#64748b', boxWidth: 12, padding: 16 } } } },
+    });
+  }
+
+  // Daily loss bar
+  document.getElementById('risk-daily-loss').innerHTML = `
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-label">
+        <span>Daily Loss: ${fmt.pct(-dd)}</span>
+        <span>Limit: ${fmt.pct(-limit)}</span>
+      </div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill ${ddPct > 75 ? 'red' : ddPct > 50 ? 'amber' : 'green'}" style="width:${ddPct}%"></div>
+      </div>
+    </div>
+    <div class="text-sm text-muted" style="margin-top:var(--space-2)">
+      ${fmt.pct(-(limit - dd))} remaining before circuit breaker
+    </div>
+  `;
+}
+
+// ── OPTIONS ──────────────────────────────────────────────────
+async function loadOptions() {
+  const data = await DS.getOptions();
+  const spot  = data.spot  || 26084;
+  const vix   = data.vix   || 14.82;
+
+  document.getElementById('options-kpis').innerHTML = buildKpiCards([
+    { label: 'NIFTY Spot',  value: spot.toLocaleString(), icon: 'trending-up', iconClass: 'blue', meta: 'Current index level' },
+    { label: 'India VIX',   value: vix.toFixed(2), icon: 'activity', iconClass: vix > 20 ? 'red' : vix > 15 ? 'amber' : 'green', meta: 'Volatility index' },
+    { label: 'PCR',         value: '0.94', icon: 'bar-chart-2', iconClass: 'purple', meta: 'Put/Call ratio' },
+    { label: 'Max Pain',    value: '26,100', icon: 'target', iconClass: 'amber', meta: 'Options max pain level' },
+  ]);
+
+  const chain = data.chain || [];
+  const tbody = document.querySelector('#options-table tbody');
+  tbody.innerHTML = chain.map(row => {
+    const isATM = Math.abs(row.strike - spot) < 60;
+    const atm = isATM ? ' class="atm"' : '';
+    return `<tr>
+      <td${atm} class="mono text-secondary">${row.ce_iv?.toFixed(1)}%</td>
+      <td${atm} class="mono">${row.ce_delta?.toFixed(2)}</td>
+      <td${atm} class="mono text-muted">${(row.ce_oi/1000).toFixed(0)}K</td>
+      <td${atm} class="mono td-positive fw-600">${row.ce_ltp?.toFixed(1)}</td>
+      <td${atm} class="td-primary fw-700 mono" style="text-align:center;background:var(--bg-elevated)">${row.strike?.toLocaleString()}</td>
+      <td${atm} class="mono td-negative fw-600">${row.pe_ltp?.toFixed(1)}</td>
+      <td${atm} class="mono text-muted">${(row.pe_oi/1000).toFixed(0)}K</td>
+      <td${atm} class="mono">${row.pe_delta?.toFixed(2)}</td>
+      <td${atm} class="mono text-secondary">${row.pe_iv?.toFixed(1)}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="9" class="table-empty">No option chain data available</td></tr>';
+}
+
+// ── ANALYTICS ────────────────────────────────────────────────
+async function loadAnalytics() {
+  const exec = await DS.getExecution();
+  const fmt  = DS.fmt;
+  const trades = exec.closed_trades || [];
+
+  const wins   = trades.filter(t => (t.profit_dollars||0) > 0);
+  const losses = trades.filter(t => (t.profit_dollars||0) < 0);
+  const totalPnl = trades.reduce((s,t) => s+(t.profit_dollars||0), 0);
+  const wr = trades.length ? (wins.length/trades.length*100) : 0;
+  const avgWin  = wins.length ? wins.reduce((s,t) => s+t.profit_dollars, 0) / wins.length : 0;
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s,t) => s+t.profit_dollars, 0) / losses.length) : 0;
+  const pf = avgLoss > 0 ? avgWin * (wr/100) / (avgLoss * (1-wr/100)) : 0;
+
+  document.getElementById('analytics-kpis').innerHTML = buildKpiCards([
+    { label: 'Total P&L', value: fmt.currency(totalPnl), icon: 'dollar-sign', iconClass: totalPnl>=0?'green':'red', valueClass: totalPnl>=0?'positive':'negative', meta: `${trades.length} trades` },
+    { label: 'Win Rate',  value: fmt.pct(wr, 1), icon: 'percent', iconClass: 'blue', meta: `${wins.length}W · ${losses.length}L` },
+    { label: 'Profit Factor', value: pf.toFixed(2), icon: 'bar-chart-2', iconClass: pf >= 1.5 ? 'green' : 'amber', meta: 'Gross win / gross loss' },
+    { label: 'Avg Win', value: fmt.currency(avgWin), icon: 'trending-up', iconClass: 'green', meta: `Avg Loss: ${fmt.currency(-avgLoss)}` },
+  ]);
+
+  // P&L Distribution chart
+  destroyChart('pnl-dist');
+  const pnlCtx = document.getElementById('pnl-dist-chart');
+  if (pnlCtx) {
+    const pnls = trades.map(t => t.profit_dollars||0).sort((a,b) => a-b);
+    charts['pnl-dist'] = new Chart(pnlCtx, {
+      type: 'bar',
+      data: {
+        labels: pnls.map((_, i) => i+1),
+        datasets: [{
+          label: 'P&L',
+          data: pnls,
+          backgroundColor: pnls.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'),
+          borderRadius: 2,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { callback: v => '$'+v.toFixed(0) } } },
+      },
+    });
+  }
+
+  // Strategy W/L chart
+  destroyChart('strategy-wl');
+  const stratCtx = document.getElementById('strategy-wl-chart');
+  if (stratCtx) {
+    const stratMap = {};
+    trades.forEach(t => {
+      if (!stratMap[t.strategy_id]) stratMap[t.strategy_id] = { w: 0, l: 0 };
+      if ((t.profit_dollars||0) >= 0) stratMap[t.strategy_id].w++;
+      else stratMap[t.strategy_id].l++;
+    });
+    const labels = Object.keys(stratMap).filter(k => k && k !== 'undefined').slice(0, 5);
+    charts['strategy-wl'] = new Chart(stratCtx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Wins',   data: labels.map(k => stratMap[k]?.w||0), backgroundColor: 'rgba(16,185,129,0.7)', borderRadius: 3 },
+          { label: 'Losses', data: labels.map(k => stratMap[k]?.l||0), backgroundColor: 'rgba(239,68,68,0.7)',  borderRadius: 3 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, labels: { color: '#94a3b8', boxWidth: 10 } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxRotation: 25 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { stepSize: 1 } },
+        },
+      },
+    });
+  }
+
+  // Trade history table
+  const tbody = document.querySelector('#analytics-trades-table tbody');
+  tbody.innerHTML = trades.slice(0, 50).map(t => {
+    const pnl = t.profit_dollars || 0;
+    return `<tr>
+      <td class="text-muted">${fmt.time(t.close_time)}</td>
+      <td class="td-primary">${t.symbol}</td>
+      <td>${fmt.direction(t.direction)}</td>
+      <td class="mono fw-600 ${pnl>=0?'td-positive':'td-negative'}">${fmt.currency(pnl)}</td>
+      <td class="mono ${pnl>=0?'td-positive':'td-negative'}">${fmt.pct(t.profit_pct)}</td>
+      <td><span class="badge badge-muted text-xs">${t.strategy_id||'—'}</span></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="table-empty">No trades found</td></tr>';
+}
+
+// ── AI COUNCIL ───────────────────────────────────────────────
+async function loadCouncil() {
+  const data = await DS.getIntelligence();
+  const council = data.council || [];
+  const fmt = DS.fmt;
+
+  const agentMap = {
+    'Quant':           { cls: 'quant',     role: 'Data Scientist',   icon: 'Q' },
+    'Sentiment':       { cls: 'sentiment', role: 'Macro Analyst',    icon: 'S' },
+    "Devil's Advocate":{ cls: 'devil',     role: 'Contrarian',       icon: 'D' },
+    'Risk':            { cls: 'risk',      role: 'Risk Manager',     icon: 'R' },
+    'Risk Manager':    { cls: 'risk',      role: 'Risk Manager',     icon: 'R' },
+    'Director':        { cls: 'director',  role: 'Portfolio Manager',icon: '★' },
+    'Quant Agent':     { cls: 'quant',     role: 'Quant',            icon: 'Q' },
+  };
+
+  const flow = document.getElementById('council-flow');
+  flow.innerHTML = council.map(msg => {
+    const agent = agentMap[msg.agent] || { cls: 'quant', role: 'Agent', icon: msg.agent[0] };
+    return `
+      <div class="council-msg">
+        <div class="council-agent-avatar ${agent.cls}">${agent.icon}</div>
+        <div class="council-msg-body">
+          <div class="council-msg-header">
+            <span class="council-agent-name">${msg.agent}</span>
+            <span class="council-agent-role">${agent.role}</span>
+            <span class="text-muted" style="margin-left:auto;font-size:11px">${msg.time}</span>
+          </div>
+          <div class="council-msg-text">${msg.text}</div>
+        </div>
+      </div>
+    `;
+  }).join('') || '<div class="empty-state"><div class="empty-icon">🤖</div><div class="empty-title">No council session yet</div></div>';
+
+  // Signals table
+  const tbody = document.querySelector('#council-signals-table tbody');
+  tbody.innerHTML = (data.signals || []).map(s => `
+    <tr>
+      <td class="text-muted">${fmt.time(s.time)}</td>
+      <td class="td-primary">${s.symbol}</td>
+      <td>${fmt.direction(s.direction)}</td>
+      <td><span class="badge ${s.grade==='A+'?'badge-green':s.grade==='A'?'badge-blue':'badge-amber'}">${s.grade||'—'}</span></td>
+      <td class="mono">${s.confidence || 0}%</td>
+      <td><span class="badge ${s.traded ? 'badge-green' : 'badge-muted'}">${s.traded ? 'Traded' : 'Skipped'}</span></td>
+      <td class="text-muted" style="max-width:180px" title="${s.skip_reason||''}">${s.skip_reason ? s.skip_reason.slice(0,30)+'...' : '—'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="table-empty">No signals</td></tr>';
+
+  // Track record
+  const track = data.ai_track || {};
+  const total = (track.wins||0) + (track.losses||0);
+  const trackWr = total ? Math.round(track.wins/total*100) : 0;
+  document.getElementById('council-track').innerHTML = `
+    <div class="health-metric"><span class="health-metric-label">Council Wins</span><span class="health-metric-value text-green">${track.wins||0}</span></div>
+    <div class="health-metric"><span class="health-metric-label">Council Losses</span><span class="health-metric-value text-red">${track.losses||0}</span></div>
+    <div class="health-metric"><span class="health-metric-label">Council Win Rate</span><span class="health-metric-value">${trackWr}%</span></div>
+    <div class="divider"></div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-label"><span>Win Rate</span><span>${trackWr}%</span></div>
+      <div class="progress-bar-track"><div class="progress-bar-fill ${trackWr >= 50 ? 'green' : 'red'}" style="width:${trackWr}%"></div></div>
+    </div>
+  `;
+}
+
+// ── BACKTESTS ────────────────────────────────────────────────
+async function loadBacktests() {
+  const data = await DS.getStrategies();
+  const tbody = document.getElementById('backtest-tbody');
+  tbody.innerHTML = (data.strategies || []).map(s => {
+    const bt = s.static_backtest || {};
+    const isStable = (bt.expectancy_r||0) >= 0.2;
+    const verdict  = !bt.expectancy_r ? 'Not Tested' : isStable ? 'STABLE' : 'INCONSISTENT';
+    const folds    = bt.trades_per_fold ? '3-fold WFO' : '—';
+    return `<tr>
+      <td class="td-primary">${s.name}</td>
+      <td class="text-muted">${s.backtest_period || '—'}</td>
+      <td><span class="badge ${verdict==='STABLE'?'badge-green':verdict==='INCONSISTENT'?'badge-red':'badge-muted'}">${verdict}</span></td>
+      <td class="mono">${bt.win_rate != null ? bt.win_rate + '%' : '—'}</td>
+      <td class="mono ${(bt.expectancy_r||0)>=0.2?'td-positive':bt.expectancy_r != null?'td-negative':''}">${bt.expectancy_r != null ? (bt.expectancy_r>0?'+':'')+bt.expectancy_r+'R' : '—'}</td>
+      <td class="mono text-muted">${bt.expectancy_std != null ? '±'+bt.expectancy_std+'R' : '—'}</td>
+      <td class="text-muted">${folds}</td>
+      <td><span class="badge ${s.live_ready?'badge-green':s.paper_only?'badge-amber':'badge-muted'}">${s.live_ready?'Live Ready':s.paper_only?'Paper Only':'Staging'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── LOGS ─────────────────────────────────────────────────────
+async function loadLogs() {
+  const data = await DS.getCompliance();
+  const container = document.getElementById('logs-container');
+  const audit = data.audit || [];
+  container.innerHTML = audit.map(a => {
+    const isError = a.event?.toLowerCase().includes('blocked') || a.event?.toLowerCase().includes('error');
+    const isWarn  = a.grade && a.grade !== '—' && (a.r_mult || 0) < 0;
+    const level   = isError ? 'WARN' : 'INFO';
+    return `
+      <div class="log-line">
+        <span class="log-time">${a.time || '—'}</span>
+        <span class="log-level ${level}">${level}</span>
+        <span class="log-msg">[${a.actor || '?'}] ${a.event || '—'} ${a.grade && a.grade !== '—' ? `| Grade: ${a.grade}` : ''} ${a.r_mult != null ? `| ${a.r_mult > 0 ? '+' : ''}${a.r_mult}R` : ''}</span>
+      </div>
+    `;
+  }).join('') || '<div class="table-empty">No audit entries found</div>';
+}
+
+// ── SYSTEM HEALTH ────────────────────────────────────────────
+async function loadSystemHealth() {
+  const data = await DS.getAdmin();
+  const fmt = DS.fmt;
+  const node = (data.nodes || [{}])[0] || {};
+
+  document.getElementById('health-kpis').innerHTML = buildKpiCards([
+    { label: 'Engine Mode',     value: data.engine_mode || '—', icon: 'cpu', iconClass: data.engine_mode === 'LIVE' ? 'green' : 'amber', meta: `Git: ${data.git_hash || '—'}` },
+    { label: 'DB Size',         value: `${(data.db_size_mb || 0).toFixed(1)} MB`, icon: 'database', iconClass: 'blue', meta: 'SQLite trading database' },
+    { label: 'CPU',             value: `${node.cpu_pct?.toFixed(0) || '—'}%`, icon: 'monitor', iconClass: (node.cpu_pct||0) > 80 ? 'red' : 'green', meta: `RAM: ${node.ram_pct?.toFixed(0) || '—'}%` },
+    { label: 'Broker',          value: data.connection?.mt5 ? 'Connected' : 'Offline', icon: 'wifi', iconClass: data.connection?.mt5 ? 'green' : 'red', meta: DS.isMock() ? 'Mock mode' : 'MT5' },
+  ]);
+
+  document.getElementById('health-nodes').innerHTML = `
+    <div class="health-node">
+      <div class="health-node-title"><span class="status-dot ${node.status === 'active' ? 'live' : 'offline'}"></span> ${node.name || 'Node'}</div>
+      <div class="health-metric"><span class="health-metric-label">Status</span><span class="health-metric-value ${node.status === 'active' ? 'text-green' : 'text-red'}">${node.status || '—'}</span></div>
+      <div class="health-metric"><span class="health-metric-label">CPU</span><span class="health-metric-value mono">${node.cpu_pct?.toFixed(1) || '—'}%</span></div>
+      <div class="health-metric"><span class="health-metric-label">RAM</span><span class="health-metric-value mono">${node.ram_pct?.toFixed(1) || '—'}%</span></div>
+      <div class="health-metric"><span class="health-metric-label">Heartbeat</span><span class="health-metric-value">${fmt.ago(data.heartbeat)}</span></div>
+    </div>
+    <div class="health-node">
+      <div class="health-node-title"><i data-lucide="shield" width="14" height="14"></i> Safety Gates</div>
+      <div class="health-metric"><span class="health-metric-label">Live Ready Gate</span><span class="health-metric-value text-green">ENFORCED</span></div>
+      <div class="health-metric"><span class="health-metric-label">Read-Only Mode</span><span class="health-metric-value text-green">ON</span></div>
+      <div class="health-metric"><span class="health-metric-label">AI Action Approval</span><span class="health-metric-value text-green">REQUIRED</span></div>
+      <div class="health-metric"><span class="health-metric-label">Emergency Stop</span><span class="health-metric-value text-muted">Not triggered</span></div>
+    </div>
+  `;
+
+  document.getElementById('health-data-sources').innerHTML = `
+    <div class="health-metric"><span class="health-metric-label">Primary Broker</span><span class="health-metric-value">${data.connection?.mt5 ? '✅ MT5 Connected' : '⚠️ MT5 Offline'}</span></div>
+    <div class="health-metric"><span class="health-metric-label">SQLite Database</span><span class="health-metric-value text-green">✅ ${(data.db_size_mb||0).toFixed(1)} MB</span></div>
+    <div class="health-metric"><span class="health-metric-label">Supabase</span><span class="health-metric-value text-muted">◌ Not connected in mock mode</span></div>
+    <div class="health-metric"><span class="health-metric-label">Market Data</span><span class="health-metric-value">${DS.isMock() ? '⚠️ Mock provider' : '✅ Live prices'}</span></div>
+    <div class="health-metric"><span class="health-metric-label">News Feed</span><span class="health-metric-value text-green">✅ ForexFactory calendar</span></div>
+    <div class="health-metric"><span class="health-metric-label">AI (Jarvis/Council)</span><span class="health-metric-value">${DS.isMock() ? '⚠️ Mock responses' : '✅ Multi-model chain'}</span></div>
+  `;
+}
+
+// ── SETTINGS ─────────────────────────────────────────────────
+async function loadSettings() {
+  const data = await DS.getAdmin();
+  document.getElementById('settings-data-mode').textContent = DS.isMock() ? 'Mock (Development)' : 'API (Live Engine)';
+  document.getElementById('settings-git-hash').textContent = data.git_hash || '—';
+  document.getElementById('settings-db-size').textContent = `${(data.db_size_mb || 0).toFixed(2)} MB`;
+
+  document.getElementById('toggle-data-mode').addEventListener('click', () => {
+    const next = DS.isMock() ? 'api' : 'mock';
+    window.CRAVE_DATA_MODE = next;
+    alert(`Reload the page to switch to ${next === 'api' ? 'API (Live Engine)' : 'Mock'} mode.\n\nAdd this before the script tags:\n<script>window.CRAVE_DATA_MODE = '${next}';<\/script>`);
+  });
+}
+
+// ── AI CHAT ──────────────────────────────────────────────────
+function initChat() {
+  const input   = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send');
+  const msgs    = document.getElementById('chat-messages');
+  const clearBtn = document.getElementById('clear-chat');
+
+  async function sendMessage(text) {
+    if (!text.trim()) return;
+    input.value = '';
+    input.style.height = '';
+
+    // User bubble
+    msgs.innerHTML += `
+      <div class="chat-msg user">
+        <div class="chat-msg-avatar user">U</div>
+        <div>
+          <div class="chat-msg-bubble">${text}</div>
+          <div class="chat-msg-meta">${new Date().toLocaleTimeString()}</div>
+        </div>
+      </div>
+    `;
+    msgs.scrollTop = msgs.scrollHeight;
+
+    // Typing indicator
+    const typingId = `typing-${Date.now()}`;
+    msgs.innerHTML += `
+      <div class="chat-msg" id="${typingId}">
+        <div class="chat-msg-avatar ai">J</div>
+        <div><div class="chat-msg-bubble text-muted"><span style="animation:blink 1s infinite">▊</span> Jarvis thinking...</div></div>
+      </div>
+    `;
+    msgs.scrollTop = msgs.scrollHeight;
+
+    try {
+      const cc = await DS.getCommandCenter();
+      const result = await DS.sendChat(text, { equity: cc.equity, balance: cc.balance, unrealized_pnl: cc.unrealized, daily_pnl: cc.today_pnl });
+
+      document.getElementById(typingId)?.remove();
+      msgs.innerHTML += `
+        <div class="chat-msg">
+          <div class="chat-msg-avatar ai">J</div>
+          <div>
+            <div class="chat-msg-bubble">${result.reply}</div>
+            <div class="chat-msg-meta">Jarvis · ${result.model || 'mock'} · ${new Date().toLocaleTimeString()}</div>
+          </div>
+        </div>
+      `;
+    } catch(err) {
+      document.getElementById(typingId)?.remove();
+      msgs.innerHTML += `<div class="chat-msg"><div class="chat-msg-avatar ai">J</div><div><div class="chat-msg-bubble text-red">Error: ${err.message}</div></div></div>`;
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+    lucide.createIcons();
+  }
+
+  sendBtn.addEventListener('click', () => sendMessage(input.value));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input.value); } });
+  input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; });
+  clearBtn.addEventListener('click', () => {
+    msgs.innerHTML = `<div class="chat-msg"><div class="chat-msg-avatar ai">J</div><div><div class="chat-msg-bubble"><strong>Chat cleared.</strong> How can I help you?</div></div></div>`;
+  });
+
+  // Suggested prompts
+  document.querySelectorAll('.chat-prompt').forEach(btn => {
+    btn.addEventListener('click', () => sendMessage(btn.dataset.prompt));
+  });
+}
+
+// ── Auto-refresh (REST polling fallback) ────────────────────
+let refreshTimer = null;
+function startAutoRefresh(interval = 5000) {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(async () => {
+    DS.invalidate('getCommandCenter');
+    if (currentPage === 'overview' && loadedPages.has('overview')) {
+      await loadOverview();
+      lucide.createIcons();
+    }
+  }, interval);
+}
+startAutoRefresh(5000);
+
+// ── Initial page load ────────────────────────────────────────
+navigateTo('overview');
+loadPage('overview');
+
+// ── Re-init icons after any DOM update ─────────────────────
+setInterval(() => lucide.createIcons(), 3000);
+
+// ════════════════════════════════════════════════════════════
+//  REALTIME CONNECTION SETUP
+// ════════════════════════════════════════════════════════════
+
+// Initialise ConnMgr — mock mode when DS is in mock, SSE otherwise
+ConnMgr.init({
+  streamUrl: `${window.CRAVE_API_BASE || ''}/api/stream`,
+  mock: DS.isMock(),
+});
+
+// ── Status change handler ────────────────────────────────────
+ConnMgr.on('status_change', ({ from, to }) => {
+  // When transitioning from stale/reconnecting back to LIVE,
+  // re-render overview to show fresh data
+  if (to === 'LIVE' && (from === 'STALE' || from === 'RECONNECTING' || from === 'CONNECTING')) {
+    DS.invalidate();
+    if (currentPage === 'overview') loadOverview();
+  }
+
+  // Show toast notification for critical transitions
+  if (to === 'DISCONNECTED') {
+    _showToast('Engine disconnected — data frozen', 'error', 0);
+  } else if (to === 'STALE') {
+    _showToast('Data is stale — engine heartbeat overdue', 'warn', 8000);
+  } else if (to === 'LIVE' && from !== 'CONNECTING') {
+    _showToast('Connected to engine', 'success', 3000);
+  }
+});
+
+// ── Heartbeat handler — update header server time live ──────
+ConnMgr.on('heartbeat', (d) => {
+  const el = document.getElementById('overview-server-time');
+  if (el) el.textContent = d.server_time || '';
+
+  // Broker chip
+  const brokerChip = document.getElementById('broker-status-chip');
+  const brokerText = document.getElementById('broker-status-text');
+  if (brokerChip && brokerText) {
+    const isLive = d.mt5 || d.binance || d.zerodha;
+    brokerText.textContent = isLive ? 'Engine Live' : 'Paper Mode';
+    brokerChip.className = `status-chip ${isLive ? 'live' : 'paper'}`;
+  }
+});
+
+// ── P&L push — update KPI cards without full page reload ────
+ConnMgr.on('pnl', (d) => {
+  // Update KPI cards if currently showing overview
+  if (currentPage !== 'overview') return;
+  _liveUpdateKpi('kpi-equity',  DS.fmt.currency(d.equity, 'USD', true));
+  _liveUpdateKpi('kpi-today-pnl', DS.fmt.currency(d.today_pnl), d.today_pnl >= 0 ? 'positive' : 'negative');
+});
+
+// ── Position push — flash table row ─────────────────────────
+ConnMgr.on('position', (d) => {
+  const row = document.querySelector(`tr[data-ticket="${d.ticket}"]`);
+  if (!row) return;
+
+  // Update P&L cell (last td with mono class)
+  const pnlCell = row.querySelector('.live-pnl');
+  if (pnlCell) {
+    const prev = parseFloat(pnlCell.dataset.value || '0');
+    pnlCell.textContent = DS.fmt.currency(d.profit);
+    pnlCell.dataset.value = d.profit;
+    pnlCell.className = `mono fw-600 live-pnl ${d.profit >= 0 ? 'td-positive' : 'td-negative'}`;
+    // Flash green/red on change
+    row.classList.remove('flash-green', 'flash-red');
+    void row.offsetWidth;  // reflow
+    row.classList.add(d.profit >= prev ? 'flash-green' : 'flash-red');
+  }
+
+  // Update current price cell
+  const priceCell = row.querySelector('.live-price');
+  if (priceCell) priceCell.textContent = DS.fmt.price(d.current_price);
+});
+
+// ── Risk push — update risk badge and show alert if critical ─
+ConnMgr.on('risk', (d) => {
+  if (d.circuit_breaker) {
+    _showToast('⚡ Circuit breaker ACTIVE — trading halted', 'error', 0);
+  }
+  // Refresh risk page if open
+  if (currentPage === 'risk') {
+    DS.invalidate('getRisk');
+    loadRisk();
+  }
+});
+
+// ── Toast notification system ────────────────────────────────
+let _toastContainer = null;
+let _activeToast     = null;
+
+function _getToastContainer() {
+  if (!_toastContainer) {
+    _toastContainer = document.createElement('div');
+    _toastContainer.id = 'toast-container';
+    _toastContainer.style.cssText = `
+      position: fixed; top: 70px; right: 20px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none;
+    `;
+    document.body.appendChild(_toastContainer);
+  }
+  return _toastContainer;
+}
+
+function _showToast(msg, type = 'info', duration = 5000) {
+  const colors = {
+    success: { bg: 'rgba(16,185,129,0.15)', border: '#10b981', icon: '✅' },
+    error:   { bg: 'rgba(239,68,68,0.15)',  border: '#ef4444', icon: '🔴' },
+    warn:    { bg: 'rgba(245,158,11,0.15)', border: '#f59e0b', icon: '⚠️' },
+    info:    { bg: 'rgba(59,130,246,0.15)', border: '#3b82f6', icon: 'ℹ️' },
+  };
+  const c = colors[type] || colors.info;
+
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    background: ${c.bg};
+    border: 1px solid ${c.border};
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: #f1f5f9;
+    font-family: 'Inter', sans-serif;
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 260px;
+    max-width: 400px;
+    animation: slideInRight 0.25s ease;
+    cursor: pointer;
+  `;
+  toast.innerHTML = `<span>${c.icon}</span><span>${msg}</span>`;
+  toast.onclick = () => toast.remove();
+
+  _getToastContainer().appendChild(toast);
+
+  if (duration > 0) {
+    setTimeout(() => toast.remove(), duration);
+  }
+  return toast;
+}
+
+// Expose for global access
+window._showToast = _showToast;
+
+// Helper: update a KPI value element by data-kpi attribute
+function _liveUpdateKpi(kpiId, value, cls = null) {
+  const el = document.querySelector(`[data-kpi="${kpiId}"] .kpi-card-value`);
+  if (!el) return;
+  el.textContent = value;
+  if (cls) el.className = `kpi-card-value ${cls}`;
+}
+
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     STRATEGY DETAIL DRAWER  (slide-over panel, not a page redirect)
+═══════════════════════════════════════════════════════════════════════ -->
+<div id="strategy-detail-overlay" style="
+  display:none; position:fixed; inset:0; z-index:200;
+  background:rgba(0,0,0,0.55); backdrop-filter:blur(3px);"
+  onclick="if(event.target===this) closeStrategyDetail()">
+</div>
+<aside id="strategy-detail-drawer" style="
+  display:none; position:fixed; top:0; right:0; bottom:0; z-index:201;
+  width:min(520px,100vw); background:var(--surface-1);
+  border-left:1px solid var(--border-default);
+  box-shadow:-12px 0 40px rgba(0,0,0,0.4);
+  overflow-y:auto; padding:var(--space-6);
+  animation:slideInRight .22s cubic-bezier(.4,0,.2,1);">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-5)">
+    <div>
+      <div id="sd-title" style="font-size:18px;font-weight:700;color:var(--text-primary)">Strategy</div>
+      <div id="sd-sub" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+    </div>
+    <button onclick="closeStrategyDetail()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:6px">
+      <i data-lucide="x" width="20" height="20"></i>
+    </button>
+  </div>
+  <div id="sd-body">
+    <div style="color:var(--text-muted);font-size:13px">Loading…</div>
+  </div>
+</aside>
+
+<style>
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+</style>
+
+<script>
+// ── Strategy Detail Drawer ─────────────────────────────────────────────────
+// Replaces the broken navigateTo('ai-optimizer') redirect.
+// Shows all strategy metrics inline without leaving the strategies page.
+
+function showStrategyDetail(sid, name) {
+  document.getElementById('strategy-detail-overlay').style.display = 'block';
+  document.getElementById('strategy-detail-drawer').style.display  = 'block';
+  document.getElementById('sd-title').textContent = name || 'Strategy';
+  document.getElementById('sd-sub').textContent   = 'ID: ' + sid;
+  document.getElementById('sd-body').innerHTML    = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div>';
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+
+  // Try to load live detail from API, fall back to strategies list
+  (async function() {
+    try {
+      let d = null;
+      if (window.DS && DS.isLive && DS.isLive()) {
+        d = await DS.getStrategyDetail ? DS.getStrategyDetail(sid) : null;
+      }
+      if (!d) {
+        // Grab from cached strategies list
+        const all = await DS.getStrategies();
+        d = (all.strategies || []).find(s => String(s.id) === String(sid)) || {};
+      }
+      renderStrategyDetail(d);
+    } catch(e) {
+      document.getElementById('sd-body').innerHTML =
+        '<div style="color:var(--danger);font-size:13px">Could not load strategy data: ' + e.message + '</div>';
+    }
+  })();
+}
+
+function closeStrategyDetail() {
+  document.getElementById('strategy-detail-overlay').style.display = 'none';
+  document.getElementById('strategy-detail-drawer').style.display  = 'none';
+}
+
+function renderStrategyDetail(s) {
+  if (!s) { document.getElementById('sd-body').innerHTML = '<div style="color:var(--text-muted)">No data</div>'; return; }
+  const bt  = s.static_backtest || {};
+  const fmt = window.DS && DS.fmt ? DS.fmt : { currency: v => '$'+Number(v||0).toFixed(2), pct: v => Number(v||0).toFixed(1)+'%' };
+
+  function row(label, val, cls) {
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border-subtle)">
+      <span style="font-size:12px;color:var(--text-muted)">${label}</span>
+      <span style="font-size:13px;font-weight:600;${cls ? 'color:'+cls : ''}">${val ?? '—'}</span>
+    </div>`;
+  }
+
+  const pnl = s.overall_pnl || 0;
+  const pnlColor = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+
+  document.getElementById('sd-title').textContent = s.name || s.id;
+  document.getElementById('sd-sub').innerHTML =
+    `<span class="badge ${s.live_ready ? 'badge-green' : 'badge-amber'}" style="margin-right:6px">${s.live_ready ? '✓ Live Ready' : '◌ Paper Only'}</span>` +
+    `<span style="color:var(--text-muted)">${(s.instruments||[]).slice(0,3).join(', ')} · ${s.timeframe || ''}</span>`;
+
+  document.getElementById('sd-body').innerHTML = `
+    ${s.description ? `<div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:var(--space-4);padding:10px;background:var(--surface-2);border-radius:var(--radius)">${s.description}</div>` : ''}
+    <div style="margin-bottom:var(--space-4)">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-2)">Backtest Performance</div>
+      ${row('Win Rate',        bt.win_rate != null ? bt.win_rate + '%' : null)}
+      ${row('Expectancy R',   bt.expectancy_r != null ? (bt.expectancy_r > 0 ? '+' : '') + bt.expectancy_r + 'R' : null, bt.expectancy_r >= 0.2 ? 'var(--success)' : 'var(--danger)')}
+      ${row('Std Dev (R)',     bt.expectancy_std != null ? '±' + bt.expectancy_std + 'R' : null)}
+      ${row('Profit Factor',  bt.profit_factor != null ? bt.profit_factor : null)}
+      ${row('Risk:Reward',    bt.rr != null ? '1:' + bt.rr : null)}
+      ${row('Max Drawdown',   bt.max_drawdown != null ? bt.max_drawdown + '%' : null, (bt.max_drawdown||0) < -15 ? 'var(--danger)' : 'var(--warning)')}
+      ${row('Backtest Period',s.backtest_period || null)}
+      ${row('Trades/Fold',    bt.trades_per_fold || bt.sample_trades || null)}
+    </div>
+    <div style="margin-bottom:var(--space-4)">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-2)">Live Performance</div>
+      ${row('Live Trades', s.trades_db != null ? s.trades_db : 0)}
+      ${row('Today P&L',   fmt.currency(s.today_pnl || 0), (s.today_pnl||0) >= 0 ? 'var(--success)' : 'var(--danger)')}
+      ${row('Overall P&L', fmt.currency(pnl), pnlColor)}
+      ${row('Eligibility', s.eligible || null)}
+    </div>
+    <div style="margin-bottom:var(--space-4)">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-2)">Configuration</div>
+      ${row('Instruments', (s.instruments||[]).join(', ') || null)}
+      ${row('Timeframe',   s.timeframe || null)}
+      ${row('Style',       s.style || null)}
+    </div>
+    <div style="margin-top:var(--space-4);padding:12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius);font-size:11px;color:var(--amber-text)">
+      ⚠️ Strategy logic runs exclusively inside the trading engine.<br>
+      This view is read-only monitoring. No changes can be made here.
+    </div>
+  `;
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+// ── Account Change → Re-fetch current page ─────────────────────────────────
+// When the user selects a different account, refresh the active page so it
+// shows that account's data. Cache was already invalidated by account-selector.js.
+window.addEventListener('accountChanged', function(e) {
+  const acct = e.detail;
+  if (!acct) return;
+
+  // Update header indicator
+  const hdrEl = document.getElementById('acct-hdr-name');
+  if (hdrEl) hdrEl.textContent = acct.id === 'ALL' ? 'All Accounts' : (acct.name || acct.id);
+
+  // Re-load the currently visible page
+  const pages = {
+    'overview':     typeof loadOverview    === 'function' ? loadOverview    : null,
+    'portfolio':    typeof loadPortfolio   === 'function' ? loadPortfolio   : null,
+    'positions':    typeof loadPositions   === 'function' ? loadPositions   : null,
+    'accounts':     typeof loadAccounts    === 'function' ? loadAccounts    : null,
+    'risk':         typeof window.riskPage !== 'undefined' ? () => window.riskPage.refresh() : null,
+    'execution':    typeof loadExecution   === 'function' ? loadExecution   : null,
+    'analytics':    typeof loadAnalytics   === 'function' ? loadAnalytics   : null,
+  };
+
+  if (typeof currentPage !== 'undefined' && pages[currentPage]) {
+    console.log('[AccountChanged] Refreshing page:', currentPage, '→ account:', acct.id);
+    pages[currentPage]();
+  }
+
+  // Show account badge in accounts page header if specific account selected
+  const accBanner = document.getElementById('account-scope-banner');
+  if (accBanner) {
+    if (acct.id === 'ALL') {
+      accBanner.style.display = 'none';
+    } else {
+      accBanner.style.display = 'flex';
+      accBanner.innerHTML = `<i data-lucide="user" width="13" height="13"></i>
+        Viewing: <strong style="margin-left:4px">${acct.name || acct.id}</strong>
+        <span style="margin-left:4px;color:var(--text-muted)">(${acct.type || ''})</span>
+        <button onclick="document.getElementById('account-selector').value='ALL';window.accountSelector._onChange('ALL')"
+          style="margin-left:8px;font-size:11px;background:none;border:none;color:var(--accent-secondary);cursor:pointer">
+          ← All Accounts
+        </button>`;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  }
+});
+</script>
+
+</body>
+</html>

@@ -64,6 +64,7 @@ updates_unzipped/
 # Downloaded / generated data
 data/*.parquet
 data/*.db
+data/*.json
 data/historical/
 
 # Executables and installers
@@ -71,6 +72,7 @@ data/historical/
 
 # Scratch / temporary
 *.docx
+*.pdf
 ollama_results.txt
 
 # pytest
