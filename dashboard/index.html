@@ -155,6 +155,10 @@
     /* Analytics page */
     .analytics-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
     @media(max-width:1100px) { .analytics-summary { grid-template-columns: repeat(2,1fr); } }
+
+    /* Candidate strategy card */
+    .strategy-card-candidate { border-color: rgba(139,92,246,0.3) !important; background: rgba(139,92,246,0.04) !important; }
+    .strategy-card-candidate:hover { border-color: rgba(139,92,246,0.5) !important; }
   </style>
 </head>
 <body>
@@ -202,7 +206,7 @@
         <span class="nav-item-icon"><i data-lucide="flask-conical" width="16" height="16"></i></span>
         <span class="nav-item-label">Backtests</span>
       </a>
-      <a class="nav-item" data-page="options" href="#">
+      <a class="nav-item" data-page="options" href="#" style="display:none" aria-hidden="true">
         <span class="nav-item-icon"><i data-lucide="layers" width="16" height="16"></i></span>
         <span class="nav-item-label">Options</span>
       </a>
@@ -277,9 +281,7 @@
       <i data-lucide="wallet" width="14" height="14" style="color:var(--text-muted)"></i>
       <select id="account-select">
         <option value="ALL">All Accounts</option>
-        <option value="84723901">XM-Live01</option>
-        <option value="PAPER">Paper Engine</option>
-        <option value="98012344">FTMO Challenge</option>
+        <!-- Populated from /api/accounts/list_simple on load -->
       </select>
       <i data-lucide="chevron-down" width="13" height="13" style="color:var(--text-muted)"></i>
     </div>
@@ -1125,75 +1127,44 @@
           <h1 class="page-title">AI Optimizer</h1>
           <p class="page-subtitle">Strategy optimization proposals — all changes require explicit approval</p>
         </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm" onclick="loadOptimizer()">
+            <i data-lucide="refresh-cw" width="13" height="13"></i> Refresh
+          </button>
+        </div>
       </div>
 
       <div class="alert-banner alert-amber">
         <i data-lucide="shield-alert" width="16" height="16"></i>
         <div>
-          <strong>Safety Guarantee:</strong> The optimizer never automatically changes a live strategy. All proposals create a new version and require your approval before any testing or deployment.
+          <strong>Safety Guarantee:</strong> The optimizer never automatically changes a live strategy. All proposals create a new version and require your explicit approval before any testing or deployment.
         </div>
       </div>
 
       <div class="kpi-grid-4" id="optimizer-kpis">
-        <div class="kpi-card">
-          <div class="kpi-card-header"><div class="kpi-card-label">Proposals Pending</div><div class="kpi-card-icon blue"><i data-lucide="clock" width="15" height="15"></i></div></div>
-          <div class="kpi-card-value">1</div>
-          <div class="kpi-card-meta">Awaiting review</div>
+        <div class="kpi-card"><div class="kpi-card-header"><div class="kpi-card-label">Pending Candidates</div><div class="kpi-card-icon blue"><i data-lucide="clock" width="15" height="15"></i></div></div><div class="kpi-card-value" id="opt-kpi-pending">—</div><div class="kpi-card-meta">Awaiting review</div></div>
+        <div class="kpi-card"><div class="kpi-card-header"><div class="kpi-card-label">Live-Ready</div><div class="kpi-card-icon green"><i data-lucide="check-circle" width="15" height="15"></i></div></div><div class="kpi-card-value" id="opt-kpi-live">—</div><div class="kpi-card-meta">Of total strategies</div></div>
+        <div class="kpi-card"><div class="kpi-card-header"><div class="kpi-card-label">Needs Optimization</div><div class="kpi-card-icon amber"><i data-lucide="trending-down" width="15" height="15"></i></div></div><div class="kpi-card-value" id="opt-kpi-needs">—</div><div class="kpi-card-meta">Inconsistent WFO</div></div>
+        <div class="kpi-card"><div class="kpi-card-header"><div class="kpi-card-label">Total Strategies</div><div class="kpi-card-icon purple"><i data-lucide="cpu" width="15" height="15"></i></div></div><div class="kpi-card-value" id="opt-kpi-total">—</div><div class="kpi-card-meta">In registry</div></div>
+      </div>
+
+      <!-- Inconsistent strategies panel -->
+      <div class="panel" id="optimizer-inconsistent-panel" style="margin-bottom:var(--space-4)">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="alert-triangle" width="14" height="14"></i> Strategies Needing Optimization</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-card-header"><div class="kpi-card-label">Strategies Reviewed</div><div class="kpi-card-icon green"><i data-lucide="check-circle" width="15" height="15"></i></div></div>
-          <div class="kpi-card-value">4</div>
-          <div class="kpi-card-meta">This week</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-card-header"><div class="kpi-card-label">Strategies Degrading</div><div class="kpi-card-icon amber"><i data-lucide="trending-down" width="15" height="15"></i></div></div>
-          <div class="kpi-card-value">1</div>
-          <div class="kpi-card-meta">Needs investigation</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-card-header"><div class="kpi-card-label">Experiments Run</div><div class="kpi-card-icon purple"><i data-lucide="flask-conical" width="15" height="15"></i></div></div>
-          <div class="kpi-card-value">7</div>
-          <div class="kpi-card-meta">All time</div>
+        <div class="panel-body" id="optimizer-inconsistent-body">
+          <div class="table-empty">Loading…</div>
         </div>
       </div>
 
-      <!-- Optimizer proposal -->
-      <div class="panel" id="optimizer-proposal-panel">
+      <!-- Degrading strategies panel -->
+      <div class="panel" id="optimizer-degrading-panel">
         <div class="panel-header">
-          <div class="panel-title"><i data-lucide="sparkles" width="14" height="14"></i> Active Proposal</div>
-          <span class="badge badge-amber">Pending Review</span>
+          <div class="panel-title"><i data-lucide="trending-down" width="14" height="14"></i> Live Performance Degradation</div>
         </div>
-        <div class="panel-body" id="optimizer-proposal-body">
-          <div style="margin-bottom:var(--space-4)">
-            <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:var(--space-2)">EMA Pullback — Stop Loss Expansion</div>
-            <p class="text-secondary" style="font-size:13px;line-height:1.7">Recent market conditions show increased volatility on USD pairs. Forward-testing data over the last 14 days indicates an optimal stop-loss expansion of 15% is required to avoid premature wick-outs.</p>
-          </div>
-          <div class="panel" style="background:var(--bg-elevated);margin-bottom:var(--space-4)">
-            <div class="panel-body">
-              <table class="data-table">
-                <thead><tr><th>Parameter</th><th>Current</th><th>Proposed</th><th>Change</th></tr></thead>
-                <tbody>
-                  <tr>
-                    <td class="td-primary">Stop Loss ATR Multiplier</td>
-                    <td class="mono">1.5</td>
-                    <td class="mono text-green">1.8</td>
-                    <td><span class="badge badge-amber">+20%</span></td>
-                  </tr>
-                  <tr>
-                    <td class="td-primary">Target Risk:Reward</td>
-                    <td class="mono">2.4</td>
-                    <td class="mono text-red">2.0</td>
-                    <td><span class="badge badge-amber">-17%</span></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div style="display:flex;gap:var(--space-3)">
-            <button class="btn btn-primary" id="optimizer-approve"><i data-lucide="check" width="14" height="14"></i> Approve &amp; Create v2</button>
-            <button class="btn btn-secondary"><i data-lucide="edit" width="14" height="14"></i> Improve</button>
-            <button class="btn btn-danger"><i data-lucide="x" width="14" height="14"></i> Reject</button>
-          </div>
+        <div class="panel-body" id="optimizer-degrading-body">
+          <div class="table-empty">Loading…</div>
         </div>
       </div>
     </div>
@@ -1213,13 +1184,14 @@
         <div class="panel-header">
           <div class="panel-title"><i data-lucide="flask-conical" width="14" height="14"></i> WFO Backtest Results</div>
         </div>
-        <div class="panel-body-flush">
-          <table class="data-table" id="backtest-table">
+        <div class="panel-body-flush" style="overflow-x:auto">
+          <table class="data-table" id="backtest-table" style="min-width:800px">
             <thead>
               <tr>
-                <th>Strategy</th><th>Period</th><th>Verdict</th>
-                <th>Win Rate</th><th>Exp R</th><th>Std</th>
-                <th>Folds</th><th>Status</th>
+                <th>Strategy</th><th>Period</th><th>Trades</th><th>Net P&L</th>
+                <th>Return %</th><th>Max DD</th><th>Sharpe</th>
+                <th>Win Rate</th><th>Exp R</th><th>Verdict</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody id="backtest-tbody"></tbody>
@@ -1510,13 +1482,21 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
   loadPage(currentPage);
 });
 
-// ── Live clock ──────────────────────────────────────────────
+// ── Live clock (IST — Asia/Kolkata UTC+05:30) ───────────────
 function updateClock() {
   const now = new Date();
-  const utc = now.toISOString().slice(11, 19);
-  const ist = new Date(now.getTime() + 5.5 * 3600_000)
-    .toISOString().slice(11, 19);
-  document.getElementById('live-clock').textContent = `${utc} UTC`;
+  try {
+    const istStr = now.toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    });
+    document.getElementById('live-clock').textContent = `${istStr} IST`;
+  } catch(_) {
+    // Fallback: manual offset
+    const ist = new Date(now.getTime() + 5.5 * 3600_000).toISOString().slice(11, 19);
+    document.getElementById('live-clock').textContent = `${ist} IST`;
+  }
 }
 setInterval(updateClock, 1000);
 updateClock();
@@ -1565,7 +1545,7 @@ async function loadPage(page) {
       case 'strategies':    await loadStrategies();   break;
       case 'accounts':      await loadAccounts();     break;
       case 'risk':          await loadRisk();         break;
-      case 'options':       await loadOptions();      break;
+      case 'options':       await loadOptions();      break; // nav item hidden — options page not publicly accessible
       case 'analytics':     await loadAnalytics();    break;
       case 'ai-council':    await loadCouncil();      break;
       case 'backtests':     await loadBacktests();    break;
@@ -1573,7 +1553,7 @@ async function loadPage(page) {
       case 'system-health': await loadSystemHealth(); break;
       case 'settings':      await loadSettings();     break;
       case 'ai-chat':       initChat();               break;
-      case 'ai-optimizer':  break; // static for now
+      case 'ai-optimizer':  await loadOptimizer(); break;
     }
     lucide.createIcons();
   } catch (err) {
@@ -1702,7 +1682,30 @@ function renderAlerts(alerts) {
 function renderEquityChart(data) {
   destroyChart('equity');
   const ctx = document.getElementById('equity-chart');
-  if (!ctx || !data.length) return;
+  if (!ctx) return;
+  if (!data.length) {
+    // Show empty state — canvas parent
+    const wrap = ctx.parentElement;
+    if (wrap) {
+      wrap.style.display = 'flex';
+      wrap.style.alignItems = 'center';
+      wrap.style.justifyContent = 'center';
+      ctx.style.display = 'none';
+      const existing = wrap.querySelector('.equity-empty-msg');
+      if (!existing) {
+        const msg = document.createElement('div');
+        msg.className = 'equity-empty-msg table-empty';
+        msg.style.cssText = 'text-align:center;padding:24px;color:var(--text-muted);font-size:12px;line-height:1.6';
+        msg.innerHTML = '📈 <strong style="display:block;margin-bottom:6px;color:var(--text-secondary)">No Equity History Yet</strong>The equity curve will populate automatically once closed trades are recorded in the database.<br><span style="font-size:10px;opacity:.7">Make sure the bot is running and trades have closed.</span>';
+        wrap.appendChild(msg);
+      }
+    }
+    return;
+  }
+  // Restore canvas if previously hidden
+  ctx.style.display = '';
+  const wrap = ctx.parentElement;
+  if (wrap) { const em = wrap.querySelector('.equity-empty-msg'); if (em) em.remove(); }
 
   const labels  = data.map(d => d.date.slice(5));  // MM-DD
   const values  = data.map(d => d.equity);
@@ -1796,6 +1799,14 @@ function renderOverviewPositions(orders) {
 function renderPnlCalendar(cells) {
   const el = document.getElementById('pnl-calendar');
   if (!el) return;
+  if (!cells.length) {
+    el.innerHTML = `<div style="grid-column:1/-1;padding:28px 16px;text-align:center;color:var(--text-muted);font-size:12px;line-height:1.7">
+      📅 <strong style="display:block;margin-bottom:6px;color:var(--text-secondary)">No Trade History Yet</strong>
+      The P&amp;L calendar will populate once closed trades are recorded.<br>
+      <span style="font-size:10px;opacity:.7">Each cell represents one trading day's realised P&amp;L.</span>
+    </div>`;
+    return;
+  }
   el.innerHTML = cells.map(c => {
     const cls = c.pnl > 50 ? 'pos' : c.pnl < -50 ? 'neg' : 'flat';
     const sign = c.pnl > 0 ? '+' : '';
@@ -1943,23 +1954,49 @@ async function loadOrders() {
 // ── STRATEGIES ───────────────────────────────────────────────
 async function loadStrategies() {
   const data = await DS.getStrategies();
-  const strategies = data.strategies || [];
+  let strategies = data.strategies || [];
   const fmt = DS.fmt;
 
+  // Also fetch candidates and merge them in with a visual badge
+  try {
+    const cands = await fetch('/api/strategies/candidates').then(r => r.ok ? r.json() : {candidates:[]});
+    const candidateList = cands.candidates || [];
+    candidateList.forEach(c => {
+      strategies.push({
+        id: c.id || c.name,
+        name: c.name,
+        instruments: c.instruments ? (Array.isArray(c.instruments) ? c.instruments : [c.instruments]) : ['—'],
+        timeframe: c.timeframe || '—',
+        live_ready: false,
+        _candidate: true,
+        static_backtest: {},
+        trades_db: 0,
+        today_pnl: 0,
+        overall_pnl: 0,
+        backtest_period: 'Pending review',
+        description: c.idea || '',
+      });
+    });
+  } catch(e) { /* no candidates — silent */ }
+
   // Strategy cards
-  document.getElementById('strategy-cards-grid').innerHTML = strategies.map(s => {
+  document.getElementById('strategy-cards-grid').innerHTML = strategies.length ? strategies.map(s => {
     const bt = s.static_backtest || {};
     const isLive = s.live_ready;
+    const isCandidate = s._candidate;
     const pnlClass = (s.overall_pnl || 0) >= 0 ? 'text-green' : 'text-red';
     return `
-      <div class="strategy-card animate-fade-in" data-strategy="${s.id}">
+      <div class="strategy-card animate-fade-in${isCandidate ? ' strategy-card-candidate' : ''}" data-strategy="${s.id}">
         <div class="strategy-card-header">
           <div>
             <div class="strategy-card-name">${s.name}</div>
             <div class="strategy-card-meta">${s.instruments?.slice(0,2).join(', ') || '—'} · ${s.timeframe}</div>
           </div>
-          <span class="badge ${isLive ? 'badge-green' : 'badge-amber'}">${isLive ? 'Live Ready' : 'Paper Only'}</span>
+          ${isCandidate
+            ? '<span class="badge badge-purple">🧪 Candidate</span>'
+            : `<span class="badge ${isLive ? 'badge-green' : 'badge-amber'}">${isLive ? 'Live Ready' : 'Paper Only'}</span>`}
         </div>
+        ${isCandidate && s.description ? `<div style="font-size:11px;color:var(--text-muted);margin:6px 0 8px;padding:8px;background:var(--surface-2);border-radius:var(--radius);line-height:1.4">${s.description}</div>` : ''}
         <div class="strategy-stats-grid">
           <div class="strategy-stat">
             <div class="strategy-stat-label">Win Rate</div>
@@ -1995,22 +2032,22 @@ async function loadStrategies() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('') : '<div class="table-empty" style="padding:40px">No strategies registered yet.</div>';
 
   // Table view
   const tbody = document.querySelector('#strategies-table-el tbody');
   tbody.innerHTML = strategies.map(s => {
     const bt = s.static_backtest || {};
-    return `<tr>
-      <td class="td-primary">${s.name}</td>
+    return `<tr${s._candidate ? ' style="opacity:.75"' : ''}>
+      <td class="td-primary">${s.name}${s._candidate ? ' <span class="badge badge-purple" style="font-size:9px">CAND</span>' : ''}</td>
       <td>${s.instruments?.slice(0,1).join(', ') || '—'}</td>
       <td class="mono">${s.timeframe}</td>
       <td class="mono">${s.trades_db || 0}</td>
       <td class="mono">${bt.win_rate != null ? bt.win_rate + '%' : '—'}</td>
       <td class="mono ${(bt.expectancy_r||0) >= 0.2 ? 'td-positive' : 'td-negative'}">${bt.expectancy_r != null ? (bt.expectancy_r > 0 ? '+' : '') + bt.expectancy_r + 'R' : '—'}</td>
       <td class="mono ${(s.max_drawdown||0) < -15 ? 'td-negative' : ''}">${s.max_drawdown != null ? s.max_drawdown + '%' : '—'}</td>
-      <td><span class="badge badge-muted">${s.eligible || 'Unknown'}</span></td>
-      <td><span class="badge ${s.live_ready ? 'badge-green' : 'badge-amber'}">${s.live_ready ? '✓ Live' : '◌ Paper'}</span></td>
+      <td><span class="badge badge-muted">${s.eligible || (s._candidate ? 'Pending' : 'Unknown')}</span></td>
+      <td><span class="badge ${s._candidate ? 'badge-purple' : s.live_ready ? 'badge-green' : 'badge-amber'}">${s._candidate ? '🧪 Cand' : s.live_ready ? '✓ Live' : '◌ Paper'}</span></td>
     </tr>`;
   }).join('');
 }
@@ -2128,6 +2165,29 @@ async function loadRisk() {
       ${fmt.pct(-(limit - dd))} remaining before circuit breaker
     </div>
   `;
+}
+
+// ── AI Council — Request Review from Strategy Detail ─────────
+async function requestCouncilReview(strategyId, strategyName) {
+  const btn = event?.currentTarget;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Requesting…'; }
+  try {
+    const res = await fetch('/api/intelligence/council', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ strategy_id: strategyId, strategy_name: strategyName, source: 'strategy_detail' })
+    });
+    const data = res.ok ? await res.json() : null;
+    if (data && data.status === 'ok') {
+      alert('✅ Council review requested for ' + strategyName + '.\n\nNavigate to the AI Council page to see the discussion.');
+    } else {
+      alert('Council review queued. Navigate to the AI Council page to see results.');
+    }
+  } catch(e) {
+    alert('Council review request sent (bot must be running to process it).');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="users" width="13" height="13"></i>&nbsp; Request AI Council Review'; lucide.createIcons(); }
+  }
 }
 
 // ── OPTIONS ──────────────────────────────────────────────────
@@ -2290,7 +2350,7 @@ async function loadCouncil() {
   const tbody = document.querySelector('#council-signals-table tbody');
   tbody.innerHTML = (data.signals || []).map(s => `
     <tr>
-      <td class="text-muted">${fmt.time(s.time)}</td>
+      <td class="text-muted">${s.time ? fmtISTFull(s.time) : '—'}</td>
       <td class="td-primary">${s.symbol}</td>
       <td>${fmt.direction(s.direction)}</td>
       <td><span class="badge ${s.grade==='A+'?'badge-green':s.grade==='A'?'badge-blue':'badge-amber'}">${s.grade||'—'}</span></td>
@@ -2324,18 +2384,25 @@ async function loadBacktests() {
     const bt = s.static_backtest || {};
     const isStable = (bt.expectancy_r||0) >= 0.2;
     const verdict  = !bt.expectancy_r ? 'Not Tested' : isStable ? 'STABLE' : 'INCONSISTENT';
-    const folds    = bt.trades_per_fold ? '3-fold WFO' : '—';
+    const netPnl   = bt.net_pnl != null ? DS.fmt.currency(bt.net_pnl) : '—';
+    const retPct   = bt.return_pct != null ? DS.fmt.pct(bt.return_pct) : '—';
+    const maxDd    = bt.max_drawdown != null ? bt.max_drawdown + '%' : '—';
+    const sharpe   = bt.sharpe != null ? (+bt.sharpe).toFixed(2) : '—';
+    const trades   = bt.total_trades || bt.trades || s.trades_db || 0;
     return `<tr>
       <td class="td-primary">${s.name}</td>
       <td class="text-muted">${s.backtest_period || '—'}</td>
-      <td><span class="badge ${verdict==='STABLE'?'badge-green':verdict==='INCONSISTENT'?'badge-red':'badge-muted'}">${verdict}</span></td>
+      <td class="mono">${trades || '—'}</td>
+      <td class="mono ${(bt.net_pnl||0)>=0?'td-positive':'td-negative'}">${netPnl}</td>
+      <td class="mono ${(bt.return_pct||0)>=0?'td-positive':'td-negative'}">${retPct}</td>
+      <td class="mono text-muted">${maxDd}</td>
+      <td class="mono">${sharpe}</td>
       <td class="mono">${bt.win_rate != null ? bt.win_rate + '%' : '—'}</td>
       <td class="mono ${(bt.expectancy_r||0)>=0.2?'td-positive':bt.expectancy_r != null?'td-negative':''}">${bt.expectancy_r != null ? (bt.expectancy_r>0?'+':'')+bt.expectancy_r+'R' : '—'}</td>
-      <td class="mono text-muted">${bt.expectancy_std != null ? '±'+bt.expectancy_std+'R' : '—'}</td>
-      <td class="text-muted">${folds}</td>
+      <td><span class="badge ${verdict==='STABLE'?'badge-green':verdict==='INCONSISTENT'?'badge-red':'badge-muted'}">${verdict}</span></td>
       <td><span class="badge ${s.live_ready?'badge-green':s.paper_only?'badge-amber':'badge-muted'}">${s.live_ready?'Live Ready':s.paper_only?'Paper Only':'Staging'}</span></td>
     </tr>`;
-  }).join('');
+  }).join('') || '<tr><td colspan="11" class="table-empty">No backtest results available</td></tr>';
 }
 
 // ── LOGS ─────────────────────────────────────────────────────
@@ -2349,7 +2416,7 @@ async function loadLogs() {
     const level   = isError ? 'WARN' : 'INFO';
     return `
       <div class="log-line">
-        <span class="log-time">${a.time || '—'}</span>
+        <span class="log-time">${a.time ? fmtISTFull(a.time) + ' IST' : '—'}</span>
         <span class="log-level ${level}">${level}</span>
         <span class="log-msg">[${a.actor || '?'}] ${a.event || '—'} ${a.grade && a.grade !== '—' ? `| Grade: ${a.grade}` : ''} ${a.r_mult != null ? `| ${a.r_mult > 0 ? '+' : ''}${a.r_mult}R` : ''}</span>
       </div>
@@ -2397,6 +2464,76 @@ async function loadSystemHealth() {
   `;
 }
 
+// ── AI OPTIMIZER ─────────────────────────────────────────────
+// ── IST timestamp helper ──────────────────────────────────────
+function fmtIST(dateInput) {
+  try {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    if (isNaN(d)) return String(dateInput || '—');
+    return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  } catch(e) { return String(dateInput || '—'); }
+}
+function fmtISTFull(dateInput) {
+  try {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    if (isNaN(d)) return String(dateInput || '—');
+    return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch(e) { return String(dateInput || '—'); }
+}
+
+// ── AI OPTIMIZER ─────────────────────────────────────────────
+async function loadOptimizer() {
+  try {
+    const raw = await (DS.getOptimizerProposal ? DS.getOptimizerProposal() : fetch('/api/optimizer/propose').then(r=>r.json()));
+    const summary = raw?.summary || {};
+
+    // Update KPI elements
+    const setKpi = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; };
+    setKpi('opt-kpi-pending', summary.pending_candidates ?? '—');
+    setKpi('opt-kpi-live',    summary.live_ready ?? '—');
+    setKpi('opt-kpi-needs',   summary.needs_optimization ?? '—');
+    setKpi('opt-kpi-total',   summary.total_strategies ?? '—');
+
+    // Inconsistent strategies
+    const inc  = raw?.inconsistent_strategies || [];
+    const incEl = document.getElementById('optimizer-inconsistent-body');
+    if (incEl) {
+      incEl.innerHTML = inc.length ? inc.map(s => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${s.strategy_name}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${s.issue}</div>
+          </div>
+          <div style="text-align:right;font-size:12px;font-family:monospace">
+            <span class="badge badge-amber">${s.expectancy_r ? (s.expectancy_r>0?'+':'')+s.expectancy_r+'R' : '—'}</span>
+            <span style="margin-left:6px;color:var(--text-muted)">${s.win_rate ? s.win_rate+'% WR' : ''}</span>
+          </div>
+        </div>
+      `).join('') : '<div class="table-empty">No strategies need optimization right now.</div>';
+    }
+
+    // Degrading strategies
+    const deg = raw?.degrading_strategies || [];
+    const degEl = document.getElementById('optimizer-degrading-body');
+    if (degEl) {
+      degEl.innerHTML = deg.length ? deg.map(s => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${s.strategy_name}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${s.issue}</div>
+          </div>
+          <div style="font-size:12px;font-family:monospace;text-align:right">
+            <span class="text-red">${s.live_win_rate}% live</span>
+            <span style="color:var(--text-muted);margin-left:6px">vs ${s.backtest_win_rate}% BT</span>
+          </div>
+        </div>
+      `).join('') : '<div class="table-empty">No live performance degradation detected.</div>';
+    }
+  } catch(e) {
+    console.error('[Optimizer] load error:', e);
+  }
+}
+
 // ── SETTINGS ─────────────────────────────────────────────────
 async function loadSettings() {
   const data = await DS.getAdmin();
@@ -2429,7 +2566,7 @@ function initChat() {
         <div class="chat-msg-avatar user">U</div>
         <div>
           <div class="chat-msg-bubble">${text}</div>
-          <div class="chat-msg-meta">${new Date().toLocaleTimeString()}</div>
+          <div class="chat-msg-meta">${fmtIST()} IST</div>
         </div>
       </div>
     `;
@@ -2455,7 +2592,7 @@ function initChat() {
           <div class="chat-msg-avatar ai">J</div>
           <div>
             <div class="chat-msg-bubble">${result.reply}</div>
-            <div class="chat-msg-meta">Jarvis · ${result.model || 'mock'} · ${new Date().toLocaleTimeString()}</div>
+            <div class="chat-msg-meta">Jarvis · ${result.model || 'mock'} · ${fmtIST()} IST</div>
           </div>
         </div>
       `;
@@ -2480,11 +2617,13 @@ function initChat() {
   });
 }
 
-// ── Auto-refresh (REST polling fallback) ────────────────────
+// ── Auto-refresh (REST polling fallback when SSE is not LIVE) ──
 let refreshTimer = null;
 function startAutoRefresh(interval = 5000) {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(async () => {
+    // SSE push-loop handles live updates — only poll when connection is degraded
+    if (typeof ConnMgr !== 'undefined' && ConnMgr.getState() === 'LIVE') return;
     DS.invalidate('getCommandCenter');
     if (currentPage === 'overview' && loadedPages.has('overview')) {
       await loadOverview();
@@ -2656,6 +2795,45 @@ function _liveUpdateKpi(kpiId, value, cls = null) {
   if (cls) el.className = `kpi-card-value ${cls}`;
 }
 
+// ── Button event listeners ──────────────────────────────────
+// Add Strategy button
+document.getElementById('add-strategy-btn')?.addEventListener('click', () => {
+  openStrategyCreator();
+});
+
+// Add Account button
+document.getElementById('add-account-btn')?.addEventListener('click', () => {
+  openAccountWizard();
+});
+
+// ── Populate account selector from API ─────────────────────
+async function populateAccountSelector() {
+  try {
+    // Use list_simple endpoint for minimal safe account info
+    const resp = await fetch('/api/accounts/list_simple');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const accounts = data.accounts || [];
+    const sel = document.getElementById('account-select');
+    if (!sel) return;
+    // Remove all options except first (ALL Accounts)
+    while (sel.options.length > 1) sel.remove(1);
+    for (const a of accounts) {
+      if (a.id && a.id !== 'ALL') {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = (a.name || a.id) + (a.connected ? ' ●' : ' ○');
+        sel.appendChild(opt);
+      }
+    }
+  } catch(e) {
+    // Keep ALL only — silently ignore if API unavailable
+    console.warn('[AccountSelector] Could not populate from API:', e.message);
+  }
+}
+// Run after a short delay to allow DS to initialise
+setTimeout(populateAccountSelector, 1500);
+
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════════════
@@ -2707,12 +2885,14 @@ function showStrategyDetail(sid, name) {
   document.getElementById('sd-body').innerHTML    = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div>';
   if (typeof lucide !== 'undefined') lucide.createIcons();
 
-  // Try to load live detail from API, fall back to strategies list
+  // Always try the live detail API first (works from DB even when MT5 is offline)
   (async function() {
     try {
       let d = null;
-      if (window.DS && DS.isLive && DS.isLive()) {
-        d = await DS.getStrategyDetail ? DS.getStrategyDetail(sid) : null;
+      try {
+        d = DS.getStrategyDetail ? await DS.getStrategyDetail(sid) : null;
+      } catch(apiErr) {
+        // API failed — fall back to cached strategies list
       }
       if (!d) {
         // Grab from cached strategies list
@@ -2782,6 +2962,11 @@ function renderStrategyDetail(s) {
       ⚠️ Strategy logic runs exclusively inside the trading engine.<br>
       This view is read-only monitoring. No changes can be made here.
     </div>
+    <div style="margin-top:var(--space-4)">
+      <button class="btn btn-secondary btn-sm" style="width:100%;justify-content:center" onclick="requestCouncilReview('${s.id}','${(s.name||'').replace(/'/g,"\\'")}')">
+        <i data-lucide="users" width="13" height="13"></i>&nbsp; Request AI Council Review
+      </button>
+    </div>
   `;
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -2831,6 +3016,317 @@ window.addEventListener('accountChanged', function(e) {
     }
   }
 });
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     STRATEGY CREATOR MODAL
+═══════════════════════════════════════════════════════════════════════ -->
+<div id="strategy-creator-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;overflow-y:auto;padding:40px 16px" onclick="if(event.target===this)closeStrategyCreator()">
+  <div style="max-width:700px;margin:0 auto;background:var(--surface-1);border:1px solid var(--border-default);border-radius:var(--radius-lg);overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.5)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;background:var(--surface-2)">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px"><i data-lucide="sparkles" width="16" height="16" style="color:var(--accent-primary)"></i> New Strategy</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Describe your idea — the engine will validate and generate a specification</div>
+      </div>
+      <button onclick="closeStrategyCreator()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:6px;border-radius:var(--radius)"><i data-lucide="x" width="18" height="18"></i></button>
+    </div>
+    <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+
+      <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--amber-text);display:flex;gap:8px;align-items:flex-start">
+        <i data-lucide="shield-alert" width="14" height="14" style="flex-shrink:0;margin-top:1px"></i>
+        <span>New strategies are created as <strong>candidates only</strong>. They require backtesting, AI Council review and your explicit approval before any paper or live deployment.</span>
+      </div>
+
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Strategy Name</label>
+        <input id="sc-name" type="text" placeholder="e.g. EMA Crossover Momentum" class="sc-input" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+      </div>
+
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Strategy Idea <span style="color:var(--danger)">*</span></label>
+        <textarea id="sc-idea" rows="5" placeholder="Describe your entry and exit logic in plain English.&#10;&#10;Example: Buy when the 20 EMA crosses above the 50 EMA on H1 with RSI above 50. Use a 1.5× ATR stop loss. Exit at 2R take profit or when EMA crosses back." style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit;outline:none;line-height:1.6"></textarea>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Instruments</label>
+          <input id="sc-instruments" type="text" placeholder="e.g. EURUSD, XAUUSD" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Timeframe</label>
+          <select id="sc-timeframe" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+            <option value="M5">M5</option><option value="M15">M15</option><option value="M30">M30</option>
+            <option value="H1" selected>H1</option><option value="H4">H4</option><option value="D1">D1</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Risk / Trade (%)</label>
+          <input id="sc-risk" type="number" value="1.0" min="0.1" max="5" step="0.1" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Max Positions</label>
+          <input id="sc-maxpos" type="number" value="3" min="1" max="10" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Market</label>
+          <select id="sc-market" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+            <option value="forex">Forex</option><option value="gold">Gold/Silver</option>
+            <option value="crypto">Crypto</option><option value="india">India</option><option value="us_stocks">US Stocks</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Stop Loss Logic</label>
+        <input id="sc-stoploss" type="text" placeholder="e.g. 1.5× ATR(14) below entry, or fixed 20 pips" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+      </div>
+
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Take Profit Logic</label>
+        <input id="sc-takeprofit" type="text" placeholder="e.g. 2R fixed, or trailing stop at 1R" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+      </div>
+
+      <div id="sc-status" style="display:none;padding:12px 14px;border-radius:var(--radius);font-size:13px;line-height:1.5"></div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-subtle);padding-top:16px;margin-top:4px">
+        <button onclick="closeStrategyCreator()" class="btn btn-secondary">Cancel</button>
+        <button onclick="submitStrategyCreator()" class="btn btn-primary" id="sc-submit">
+          <i data-lucide="sparkles" width="14" height="14"></i> Generate Specification
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     ACCOUNT WIZARD MODAL
+═══════════════════════════════════════════════════════════════════════ -->
+<div id="account-wizard-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;overflow-y:auto;padding:40px 16px" onclick="if(event.target===this)closeAccountWizard()">
+  <div style="max-width:560px;margin:0 auto;background:var(--surface-1);border:1px solid var(--border-default);border-radius:var(--radius-lg);overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.5)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;background:var(--surface-2)">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px"><i data-lucide="wallet" width="16" height="16" style="color:var(--accent-primary)"></i> Add Broker Account</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Connect a new broker account to the trading engine</div>
+      </div>
+      <button onclick="closeAccountWizard()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:6px;border-radius:var(--radius)"><i data-lucide="x" width="18" height="18"></i></button>
+    </div>
+    <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+
+      <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius);padding:12px 14px;font-size:12px;color:#f87171;display:flex;gap:8px;align-items:flex-start">
+        <i data-lucide="lock" width="14" height="14" style="flex-shrink:0;margin-top:1px"></i>
+        <span><strong>Credential Security:</strong> Broker credentials are never stored in the dashboard or sent to any AI service. They are managed securely by the local trading engine using encrypted storage.</span>
+      </div>
+
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:8px">Select Broker</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px" id="aw-broker-grid">
+          <button class="aw-broker-btn" data-broker="mt5" onclick="selectBroker('mt5')" style="padding:14px 10px;background:var(--surface-2);border:2px solid var(--border-default);border-radius:var(--radius);cursor:pointer;text-align:center;transition:all .15s">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">MT5</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px">MetaTrader 5</div>
+          </button>
+          <button class="aw-broker-btn" data-broker="binance" onclick="selectBroker('binance')" style="padding:14px 10px;background:var(--surface-2);border:2px solid var(--border-default);border-radius:var(--radius);cursor:pointer;text-align:center;transition:all .15s">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">Binance</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Crypto</div>
+          </button>
+          <button class="aw-broker-btn" data-broker="zerodha" onclick="selectBroker('zerodha')" style="padding:14px 10px;background:var(--surface-2);border:2px solid var(--border-default);border-radius:var(--radius);cursor:pointer;text-align:center;transition:all .15s">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">Zerodha</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Indian Markets</div>
+          </button>
+        </div>
+      </div>
+
+      <div id="aw-mt5-fields" style="display:none;flex-direction:column;gap:12px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Account Alias</label>
+          <input id="aw-alias" type="text" placeholder="e.g. XM-Live, FTMO-01" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Account Mode</label>
+            <select id="aw-mode" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+              <option value="paper">Paper (Safe)</option>
+              <option value="live">Live (Real Money)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Account Type</label>
+            <select id="aw-type" style="width:100%;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border-default);border-radius:var(--radius);color:var(--text-primary);font-size:13px;box-sizing:border-box;outline:none">
+              <option value="live">Live Account</option>
+              <option value="prop_firm">Prop Firm Challenge</option>
+              <option value="demo">Demo</option>
+            </select>
+          </div>
+        </div>
+        <div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:var(--radius);padding:12px 14px;font-size:12px;color:var(--accent-secondary)">
+          <strong>MT5 Configuration:</strong> Broker credentials (login, password, server) are stored encrypted in the server <code style="background:rgba(255,255,255,.05);padding:1px 4px;border-radius:3px">.env</code> file and accessed only by the local engine process. Edit <code style="background:rgba(255,255,255,.05);padding:1px 4px;border-radius:3px">D:\Desktop\engine\.env</code> then restart the engine via <code style="background:rgba(255,255,255,.05);padding:1px 4px;border-radius:3px">Crave Quant.bat</code>.
+        </div>
+      </div>
+
+      <div id="aw-other-fields" style="display:none;padding:12px 14px;background:var(--surface-2);border-radius:var(--radius);font-size:12px;color:var(--text-secondary)">
+        Configuration for this broker type is managed through the server's <code style="background:rgba(255,255,255,.05);padding:1px 4px;border-radius:3px">.env</code> file. See the project documentation for setup instructions.
+      </div>
+
+      <div id="aw-status" style="display:none;padding:12px 14px;border-radius:var(--radius);font-size:13px;line-height:1.5"></div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--border-subtle);padding-top:16px;margin-top:4px">
+        <button onclick="closeAccountWizard()" class="btn btn-secondary">Close</button>
+        <button onclick="submitAccountWizard()" class="btn btn-primary" id="aw-submit" style="display:none">
+          <i data-lucide="save" width="14" height="14"></i> Save Account
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── Strategy Creator ─────────────────────────────────────────
+function openStrategyCreator() {
+  const ov = document.getElementById('strategy-creator-overlay');
+  if (ov) { ov.style.display = 'block'; lucide.createIcons(); }
+}
+function closeStrategyCreator() {
+  const ov = document.getElementById('strategy-creator-overlay');
+  if (ov) ov.style.display = 'none';
+  const st = document.getElementById('sc-status');
+  if (st) st.style.display = 'none';
+  const sb = document.getElementById('sc-submit');
+  if (sb) { sb.disabled = false; sb.innerHTML = '<i data-lucide="sparkles" width="14" height="14"></i> Generate Specification'; }
+}
+
+function _scStatus(type, msg) {
+  const el = document.getElementById('sc-status');
+  if (!el) return;
+  el.style.display = 'block';
+  const styles = {
+    error:   'background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171',
+    success: 'background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:#34d399',
+    info:    'background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);color:#60a5fa'
+  };
+  el.setAttribute('style', `display:block;padding:12px 14px;border-radius:var(--radius);font-size:13px;line-height:1.5;${styles[type] || styles.info}`);
+  el.textContent = msg;
+}
+
+async function submitStrategyCreator() {
+  const name       = (document.getElementById('sc-name')?.value || '').trim();
+  const idea       = (document.getElementById('sc-idea')?.value || '').trim();
+  const instruments= (document.getElementById('sc-instruments')?.value || '').trim();
+  const timeframe  = document.getElementById('sc-timeframe')?.value || 'H1';
+  const market     = document.getElementById('sc-market')?.value || 'forex';
+  const risk       = parseFloat(document.getElementById('sc-risk')?.value) || 1.0;
+  const maxpos     = parseInt(document.getElementById('sc-maxpos')?.value) || 3;
+  const stoploss   = (document.getElementById('sc-stoploss')?.value || '').trim();
+  const takeprofit = (document.getElementById('sc-takeprofit')?.value || '').trim();
+
+  if (!idea) { _scStatus('error', '⚠ Please describe your strategy idea before submitting.'); return; }
+
+  const btn = document.getElementById('sc-submit');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Submitting…'; }
+  _scStatus('info', 'Submitting strategy candidate to the engine…');
+
+  try {
+    const resp = await fetch('/api/strategies/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name || 'Unnamed Strategy',
+        idea, market,
+        instruments: instruments ? instruments.split(',').map(s => s.trim()).filter(Boolean) : [],
+        timeframe, risk_per_trade: risk, max_positions: maxpos,
+        stop_loss: stoploss, take_profit: takeprofit
+      })
+    });
+    const data = await resp.json();
+    if (resp.ok && data.id) {
+      _scStatus('success', `✓ Strategy candidate created (ID: ${data.id}). It appears in Strategies as a CANDIDATE pending backtesting and review.`);
+      DS.invalidate('getStrategies');
+      setTimeout(() => { closeStrategyCreator(); if (typeof loadStrategies === 'function') loadStrategies(); }, 2500);
+    } else {
+      _scStatus('error', '✗ ' + (data.error || data.message || 'Server returned an error. Check the engine logs.'));
+    }
+  } catch(e) {
+    _scStatus('error', '✗ Network error — is the engine running? ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="sparkles" width="14" height="14"></i> Generate Specification'; lucide.createIcons(); }
+  }
+}
+
+// ── Account Wizard ───────────────────────────────────────────
+let _awSelectedBroker = null;
+
+function openAccountWizard() {
+  _awSelectedBroker = null;
+  const ov = document.getElementById('account-wizard-overlay');
+  if (ov) { ov.style.display = 'block'; lucide.createIcons(); }
+  // Reset broker selection
+  document.querySelectorAll('.aw-broker-btn').forEach(b => {
+    b.style.borderColor = 'var(--border-default)';
+    b.style.background  = 'var(--surface-2)';
+  });
+  const mt5f = document.getElementById('aw-mt5-fields');
+  const oth  = document.getElementById('aw-other-fields');
+  const sb   = document.getElementById('aw-submit');
+  const st   = document.getElementById('aw-status');
+  if (mt5f) mt5f.style.display = 'none';
+  if (oth)  oth.style.display  = 'none';
+  if (sb)   sb.style.display   = 'none';
+  if (st)   st.style.display   = 'none';
+}
+
+function closeAccountWizard() {
+  const ov = document.getElementById('account-wizard-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+function selectBroker(broker) {
+  _awSelectedBroker = broker;
+  document.querySelectorAll('.aw-broker-btn').forEach(b => {
+    const isSelected = b.dataset.broker === broker;
+    b.style.borderColor = isSelected ? 'var(--accent-primary)' : 'var(--border-default)';
+    b.style.background  = isSelected ? 'rgba(59,130,246,.1)' : 'var(--surface-2)';
+  });
+  const mt5f = document.getElementById('aw-mt5-fields');
+  const oth  = document.getElementById('aw-other-fields');
+  const sb   = document.getElementById('aw-submit');
+  if (broker === 'mt5') {
+    if (mt5f) mt5f.style.display = 'flex';
+    if (oth)  oth.style.display  = 'none';
+  } else {
+    if (mt5f) mt5f.style.display = 'none';
+    if (oth)  oth.style.display  = 'block';
+  }
+  if (sb) sb.style.display = 'inline-flex';
+}
+
+function _awStatus(type, msg) {
+  const el = document.getElementById('aw-status');
+  if (!el) return;
+  const styles = {
+    error:   'background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171',
+    success: 'background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:#34d399',
+    info:    'background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);color:#60a5fa'
+  };
+  el.setAttribute('style', `display:block;padding:12px 14px;border-radius:var(--radius);font-size:13px;line-height:1.5;${styles[type] || styles.info}`);
+  el.textContent = msg;
+}
+
+async function submitAccountWizard() {
+  if (!_awSelectedBroker) { _awStatus('error', 'Please select a broker first.'); return; }
+  const alias = (document.getElementById('aw-alias')?.value || '').trim();
+  const mode  = document.getElementById('aw-mode')?.value || 'paper';
+  const type  = document.getElementById('aw-type')?.value || 'demo';
+
+  if (_awSelectedBroker === 'mt5') {
+    if (!alias) { _awStatus('error', 'Please enter an account alias.'); return; }
+    _awStatus('info', `Account alias "${alias}" noted. To complete MT5 setup: edit D:\\Desktop\\engine\\.env with your broker credentials and restart the engine via Crave Quant.bat. The engine will detect the new account on next start.`);
+  } else {
+    _awStatus('info', `For ${_awSelectedBroker} setup: configure the API keys in D:\\Desktop\\engine\\.env and restart the engine. See the project documentation for broker-specific setup instructions.`);
+  }
+}
 </script>
 
 </body>

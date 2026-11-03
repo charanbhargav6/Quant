@@ -550,6 +550,24 @@ def api_strategies():
 
     return jsonify({"strategies": out})
 
+@app.route("/api/strategies/candidates")
+def api_strategies_candidates():
+    """Return pending strategy candidates (user-submitted, not yet in registry)."""
+    try:
+        if _STRATEGY_CANDIDATES_FILE.exists():
+            with open(_STRATEGY_CANDIDATES_FILE, "r", encoding="utf-8") as fh:
+                cands = json.load(fh)
+        else:
+            cands = []
+    except Exception as e:
+        return jsonify({"candidates": [], "_error": str(e)})
+
+    return jsonify({
+        "candidates": cands,
+        "count":      len(cands),
+        "ts":         datetime.now(timezone.utc).isoformat(),
+    })
+
 @app.route("/api/strategies/<sid>/detail")
 def api_strategy_detail(sid: str):
     """Full detail for a strategy — trades, gate metrics, account assignments."""
@@ -617,6 +635,85 @@ def api_strategy_detail(sid: str):
         })
 
     return jsonify({"trades": trades, "news": news, "accounts": accounts})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/strategies/create  — Strategy creator (stores spec, no live trading)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_STRATEGY_CANDIDATES_FILE = Path(__file__).parent / "State" / "strategy_candidates.json"
+
+@app.route("/api/strategies/create", methods=["POST"])
+def api_strategies_create():
+    """Accept a plain-English or structured strategy spec, validate it,
+    and store it for later review. Does NOT trigger any live trading."""
+    data = request.get_json(force=True) or {}
+
+    # ── Validate required fields ─────────────────────────────────────────────
+    idea = (data.get("idea") or "").strip()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Field 'name' is required"}), 400
+    if not idea:
+        return jsonify({"error": "Field 'idea' is required"}), 400
+
+    instruments = data.get("instruments") or []
+    if not isinstance(instruments, list):
+        instruments = [str(instruments)]
+    timeframe   = str(data.get("timeframe") or "1H").upper()
+
+    try:
+        risk_per_trade = float(data.get("risk_per_trade", 1.0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "risk_per_trade must be a number"}), 400
+
+    if risk_per_trade <= 0 or risk_per_trade > 5:
+        return jsonify({"error": "risk_per_trade must be between 0 and 5"}), 400
+
+    # ── Build the spec ───────────────────────────────────────────────────────
+    import uuid as _uuid
+    candidate_id = "strat_" + _uuid.uuid4().hex[:8]
+
+    try:
+        max_positions = int(data.get("max_positions", 3))
+        max_positions = max(1, min(max_positions, 20))
+    except (TypeError, ValueError):
+        max_positions = 3
+
+    spec = {
+        "id":               candidate_id,
+        "name":             name,
+        "idea":             idea,
+        "market":           str(data.get("market") or "forex"),
+        "instruments":      instruments,
+        "timeframe":        timeframe,
+        "entry_conditions": str(data.get("entry_conditions") or ""),
+        "exit_conditions":  str(data.get("exit_conditions") or ""),
+        "stop_loss":        str(data.get("stop_loss") or ""),
+        "take_profit":      str(data.get("take_profit") or ""),
+        "risk_per_trade":   risk_per_trade,
+        "max_positions":    max_positions,
+        "status":           "pending_spec",
+        "created_at":       datetime.now(timezone.utc).isoformat(),
+    }
+
+    # ── Persist to strategy_candidates.json ─────────────────────────────────
+    try:
+        _STRATEGY_CANDIDATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if _STRATEGY_CANDIDATES_FILE.exists():
+            with open(_STRATEGY_CANDIDATES_FILE, "r", encoding="utf-8") as fh:
+                existing = json.load(fh)
+        else:
+            existing = []
+        existing.append(spec)
+        with open(_STRATEGY_CANDIDATES_FILE, "w", encoding="utf-8") as fh:
+            json.dump(existing, fh, indent=2)
+    except Exception as e:
+        log.error(f"[API] strategy_candidates write error: {e}")
+        return jsonify({"error": f"Failed to save strategy: {e}"}), 500
+
+    return jsonify({"id": candidate_id, "status": "pending_spec", "spec": spec}), 201
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/markets/legacy  — MT5-only market view (kept for backward compat)
@@ -1203,9 +1300,27 @@ def api_intelligence():
 
 @app.route("/api/intelligence/council", methods=["POST"])
 def push_council_msg():
-    d = request.get_json()
-    push_council(d.get("agent", "System"), d.get("text", ""))
-    return jsonify({"ok": True})
+    d = request.get_json() or {}
+    agent = d.get("agent", "System")
+    text  = d.get("text", "")
+
+    # Support "Request Council Review" from strategy detail drawer
+    strategy_id   = d.get("strategy_id")
+    strategy_name = d.get("strategy_name")
+    source        = d.get("source", "api")
+
+    if strategy_id and not text:
+        agent = "Director"
+        text  = (
+            f"Council review requested for strategy '{strategy_name or strategy_id}' "
+            f"(source: {source}). Please analyse this strategy's edge, risk profile "
+            "and market fit, then give a collective recommendation."
+        )
+
+    if text:
+        push_council(agent, text)
+
+    return jsonify({"ok": True, "status": "ok", "agent": agent})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/compliance
@@ -1319,6 +1434,46 @@ def api_accounts():
         log.error(f"[API] Error loading accounts: {e}")
 
     return jsonify({"connection": conn, "accounts": accounts, "active_login": active_login})
+
+
+@app.route("/api/accounts/list_simple")
+def api_accounts_list_simple():
+    """Minimal account info for the header dropdown.
+    Returns id, name, broker, connected — no sensitive data."""
+    db = get_db_agent()
+    mt5 = get_broker_agent()
+
+    simple = []
+    try:
+        if db:
+            db_accounts = db.get_accounts()
+            active_mt5_login = None
+            if mt5 and mt5.is_connected():
+                try:
+                    info = mt5.get_account_info()
+                    if info:
+                        active_mt5_login = str(info.get("login", ""))
+                except Exception:
+                    pass
+
+            for acc in db_accounts:
+                login = str(acc.get("login", ""))
+                is_running = acc.get("process_status") == "running"
+                # An account is "connected" if its process is running
+                # OR if it is the currently active MT5 session
+                is_connected = is_running or (login == active_mt5_login)
+                simple.append({
+                    "id":        login,
+                    "name":      acc.get("server", login),
+                    "broker":    acc.get("broker", "mt5"),
+                    "type":      acc.get("account_type", "unknown"),
+                    "connected": is_connected,
+                })
+    except Exception as e:
+        log.error(f"[API] list_simple error: {e}")
+
+    return jsonify({"accounts": simple})
+
 
 @app.route("/api/accounts/<acc_id>")
 def api_account_detail(acc_id: str):
@@ -1567,17 +1722,77 @@ def api_chat():
 
 @app.route("/api/optimizer/propose", methods=["GET"])
 def api_optimizer_propose():
+    """Return real optimization proposals based on actual strategy performance."""
+    db = get_db_agent()
+
+    # Find strategies that need attention — low win rate, inconsistent, or degrading
+    candidates = []
+    inconsistent_strats = []
+    for s in STRATEGY_DEFS:
+        bt = s.get("static_backtest", {})
+        exp_r = bt.get("expectancy_r", 0) or 0
+        win_r = bt.get("win_rate", 0) or 0
+        if not s.get("live_ready") and exp_r > 0:
+            inconsistent_strats.append({
+                "strategy_id":   s["id"],
+                "strategy_name": s["name"],
+                "issue":         "INCONSISTENT WFO — needs parameter optimization",
+                "expectancy_r":  exp_r,
+                "win_rate":      win_r,
+            })
+
+    # Also check live strategy DB performance for degradation
+    degrading = []
+    if db:
+        try:
+            for s in STRATEGY_DEFS:
+                if s.get("live_ready"):
+                    rows = db.query(
+                        "SELECT COUNT(*) as n, SUM(CASE WHEN r_multiple > 0 THEN 1 ELSE 0 END) as wins "
+                        "FROM trades WHERE node=? AND is_paper=0 AND close_time > datetime('now','-30 days')",
+                        (s["id"],)
+                    ) or []
+                    if rows and (rows[0].get("n") or 0) >= 5:
+                        n = rows[0]["n"]
+                        wins = rows[0].get("wins") or 0
+                        live_wr = round(wins / n * 100, 1) if n else 0
+                        bt_wr = s.get("static_backtest", {}).get("win_rate", 0) or 0
+                        # Flag if live win rate dropped > 10% below backtest
+                        if bt_wr and live_wr < bt_wr - 10:
+                            degrading.append({
+                                "strategy_id":   s["id"],
+                                "strategy_name": s["name"],
+                                "issue":         f"Live win rate ({live_wr}%) dropped >10% vs backtest ({bt_wr}%)",
+                                "live_win_rate": live_wr,
+                                "backtest_win_rate": bt_wr,
+                                "trade_count":   n,
+                            })
+        except Exception:
+            pass
+
+    # Load pending strategy candidates
+    pending_count = 0
+    try:
+        if _STRATEGY_CANDIDATES_FILE.exists():
+            import json as _j
+            cands = _j.loads(_STRATEGY_CANDIDATES_FILE.read_text(encoding="utf-8"))
+            pending_count = len([c for c in cands if c.get("status") == "pending_spec"])
+    except Exception:
+        pass
+
     return jsonify({
-        "status": "ready",
-        "proposal": {
-            "id": "opt_001",
-            "strategy": "EMA Pullback",
-            "reasoning": "Recent market conditions show increased volatility on USD pairs. Forward-testing data over the last 14 days indicates an optimal stop-loss expansion of 15% is required to avoid premature wick-outs.",
-            "changes": [
-                {"parameter": "Stop Loss ATR Multiplier", "old": "1.5", "new": "1.8"},
-                {"parameter": "Target Risk:Reward", "old": "2.4", "new": "2.0"}
-            ]
-        }
+        "status":            "ready",
+        "proposals_pending": pending_count,
+        "inconsistent_strategies": inconsistent_strats[:5],
+        "degrading_strategies":    degrading[:3],
+        "summary": {
+            "total_strategies":      len(STRATEGY_DEFS),
+            "live_ready":            sum(1 for s in STRATEGY_DEFS if s.get("live_ready")),
+            "needs_optimization":    len(inconsistent_strats),
+            "degrading":             len(degrading),
+            "pending_candidates":    pending_count,
+        },
+        "_note": "Optimizer proposals based on real WFO results and live performance data.",
     })
 
 @app.route("/api/optimizer/approve", methods=["POST"])
@@ -2242,7 +2457,8 @@ def api_stream():
 
 @app.route("/api/analytics/equity_curve")
 def api_equity_curve():
-    """Daily equity curve from closed trades. Uses pnl_pct cumulated from balance."""
+    """Daily equity curve from closed trades. Uses real MT5 balance when
+    connected, falls back to ACCOUNT_BALANCE env var otherwise."""
     days = int(request.args.get("days", 30))
     db   = get_db_agent()
     if not db:
@@ -2259,8 +2475,20 @@ def api_equity_curve():
     except Exception as e:
         return jsonify({"data": [], "_error": str(e)})
 
-    # Build cumulative curve
+    # ── Try to get real MT5 balance ──────────────────────────────────────────
+    balance_source = "config"
     balance = float(os.environ.get("ACCOUNT_BALANCE", 10000))
+    try:
+        mt5 = get_broker_agent()
+        if mt5 and mt5.is_connected():
+            info = mt5.get_account_info()
+            if info and info.get("balance") and float(info["balance"]) > 0:
+                balance = float(info["balance"])
+                balance_source = "mt5"
+    except Exception:
+        pass  # fall back silently to env var
+
+    # Build cumulative curve
     equity  = balance
     curve   = []
     for r in rows:
@@ -2269,12 +2497,13 @@ def api_equity_curve():
         curve.append({"date": r["d"], "equity": round(equity, 2), "daily_pnl_pct": round(pnl_pct, 4)})
 
     return jsonify({
-        "data":         curve,
-        "days":         days,
-        "start_balance": balance,
-        "end_equity":   round(equity, 2),
-        "total_return_pct": round((equity - balance) / balance * 100, 2),
-        "ts":           datetime.now(timezone.utc).isoformat(),
+        "data":             curve,
+        "days":             days,
+        "start_balance":    balance,
+        "end_equity":       round(equity, 2),
+        "total_return_pct": round((equity - balance) / balance * 100, 2) if balance else 0,
+        "_source":          balance_source,
+        "ts":               datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -2657,7 +2886,30 @@ def _markets_build_snapshot() -> dict:
         except Exception:
             pass
 
-        # MT5 broker (only if already connected — no blocking reconnect)
+        # MT5 direct access (background thread — process-wide IPC, no re-init needed)
+        # MT5 IPC is process-wide: the server startup already called initialize().
+        # Background threads can call symbol_info_tick() directly on the same handle.
+        # We only call initialize() if the handle isn't alive yet (first-run edge case).
+        _mt5lib_ok = False
+        try:
+            import MetaTrader5 as _mt5lib
+            # Quick check: if already initialized, account_info() returns non-None
+            if _mt5lib.account_info() is not None:
+                _mt5lib_ok = True
+            else:
+                # Handle not yet open in this process — initialize once
+                _term = os.environ.get("MT5_TERMINAL_PATH")
+                if _term and os.path.exists(_term):
+                    _mt5lib_ok = _mt5lib.initialize(path=_term)
+                else:
+                    _mt5lib_ok = _mt5lib.initialize()
+                if not _mt5lib_ok:
+                    log.debug(f"[markets-build] MT5 init failed: {_mt5lib.last_error()}")
+        except Exception as _me:
+            log.debug(f"[markets-build] MT5 unavailable: {_me}")
+            _mt5lib_ok = False
+
+        # MT5 agent wrapper (kept for is_connected flag used by Binance branch)
         mt5 = None
         try:
             _m = get_broker_agent()
@@ -2666,17 +2918,25 @@ def _markets_build_snapshot() -> dict:
         except Exception:
             pass
 
-        # Binance (only if session already exists)
+        # Binance (only if valid keys are configured — skip if placeholder)
         binance = None
-        try:
-            from brokers.binance_agent import get_binance
-            _b = get_binance()
-            if _b and hasattr(_b, 'is_connected') and _b.is_connected():
-                binance = _b
-            elif _b and not hasattr(_b, 'is_connected'):
-                binance = _b  # assume available
-        except Exception:
-            pass
+        _binance_key = os.environ.get("BINANCE_API_KEY", "")
+        if _binance_key and _binance_key not in ("your_binance_key", "", "none"):
+            try:
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
+                from brokers.binance_agent import get_binance
+                with ThreadPoolExecutor(max_workers=1) as _pool:
+                    _fut = _pool.submit(get_binance)
+                    try:
+                        _b = _fut.result(timeout=3)
+                        if _b and hasattr(_b, 'is_connected') and _b.is_connected():
+                            binance = _b
+                        elif _b and not hasattr(_b, 'is_connected'):
+                            binance = _b
+                    except _FuturesTimeout:
+                        log.debug("[markets-build] Binance init timed out — skipping")
+            except Exception:
+                pass
 
         groups = {
             "forex": [], "crypto": [], "gold": [],
@@ -2694,26 +2954,34 @@ def _markets_build_snapshot() -> dict:
             price = bid = ask = prev_close = change = change_pct = volume = None
             source = "unavailable"
 
-            # Try WebSocket cache first — always non-blocking
+            # WS in-memory cache only — no blocking REST fallback
+            # get_live_price() falls back to DataAgent.get_ohlcv() for missing symbols,
+            # which makes slow HTTP calls. Use the raw store directly instead.
             if _ws:
                 try:
-                    p = _ws.get_live_price(sym)
+                    p = _ws._store.get_latest_price(sym) if hasattr(_ws, '_store') else None
                     if p and p > 0:
                         price  = p
                         source = "ws_cache"
                 except Exception:
                     pass
 
-            # MT5 enrichment (only if already connected)
-            if exchange == "mt5" and mt5:
+            # MT5 enrichment — use symbol_info_tick() directly via SYMBOL_MAP
+            # (MT5Agent has no get_symbol_info method; this mirrors /api/markets/legacy)
+            if exchange == "mt5" and _mt5lib_ok:
                 try:
-                    q = mt5.get_symbol_info(sym) if hasattr(mt5, "get_symbol_info") else None
-                    if q:
-                        bid       = round(q.get("bid", 0) or 0, 6) or None
-                        ask       = round(q.get("ask", 0) or 0, 6) or None
-                        price     = price or ((bid + ask) / 2 if bid and ask else price)
-                        prev_close= round(q.get("prev_close", 0) or 0, 6) or None
-                        source    = "mt5_broker"
+                    from brokers.mt5_agent import SYMBOL_MAP
+                    mt5_sym = SYMBOL_MAP.get(sym, sym)
+                    tick = _mt5lib.symbol_info_tick(mt5_sym)
+                    if tick and tick.bid:
+                        bid    = round(tick.bid, 6)
+                        ask    = round(tick.ask, 6)
+                        price  = round((bid + ask) / 2, 6)
+                        source = "mt5_broker"
+                        # Day change from daily bar
+                        bars = _mt5lib.copy_rates_from_pos(mt5_sym, _mt5lib.TIMEFRAME_D1, 0, 2)
+                        if bars is not None and len(bars) >= 2:
+                            prev_close = round(float(bars[-2]["close"]), 6)
                 except Exception:
                     pass
 
@@ -2765,6 +3033,7 @@ def _markets_build_snapshot() -> dict:
             elif asset_cls in ("index_futures","futures"): groups["futures"].append(row)
             else:                              groups["other"].append(row)
 
+        log.info(f"[markets] snapshot built: forex={len(groups['forex'])} gold={len(groups['gold'])} crypto={len(groups['crypto'])}")
         result = {
             "ts":     now_ts,
             "groups": groups,
@@ -2778,9 +3047,12 @@ def _markets_build_snapshot() -> dict:
         _markets_cache["ts"]   = _t.time()
         return result
     except Exception as e:
-        log.debug(f"[markets] build error: {e}")
+        import traceback as _tb
+        log.debug(f"[markets] build error: {e}\n{_tb.format_exc()}")
         return {}
     finally:
+        # Note: do NOT call _mt5lib.shutdown() here — the MT5 IPC handle is
+        # process-wide and shared with the server's broker connection.
         _markets_refreshing = False
 
 
