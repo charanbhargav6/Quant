@@ -64,6 +64,18 @@ def main():
         )
         processes.append(srv_proc)
 
+        # 3. Start the Council v2 advisory server on :8766 (optional — no crash if unavailable)
+        council_script = ENGINE_ROOT / "intelligence" / "council_v2" / "council_server.py"
+        if council_script.exists():
+            council_proc = subprocess.Popen(
+                [sys.executable, str(council_script)] + prof_args,
+                cwd=str(ENGINE_ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+            )
+            processes.append(council_proc)
+            print(f"  -> Council v2 advisory server started (port 8766)")
+
     print("\n==========================================================")
     print(" ALL SYSTEMS OPERATIONAL ")
     print(" Open your browser to: http://127.0.0.1:8765")
