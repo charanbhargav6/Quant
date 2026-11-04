@@ -46,7 +46,7 @@ SYMBOL_MAP = {
     "EURJPY=X":  "EURJPY",
     "GBPJPY=X":  "GBPJPY",
     # Gold / Silver
-    "XAUUSD=X":  "XAUUSD",
+    "XAUUSD=X":  "GOLD",       # XM broker uses GOLD, not XAUUSD
     "GC=F":      "XAUUSD",
     "XAGUSD=X":  "XAGUSD",
     "SI=F":      "XAGUSD",
@@ -120,14 +120,17 @@ class MT5Agent:
             self._connected = False
 
             terminal_path = os.environ.get("MT5_TERMINAL_PATH")
-            # If no env var, try standard Windows installation paths
+            # If no env var, try XM Global MT5 first (broker-provided terminal),
+            # then fall back to standard MetaTrader 5 installation paths.
             if not terminal_path:
                 for p in [
+                    r"C:\Program Files\XM Global MT5\terminal64.exe",
                     r"C:\Program Files\MetaTrader 5\terminal64.exe",
-                    r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe"
+                    r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe",
                 ]:
                     if os.path.exists(p):
                         terminal_path = p
+                        logger.info(f"[MT5] Auto-detected terminal: {p}")
                         break
 
             if terminal_path and os.path.exists(terminal_path):
@@ -135,35 +138,43 @@ class MT5Agent:
             else:
                 init_ok = mt5.initialize()
 
-
             if not init_ok:
                 logger.error(f"[MT5] initialize() failed: {mt5.last_error()}")
                 return False
 
-            # Use provided or fallback to init env vars
-            use_login = login if login else self._login
+            # Use provided or fallback to env vars
+            use_login    = login    if login    else self._login
             use_password = password if password else self._password
-            use_server = server if server else self._server
+            use_server   = server   if server   else self._server
 
-            # Login if credentials provided
-            if use_login and use_password:
+            # GUI-SESSION CHECK: broker-provided terminals (XM, IC Markets, etc.)
+            # maintain their own logged-in GUI session. If the terminal already has
+            # the expected account active, skip login() — calling it with wrong
+            # credentials on a broker terminal causes Authorization failed (-6).
+            # Only call login() if the terminal has no session OR has a different account.
+            current_info = mt5.account_info()
+            gui_account  = current_info.login if current_info else None
+
+            need_login = (
+                use_login and use_password and          # we have credentials
+                gui_account != int(use_login)           # terminal has wrong/no account
+            )
+
+            if need_login:
+                logger.info(f"[MT5] GUI account ({gui_account}) differs from config ({use_login}) — attempting login...")
                 authorized = mt5.login(
                     login=int(use_login),
                     password=str(use_password),
                     server=str(use_server),
                 )
                 if not authorized:
-                    logger.error(f"[MT5] login failed for {use_login}: {mt5.last_error()}")
-                    # FIX: previously left the terminal initialized-but-not-logged-in
-                    # here (old comment: "don't shutdown, try next account"). That
-                    # stale initialized state is exactly what caused the NEXT
-                    # account's login to IPC-timeout. Shut down cleanly so the
-                    # next account starts from zero.
-                    try:
-                        mt5.shutdown()
-                    except Exception:
-                        pass
-                    return False
+                    logger.warning(
+                        f"[MT5] login() failed for {use_login}: {mt5.last_error()}. "
+                        f"Falling back to GUI session account {gui_account}."
+                    )
+                    # Don't shut down — fall through and use the GUI session if available
+            elif gui_account:
+                logger.info(f"[MT5] Using active GUI session: account {gui_account} on {use_server}")
 
             info = mt5.account_info()
             if info is None:

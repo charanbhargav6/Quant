@@ -1300,6 +1300,25 @@ class TradingLoop:
             }
             council_result = get_council().deliberate(validated, council_context)
 
+            # ── ADVISORY_ONLY guard (Stage 1A) ──────────────────────────────
+            # When COUNCIL_ADVISORY_ONLY=true the Council still runs its full
+            # debate (for dashboard display, Telegram, logging) but its verdict
+            # cannot veto a trade or mutate SL/TP levels.
+            # Set COUNCIL_ADVISORY_ONLY=false to restore full Council authority.
+            import os as _os
+            if _os.environ.get("COUNCIL_ADVISORY_ONLY", "true").lower() == "true":
+                council_result["decision"]      = "execute"   # override veto
+                council_result["sl_multiplier"] = 1.0         # no SL widening
+                council_result["tp_multiplier"] = 1.0         # no TP extension
+                logger.info(
+                    f"[TradingLoop] COUNCIL_ADVISORY_ONLY=true — debate logged, "
+                    f"original verdict={council_result.get('_original_decision','?')} "
+                    f"overridden to execute."
+                )
+            else:
+                council_result["_original_decision"] = council_result.get("decision", "reject")
+            # ────────────────────────────────────────────────────────────────
+
             if str(council_result.get("decision", "reject")).lower() != "execute":
                 logger.info(
                     f"[TradingLoop] ❌ COUNCIL REJECTED: {symbol} {direction.upper()} "

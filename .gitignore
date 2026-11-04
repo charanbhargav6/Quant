@@ -16,12 +16,20 @@ env/
 # Private keys / secrets
 *.pem
 *.key
+*.token
+*.token.json
+*.session
+*credentials*.json
+*.p12
+*.pfx
 
 # Database
 Database/*.db
 Database/*.db-shm
 Database/*.db-wal
 Database/bhavcopy/
+*.sqlite
+*.sqlite3
 
 # Logs
 Logs/
@@ -34,6 +42,10 @@ State/crave_state.json
 State/crave_positions.json
 State/crave_heartbeats.json
 State/chaos_results.json
+State/strategy_candidates.json
+State/*.lock
+State/*.tmp
+State/*.bak
 
 # ML models
 ml/models/*.pkl
@@ -66,6 +78,8 @@ data/*.parquet
 data/*.db
 data/*.json
 data/historical/
+data/cache/
+*.cache
 
 # Executables and installers
 *.exe
@@ -74,6 +88,9 @@ data/historical/
 *.docx
 *.pdf
 ollama_results.txt
+check_*.py
+test_scratch_*.py
+scratch/
 
 # pytest
 .pytest_cache/
