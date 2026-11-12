@@ -2276,16 +2276,30 @@ async function loadRisk() {
 // ── AI Council — Request Review from Strategy Detail ─────────
 function requestCouncilReview(strategyId, strategyName) {
   // Sanitise: data-attr returns '' when unset; also guard string 'undefined'
-  const _sid  = (strategyId   === 'undefined' || !strategyId)   ? '' : strategyId;
+  const _sid   = (strategyId   === 'undefined' || !strategyId)   ? '' : strategyId;
   const _sname = (strategyName === 'undefined' || !strategyName) ? '' : strategyName;
-  const topic = _sname || _sid || 'strategy';
+  const topic  = _sname || _sid || 'strategy';
+
+  // Post to intelligence/council so the strategy context appears in the council feed
+  if (_sid || _sname) {
+    fetch('/api/intelligence/council', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        strategy_id:   _sid,
+        strategy_name: _sname,
+        source: 'strategy_detail'
+      })
+    }).catch(function() { /* non-fatal */ });
+  }
+
   closeStrategyDetail();
   navigateTo('ai-council');
   setTimeout(function() {
     const inp = document.getElementById('council-topic-input');
     if (inp) inp.value = topic;
     runCouncilAssessment(topic);
-  }, 200);
+  }, 300);
 }
 
 // ── Council UI helpers ────────────────────────────────────────────
@@ -3068,19 +3082,16 @@ function showStrategyDetail(sid, name) {
   document.getElementById('sd-body').innerHTML    = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div>';
   if (typeof lucide !== 'undefined') lucide.createIcons();
 
-  // Always try the live detail API first (works from DB even when MT5 is offline)
+  // Load from main strategies list (the /detail endpoint returns unrelated data)
   (async function() {
     try {
-      let d = null;
-      try {
-        d = DS.getStrategyDetail ? await DS.getStrategyDetail(sid) : null;
-      } catch(apiErr) {
-        // API failed — fall back to cached strategies list
-      }
+      const all = await DS.getStrategies();
+      const strategies = all.strategies || [];
+      const d = strategies.find(function(s) { return String(s.id) === String(sid); }) || null;
       if (!d) {
-        // Grab from cached strategies list
-        const all = await DS.getStrategies();
-        d = (all.strategies || []).find(s => String(s.id) === String(sid)) || {};
+        document.getElementById('sd-body').innerHTML =
+          '<div style="color:var(--text-muted);font-size:13px">Strategy not found (id: ' + sid + ')</div>';
+        return;
       }
       renderStrategyDetail(d);
     } catch(e) {

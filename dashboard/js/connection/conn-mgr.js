@@ -154,7 +154,7 @@ const ConnMgr = (() => {
   // ── EventSource lifecycle ──────────────────────────────────────────
   let _errCount = 0;
   let _errTimer  = null;
-  function _resetErrDebounce() { _errCount = 0; if (_errTimer) { clearTimeout(_errTimer); _errTimer = null; } }─────
+  function _resetErrDebounce() { _errCount = 0; if (_errTimer) { clearTimeout(_errTimer); _errTimer = null; } }
   function _openStream() {
     if (_es) { _es.close(); _es = null; }
     _setState('CONNECTING');
