@@ -94,3 +94,8 @@ scratch/
 
 # pytest
 .pytest_cache/
+# Local archive of retired files
+_archive/
+# Session debug scripts
+investigate*.py
+patch*.py

@@ -28,7 +28,7 @@
 const ConnMgr = (() => {
 
   // ── Config ─────────────────────────────────────────────────────────────
-  const STALE_THRESHOLD_MS  = 6_000;   // no heartbeat for 6s → STALE
+  const STALE_THRESHOLD_MS = 15_000;   // no heartbeat for 15s → STALE
   const RECONNECT_DELAYS_MS = [2000, 4000, 8000, 15000, 30000];  // backoff
   const MAX_RECONNECT       = 12;      // then DISCONNECTED
 
@@ -151,7 +151,10 @@ const ConnMgr = (() => {
     if (_stalenessTimer) { clearInterval(_stalenessTimer); _stalenessTimer = null; }
   }
 
-  // ── EventSource lifecycle ───────────────────────────────────────────────
+  // ── EventSource lifecycle ──────────────────────────────────────────
+  let _errCount = 0;
+  let _errTimer  = null;
+  function _resetErrDebounce() { _errCount = 0; if (_errTimer) { clearTimeout(_errTimer); _errTimer = null; } }─────
   function _openStream() {
     if (_es) { _es.close(); _es = null; }
     _setState('CONNECTING');
@@ -167,6 +170,7 @@ const ConnMgr = (() => {
     // ── SSE events ──────────────────────────────────────────────────────
     _es.addEventListener('connected', e => {
       _reconnectIdx = 0;
+      _resetErrDebounce();
       _lastHeartbeat = Date.now();
       _setState('LIVE');
       _startStalenessWatchdog();
@@ -215,9 +219,15 @@ const ConnMgr = (() => {
 
     // Native EventSource error (connection dropped)
     _es.onerror = () => {
+      // Debounce: ignore transient errors; only reconnect after 2 errors in 10s
+      _errCount++;
+      if (!_errTimer) _errTimer = setTimeout(() => { _errCount = 0; _errTimer = null; }, 10000);
+      const isClosed = !_es || _es.readyState === EventSource.CLOSED;
+      if (!isClosed && _errCount < 2) return;   // transient blip — stay LIVE
       _es.close();
       _es = null;
       _stopStalenessWatchdog();
+      _resetErrDebounce();
       if (_state !== 'DISCONNECTED') {
         _setState('RECONNECTING');
         _scheduleReconnect();

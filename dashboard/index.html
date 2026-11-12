@@ -1080,43 +1080,108 @@
         </div>
       </div>
 
-      <div class="content-grid-2">
-        <!-- Council feed -->
-        <div class="panel" style="height:calc(100vh - 240px);display:flex;flex-direction:column">
+      <!-- Top control bar: providers + topic + run -->
+      <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-4);padding:10px 14px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius)">
+        <span class="text-muted" style="font-size:11px">Providers:</span>
+        <span class="badge badge-muted" id="council-prov-groq" title="Groq">Groq —</span>
+        <span class="badge badge-muted" id="council-prov-openrouter" title="OpenRouter">OpenRouter —</span>
+        <span class="badge badge-muted" id="council-prov-openai" title="OpenAI">OpenAI —</span>
+        <span class="badge badge-amber" style="font-size:10px">Advisory Only</span>
+        <!-- Progress steps -->
+        <div id="council-steps" style="display:flex;align-items:center;gap:14px;margin-left:auto"></div>
+        <!-- Topic + run -->
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="council-topic-input" class="input" placeholder="Symbol or topic (e.g. BTCUSDT)"
+            style="width:220px;font-size:12px;padding:4px 8px;height:28px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border-subtle);color:var(--text-primary)">
+          <button class="btn btn-primary" style="font-size:12px;padding:4px 12px;height:28px"
+            onclick="runCouncilAssessment(document.getElementById('council-topic-input').value||'market')">
+            🎙 Run Assessment
+          </button>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;height:28px" onclick="loadCouncil()">↺</button>
+        </div>
+      </div>
+
+      <!-- 3-column main layout -->
+      <div style="display:grid;grid-template-columns:220px 1fr 220px;gap:var(--space-4);align-items:start">
+
+        <!-- Col 1: Agent Roster -->
+        <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title"><i data-lucide="users" width="13" height="13"></i> Agents</div>
+            </div>
+            <div style="padding:10px" id="council-roster">
+              <!-- populated by _buildRoster() -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Col 2: Debate Flow -->
+        <div class="panel" style="min-height:520px;display:flex;flex-direction:column">
           <div class="panel-header">
-            <div class="panel-title"><i data-lucide="users" width="14" height="14"></i> Latest Council Session</div>
+            <div class="panel-title"><i data-lucide="message-square" width="13" height="13"></i> Debate</div>
             <span class="badge badge-blue" id="council-decision-badge">—</span>
           </div>
-          <div style="flex:1;overflow-y:auto;padding:var(--space-4)">
+          <div style="flex:1;overflow-y:auto;padding:var(--space-4);max-height:calc(100vh - 320px)">
             <div class="council-flow" id="council-flow"></div>
           </div>
         </div>
 
-        <!-- Signals & AI track record -->
+        <!-- Col 3: Conviction + Decision + Track Record -->
         <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+
+          <!-- Conviction Gauge -->
           <div class="panel">
             <div class="panel-header">
-              <div class="panel-title"><i data-lucide="zap" width="14" height="14"></i> Signal Feed</div>
+              <div class="panel-title" style="font-size:11px">Conviction</div>
             </div>
-            <div class="panel-body-flush">
-              <div class="data-table-wrap" style="max-height:280px">
-                <table class="data-table" id="council-signals-table">
-                  <thead><tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Grade</th><th>Confidence</th><th>Traded</th><th>Skip Reason</th></tr></thead>
-                  <tbody></tbody>
-                </table>
+            <div style="padding:12px">
+              <div style="position:relative;height:12px;border-radius:6px;background:linear-gradient(90deg,#f87171 0%,#fbbf24 50%,#34d399 100%);margin-bottom:8px">
+                <div id="council-gauge-needle" style="position:absolute;top:-4px;width:3px;height:20px;background:#fff;border-radius:2px;box-shadow:0 0 4px rgba(0,0,0,.5);transform:translateX(-50%);left:50%;transition:left .4s"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted)">
+                <span>AVOID</span>
+                <span id="council-net-score" style="font-weight:600;color:var(--text-primary)">net 0.00</span>
+                <span>PROCEED</span>
               </div>
             </div>
           </div>
 
+          <!-- Director Decision -->
+          <div class="panel" id="council-decision-card" style="display:none">
+            <div class="panel-header">
+              <div class="panel-title" style="font-size:11px">Director Verdict</div>
+            </div>
+            <div style="padding:12px" id="council-decision-body"></div>
+          </div>
+
+          <!-- AI Track Record -->
           <div class="panel">
             <div class="panel-header">
-              <div class="panel-title"><i data-lucide="trophy" width="14" height="14"></i> AI Track Record</div>
+              <div class="panel-title" style="font-size:11px"><i data-lucide="trophy" width="12" height="12"></i> Track Record</div>
             </div>
             <div class="panel-body" id="council-track"></div>
           </div>
+
         </div>
       </div>
-    </div>
+
+      <!-- Signal Feed — full width below -->
+      <div class="panel" style="margin-top:var(--space-4)">
+        <div class="panel-header">
+          <div class="panel-title"><i data-lucide="zap" width="14" height="14"></i> Signal Feed</div>
+        </div>
+        <div class="panel-body-flush">
+          <div class="data-table-wrap" style="max-height:280px">
+            <table class="data-table" id="council-signals-table">
+              <thead><tr><th>Time</th><th>Symbol</th><th>Dir</th><th>Grade</th><th>Confidence</th><th>Traded</th><th>Skip Reason</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>  <!-- end page-ai-council -->
 
     <!-- ════════════════════════════════════════════════════
          PAGE: AI OPTIMIZER
@@ -1169,7 +1234,7 @@
       </div>
     </div>
 
-    <!-- ════════════════════════════════════════════════════
+        <!-- ════════════════════════════════════════════════════
          PAGE: BACKTESTS
     ════════════════════════════════════════════════════════ -->
     <div class="page" id="page-backtests">
@@ -1825,6 +1890,7 @@ async function loadMarkets() {
   // News bar
   const soon = (data.news || []).filter(e => e.soon);
   const newsBar = document.getElementById('markets-news-bar');
+  if (!newsBar) return;  // page not active
   if (soon.length) {
     newsBar.innerHTML = soon.map(e =>
       `<div class="alert-banner alert-amber animate-fade-in">
@@ -1836,6 +1902,7 @@ async function loadMarkets() {
 
   // Market matrix table
   const tbody = document.querySelector('#markets-table tbody');
+  if (!tbody) { console.warn('[loadMarkets] #markets-table tbody not in DOM yet'); return; }
   const matrix = data.matrix || [];
   tbody.innerHTML = matrix.map(m => {
     const chg = m.change || 0;
@@ -2026,7 +2093,9 @@ async function loadStrategies() {
         <div class="divider"></div>
         <div class="flex items-center justify-between">
           <span class="text-xs text-muted">${s.backtest_period || 'Not tested'}</span>
-          <button class="btn btn-ghost btn-sm" onclick="showStrategyDetail('${s.id}','${s.name}')">
+          <button class="btn btn-ghost btn-sm"
+            data-sid="${s.id||''}" data-sname="${s.name||''}"
+            onclick="showStrategyDetail(this.dataset.sid, this.dataset.sname)">
             <i data-lucide="info" width="12" height="12"></i> Details
           </button>
         </div>
@@ -2111,244 +2180,356 @@ async function loadAccounts() {
 }
 
 // ── RISK ─────────────────────────────────────────────────────
-async function loadRisk() {
-  const data = await DS.getRisk();
+
+async function loadAnalytics() {
+  const period = parseInt((document.getElementById('analytics-period') || {}).value || '30', 10);
   const fmt = DS.fmt;
 
-  const dd = data.daily_loss_pct || 0;
-  const limit = data.daily_loss_limit || 4;
-  const ddPct = Math.min(100, (dd / limit * 100));
+  // KPI summary row
+  const kpiEl = document.getElementById('analytics-kpis');
+  if (kpiEl) kpiEl.innerHTML = '<div class="text-muted text-sm" style="padding:12px 0">Loading analytics…</div>';
 
-  document.getElementById('risk-kpis').innerHTML = buildKpiCards([
-    { label: 'Daily Loss', value: fmt.pct(-dd), icon: 'trending-down', iconClass: dd > 2 ? 'red' : 'amber', valueClass: 'negative', meta: `Limit: ${fmt.pct(-limit)}` },
-    { label: 'Circuit Breaker', value: data.circuit_breaker ? 'ACTIVE' : 'Armed', icon: 'zap', iconClass: data.circuit_breaker ? 'red' : 'green', valueClass: data.circuit_breaker ? 'negative' : 'positive', meta: data.circuit_breaker ? 'Trading halted' : 'Monitoring' },
-    { label: 'Consecutive Losses', value: String(data.consecutive_losses || 0), icon: 'repeat', iconClass: (data.consecutive_losses||0) >= 3 ? 'red' : 'amber', meta: `Max: 5` },
-    { label: 'Live Win Rate', value: `${data.live_win_rate || '—'}%`, icon: 'percent', iconClass: 'purple', meta: `Backtest: ${data.backtest_win_rate || '—'}%` },
+  let data = {};
+  try { data = await DS.getExecution(); } catch(_) {}
+
+  const trades = (data.recent_trades || []);
+  const wins   = trades.filter(t => (t.pnl_pct || 0) > 0).length;
+  const losses = trades.filter(t => (t.pnl_pct || 0) <= 0).length;
+  const totalPnl = trades.reduce((s, t) => s + (t.pnl_usd || t.pnl || 0), 0);
+  const wr = trades.length ? ((wins / trades.length) * 100).toFixed(1) : '—';
+
+  if (kpiEl) kpiEl.innerHTML = buildKpiCards([
+    { label: 'Total Trades',   value: String(trades.length),  icon: 'activity',      iconClass: 'blue' },
+    { label: 'Wins',           value: String(wins),           icon: 'trending-up',   iconClass: 'green' },
+    { label: 'Losses',         value: String(losses),         icon: 'trending-down', iconClass: 'red' },
+    { label: 'Win Rate',       value: wr + '%',               icon: 'percent',       iconClass: 'purple' },
+    { label: 'Net P&L',        value: fmt.currency(totalPnl), icon: 'dollar-sign',   iconClass: totalPnl >= 0 ? 'green' : 'red', valueClass: totalPnl >= 0 ? 'positive' : 'negative' },
   ]);
 
-  // Risk flags
-  const flagsEl = document.getElementById('risk-flags');
-  flagsEl.innerHTML = (data.flags || []).map(f => `
-    <div class="risk-flag ${f.ok ? 'ok' : 'danger'}" style="margin-bottom:var(--space-2)">
-      <span class="risk-flag-icon">${f.ok ? '✅' : '⚠️'}</span>
-      <span class="risk-flag-text">${f.text}</span>
-    </div>
-  `).join('') || '<div class="text-muted text-sm">No risk flags</div>';
-
-  // Exposure pie
-  destroyChart('risk-exposure');
-  const ctx = document.getElementById('risk-exposure-chart');
-  if (ctx && (data.exposure||[]).length) {
-    const colors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444'];
-    charts['risk-exposure'] = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: data.exposure.map(e => e.symbol),
-        datasets: [{ data: data.exposure.map(e => e.pct), backgroundColor: colors, borderWidth: 2, borderColor: '#0d1117' }],
-      },
-      options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { display: true, position: 'bottom', labels: { color: '#64748b', boxWidth: 12, padding: 16 } } } },
-    });
-  }
-
-  // Daily loss bar
-  document.getElementById('risk-daily-loss').innerHTML = `
-    <div class="progress-bar-wrap">
-      <div class="progress-bar-label">
-        <span>Daily Loss: ${fmt.pct(-dd)}</span>
-        <span>Limit: ${fmt.pct(-limit)}</span>
-      </div>
-      <div class="progress-bar-track">
-        <div class="progress-bar-fill ${ddPct > 75 ? 'red' : ddPct > 50 ? 'amber' : 'green'}" style="width:${ddPct}%"></div>
-      </div>
-    </div>
-    <div class="text-sm text-muted" style="margin-top:var(--space-2)">
-      ${fmt.pct(-(limit - dd))} remaining before circuit breaker
-    </div>
-  `;
-}
-
-// ── AI Council — Request Review from Strategy Detail ─────────
-async function requestCouncilReview(strategyId, strategyName) {
-  const btn = event?.currentTarget;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Requesting…'; }
-  try {
-    const res = await fetch('/api/intelligence/council', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ strategy_id: strategyId, strategy_name: strategyName, source: 'strategy_detail' })
-    });
-    const data = res.ok ? await res.json() : null;
-    if (data && data.status === 'ok') {
-      alert('✅ Council review requested for ' + strategyName + '.\n\nNavigate to the AI Council page to see the discussion.');
+  // Trade history table
+  const tbody = document.querySelector('#analytics-trades-table tbody');
+  if (tbody) {
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No trades in period</td></tr>';
     } else {
-      alert('Council review queued. Navigate to the AI Council page to see results.');
+      const pnlColor = v => v > 0 ? 'var(--success)' : v < 0 ? 'var(--danger)' : '';
+      tbody.innerHTML = trades.slice(0, 100).map(t => `
+        <tr>
+          <td>${t.close_time ? t.close_time.slice(0, 16).replace('T', ' ') : '—'}</td>
+          <td>${t.symbol || '—'}</td>
+          <td><span class="badge ${(t.direction||'').toLowerCase() === 'buy' ? 'badge-green' : 'badge-red'}">${t.direction || '—'}</span></td>
+          <td style="color:${pnlColor(t.pnl_usd||t.pnl||0)};font-family:monospace">${fmt.currency(t.pnl_usd||t.pnl||0)}</td>
+          <td style="color:${pnlColor(t.pnl_pct||0)};font-family:monospace">${(t.pnl_pct||0).toFixed(2)}%</td>
+          <td>${t.strategy || t.node || '—'}</td>
+        </tr>
+      `).join('');
     }
-  } catch(e) {
-    alert('Council review request sent (bot must be running to process it).');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="users" width="13" height="13"></i>&nbsp; Request AI Council Review'; lucide.createIcons(); }
   }
-}
 
-// ── OPTIONS ──────────────────────────────────────────────────
-async function loadOptions() {
-  const data = await DS.getOptions();
-  const spot  = data.spot  || 26084;
-  const vix   = data.vix   || 14.82;
-
-  document.getElementById('options-kpis').innerHTML = buildKpiCards([
-    { label: 'NIFTY Spot',  value: spot.toLocaleString(), icon: 'trending-up', iconClass: 'blue', meta: 'Current index level' },
-    { label: 'India VIX',   value: vix.toFixed(2), icon: 'activity', iconClass: vix > 20 ? 'red' : vix > 15 ? 'amber' : 'green', meta: 'Volatility index' },
-    { label: 'PCR',         value: '0.94', icon: 'bar-chart-2', iconClass: 'purple', meta: 'Put/Call ratio' },
-    { label: 'Max Pain',    value: '26,100', icon: 'target', iconClass: 'amber', meta: 'Options max pain level' },
-  ]);
-
-  const chain = data.chain || [];
-  const tbody = document.querySelector('#options-table tbody');
-  tbody.innerHTML = chain.map(row => {
-    const isATM = Math.abs(row.strike - spot) < 60;
-    const atm = isATM ? ' class="atm"' : '';
-    return `<tr>
-      <td${atm} class="mono text-secondary">${row.ce_iv?.toFixed(1)}%</td>
-      <td${atm} class="mono">${row.ce_delta?.toFixed(2)}</td>
-      <td${atm} class="mono text-muted">${(row.ce_oi/1000).toFixed(0)}K</td>
-      <td${atm} class="mono td-positive fw-600">${row.ce_ltp?.toFixed(1)}</td>
-      <td${atm} class="td-primary fw-700 mono" style="text-align:center;background:var(--bg-elevated)">${row.strike?.toLocaleString()}</td>
-      <td${atm} class="mono td-negative fw-600">${row.pe_ltp?.toFixed(1)}</td>
-      <td${atm} class="mono text-muted">${(row.pe_oi/1000).toFixed(0)}K</td>
-      <td${atm} class="mono">${row.pe_delta?.toFixed(2)}</td>
-      <td${atm} class="mono text-secondary">${row.pe_iv?.toFixed(1)}%</td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="9" class="table-empty">No option chain data available</td></tr>';
-}
-
-// ── ANALYTICS ────────────────────────────────────────────────
-async function loadAnalytics() {
-  const exec = await DS.getExecution();
-  const fmt  = DS.fmt;
-  const trades = exec.closed_trades || [];
-
-  const wins   = trades.filter(t => (t.profit_dollars||0) > 0);
-  const losses = trades.filter(t => (t.profit_dollars||0) < 0);
-  const totalPnl = trades.reduce((s,t) => s+(t.profit_dollars||0), 0);
-  const wr = trades.length ? (wins.length/trades.length*100) : 0;
-  const avgWin  = wins.length ? wins.reduce((s,t) => s+t.profit_dollars, 0) / wins.length : 0;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s,t) => s+t.profit_dollars, 0) / losses.length) : 0;
-  const pf = avgLoss > 0 ? avgWin * (wr/100) / (avgLoss * (1-wr/100)) : 0;
-
-  document.getElementById('analytics-kpis').innerHTML = buildKpiCards([
-    { label: 'Total P&L', value: fmt.currency(totalPnl), icon: 'dollar-sign', iconClass: totalPnl>=0?'green':'red', valueClass: totalPnl>=0?'positive':'negative', meta: `${trades.length} trades` },
-    { label: 'Win Rate',  value: fmt.pct(wr, 1), icon: 'percent', iconClass: 'blue', meta: `${wins.length}W · ${losses.length}L` },
-    { label: 'Profit Factor', value: pf.toFixed(2), icon: 'bar-chart-2', iconClass: pf >= 1.5 ? 'green' : 'amber', meta: 'Gross win / gross loss' },
-    { label: 'Avg Win', value: fmt.currency(avgWin), icon: 'trending-up', iconClass: 'green', meta: `Avg Loss: ${fmt.currency(-avgLoss)}` },
-  ]);
-
-  // P&L Distribution chart
+  // Simple P&L bar chart using Chart.js
   destroyChart('pnl-dist');
   const pnlCtx = document.getElementById('pnl-dist-chart');
-  if (pnlCtx) {
-    const pnls = trades.map(t => t.profit_dollars||0).sort((a,b) => a-b);
+  if (pnlCtx && trades.length) {
+    const vals = trades.slice(-30).map(t => +(t.pnl_pct || 0).toFixed(2));
+    const cols  = vals.map(v => v >= 0 ? 'rgba(16,185,129,.7)' : 'rgba(239,68,68,.7)');
     charts['pnl-dist'] = new Chart(pnlCtx, {
       type: 'bar',
-      data: {
-        labels: pnls.map((_, i) => i+1),
-        datasets: [{
-          label: 'P&L',
-          data: pnls,
-          backgroundColor: pnls.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'),
-          borderRadius: 2,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { callback: v => '$'+v.toFixed(0) } } },
-      },
+      data: { labels: vals.map((_, i) => '#' + (i + 1)), datasets: [{ data: vals, backgroundColor: cols, borderRadius: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { display: false } } },
     });
   }
 
-  // Strategy W/L chart
+  // Strategy win/loss bar chart
   destroyChart('strategy-wl');
-  const stratCtx = document.getElementById('strategy-wl-chart');
-  if (stratCtx) {
-    const stratMap = {};
+  const wlCtx = document.getElementById('strategy-wl-chart');
+  if (wlCtx && trades.length) {
+    const byStrat = {};
     trades.forEach(t => {
-      if (!stratMap[t.strategy_id]) stratMap[t.strategy_id] = { w: 0, l: 0 };
-      if ((t.profit_dollars||0) >= 0) stratMap[t.strategy_id].w++;
-      else stratMap[t.strategy_id].l++;
+      const k = t.strategy || t.node || 'unknown';
+      if (!byStrat[k]) byStrat[k] = { w: 0, l: 0 };
+      (t.pnl_pct || 0) > 0 ? byStrat[k].w++ : byStrat[k].l++;
     });
-    const labels = Object.keys(stratMap).filter(k => k && k !== 'undefined').slice(0, 5);
-    charts['strategy-wl'] = new Chart(stratCtx, {
+    const labels = Object.keys(byStrat).map(k => k.length > 14 ? k.slice(0, 12) + '…' : k);
+    charts['strategy-wl'] = new Chart(wlCtx, {
       type: 'bar',
       data: {
         labels,
         datasets: [
-          { label: 'Wins',   data: labels.map(k => stratMap[k]?.w||0), backgroundColor: 'rgba(16,185,129,0.7)', borderRadius: 3 },
-          { label: 'Losses', data: labels.map(k => stratMap[k]?.l||0), backgroundColor: 'rgba(239,68,68,0.7)',  borderRadius: 3 },
+          { label: 'Wins',   data: Object.values(byStrat).map(v => v.w), backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 2 },
+          { label: 'Losses', data: Object.values(byStrat).map(v => v.l), backgroundColor: 'rgba(239,68,68,.7)',  borderRadius: 2 },
         ],
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: true, labels: { color: '#94a3b8', boxWidth: 10 } } },
-        scales: {
-          x: { grid: { display: false }, ticks: { maxRotation: 25 } },
-          y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { stepSize: 1 } },
-        },
-      },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.05)' }, stacked: false }, x: { ticks: { color: '#64748b' } } }, plugins: { legend: { display: true, labels: { color: '#64748b', boxWidth: 10 } } } },
     });
   }
-
-  // Trade history table
-  const tbody = document.querySelector('#analytics-trades-table tbody');
-  tbody.innerHTML = trades.slice(0, 50).map(t => {
-    const pnl = t.profit_dollars || 0;
-    return `<tr>
-      <td class="text-muted">${fmt.time(t.close_time)}</td>
-      <td class="td-primary">${t.symbol}</td>
-      <td>${fmt.direction(t.direction)}</td>
-      <td class="mono fw-600 ${pnl>=0?'td-positive':'td-negative'}">${fmt.currency(pnl)}</td>
-      <td class="mono ${pnl>=0?'td-positive':'td-negative'}">${fmt.pct(t.profit_pct)}</td>
-      <td><span class="badge badge-muted text-xs">${t.strategy_id||'—'}</span></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="6" class="table-empty">No trades found</td></tr>';
 }
 
-// ── AI COUNCIL ───────────────────────────────────────────────
+async function loadRisk() {
+  // Risk page has its own self-contained module (risk-page.js / riskPage object).
+  // This function is called by loadPage('risk'); just delegate to the module.
+  if (window.riskPage && typeof window.riskPage.refresh === 'function') {
+    await window.riskPage.refresh();
+  }
+}
+
+
+// ── AI Council — Request Review from Strategy Detail ─────────
+function requestCouncilReview(strategyId, strategyName) {
+  // Sanitise: data-attr returns '' when unset; also guard string 'undefined'
+  const _sid  = (strategyId   === 'undefined' || !strategyId)   ? '' : strategyId;
+  const _sname = (strategyName === 'undefined' || !strategyName) ? '' : strategyName;
+  const topic = _sname || _sid || 'strategy';
+  closeStrategyDetail();
+  navigateTo('ai-council');
+  setTimeout(function() {
+    const inp = document.getElementById('council-topic-input');
+    if (inp) inp.value = topic;
+    runCouncilAssessment(topic);
+  }, 200);
+}
+
+// ── Council UI helpers ────────────────────────────────────────────
+// ── Council UI constants & helpers ──────────────────────────
+const COUNCIL_AGENTS = [
+  { id: 'QuantAnalyst',     name: 'Quant',          role: 'Data Scientist',    color: '#22d3ee' },
+  { id: 'SentimentAnalyst', name: 'Sentiment',       role: 'Market Analyst',    color: '#f472b6' },
+  { id: 'MacroResearcher',  name: 'Macro',           role: 'Macro Researcher',  color: '#fb923c' },
+  { id: 'DevilsAdvocate',   name: "Devil's Advocate",role: 'Contrarian',        color: '#f87171' },
+  { id: 'RiskManager',      name: 'Risk',            role: 'Risk Manager',      color: '#facc15' },
+  { id: 'Director',         name: 'Director',        role: 'Portfolio Manager', color: '#a78bfa' },
+];
+const COUNCIL_STEPS = ['Brief', 'Analysis', 'Rebuttal', 'Vote', 'Decision'];
+
+function _agentInfo(id) {
+  return COUNCIL_AGENTS.find(a => a.id === id || a.name === id)
+    || { id, name: id, role: 'Agent', color: '#8793a8' };
+}
+
+function _agentAvatar(ag, size) {
+  size = size || 28;
+  return '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+ag.color+'22;border:2px solid '+ag.color+';display:grid;place-items:center;font-size:'+Math.round(size*0.46)+'px;font-weight:700;color:'+ag.color+';flex-shrink:0">'+ag.name[0]+'</div>';
+}
+
+function _councilSteps(activeIdx) {
+  const wrap = document.getElementById('council-steps');
+  if (!wrap) return;
+  wrap.innerHTML = COUNCIL_STEPS.map((s, i) => {
+    const done = i < activeIdx, active = i === activeIdx;
+    const bg  = done ? '#34d399' : active ? '#6366f1' : 'var(--border-subtle,#1f2a3d)';
+    const col = (done || active) ? 'var(--text-primary)' : 'var(--text-muted)';
+    return '<div style="position:relative;text-align:center;font-size:10px;color:'+col+';min-width:60px"><div style="width:16px;height:16px;border-radius:50%;background:'+bg+';margin:0 auto 3px;border:2px solid '+bg+'"></div>'+s+'</div>';
+  }).join('');
+}
+
+function _buildRoster(agentStances) {
+  const roster = document.getElementById('council-roster');
+  if (!roster) return;
+  roster.innerHTML = COUNCIL_AGENTS.map(ag => {
+    const st = (agentStances[ag.id] || agentStances[ag.name] || '').toLowerCase();
+    const isPos = st.includes('bull') || st === 'support' || st === 'proceed';
+    const isNeg = st.includes('bear') || st === 'oppose' || st === 'avoid';
+    const stCol  = !st ? 'var(--text-muted)' : isPos ? '#34d399' : isNeg ? '#f87171' : '#fbbf24';
+    const stLabel = !st ? 'WAITING' : st.toUpperCase().slice(0, 10);
+    return '<div style="display:grid;grid-template-columns:28px 1fr;gap:8px;padding:7px;border:1px solid var(--border-subtle);border-left:3px solid '+ag.color+';border-radius:8px;margin-bottom:6px;background:var(--surface-2)">'+
+      _agentAvatar(ag, 24)+
+      '<div><div style="font-size:12px;font-weight:600">'+ag.name+'</div>'+
+      '<div style="font-size:10px;color:var(--text-muted)">'+ag.role+'</div>'+
+      (st ? '<div style="font-size:10px;color:'+stCol+';font-weight:600;margin-top:2px">'+stLabel+'</div>' : '')+
+      '</div></div>';
+  }).join('');
+}
+
+function _setGauge(score) {
+  const needle = document.getElementById('council-gauge-needle');
+  const label  = document.getElementById('council-net-score');
+  if (needle) needle.style.left = (50 + Math.min(1, Math.max(-1, score)) * 48) + '%';
+  if (label)  label.textContent = 'net ' + (score >= 0 ? '+' : '') + score.toFixed(2);
+}
+
+function _showDecision(verdict) {
+  const card  = document.getElementById('council-decision-card');
+  const body  = document.getElementById('council-decision-body');
+  const badge = document.getElementById('council-decision-badge');
+  if (!card || !body || !verdict) return;
+  const rec   = (verdict.recommendation || verdict.decision || 'hold').toLowerCase();
+  const conf  = verdict.confidence || 0;
+  const col   = rec === 'proceed' || rec === 'approve' ? '#34d399' : rec === 'avoid' || rec === 'reject' ? '#f87171' : '#fbbf24';
+  const label = rec === 'proceed' || rec === 'approve' ? 'PROCEED' : rec === 'avoid' || rec === 'reject' ? 'AVOID' : 'HOLD';
+  if (badge) { badge.textContent = label; badge.style.cssText = 'background:'+col+'22;color:'+col+';border:1px solid '+col+';border-radius:6px;padding:2px 8px;font-size:11px'; }
+  body.innerHTML =
+    '<div style="font-size:20px;font-weight:700;color:'+col+';margin-bottom:4px">'+label+'</div>'+
+    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+conf+'% confidence</div>'+
+    '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">'+(verdict.reasoning || '')+'</div>';
+  card.style.display = 'block';
+}
+
+function _councilDivider(label) {
+  const flow = document.getElementById('council-flow');
+  if (flow) flow.insertAdjacentHTML('beforeend',
+    '<div style="display:flex;align-items:center;gap:10px;margin:16px 0 10px;font-size:10px;font-family:monospace;color:var(--text-muted)">'+
+    '<div style="flex:1;border-top:1px solid var(--border-subtle)"></div>'+label+
+    '<div style="flex:1;border-top:1px solid var(--border-subtle)"></div></div>');
+}
+
+function _councilMsg(agentId, text, tags) {
+  const flow = document.getElementById('council-flow');
+  if (!flow) return;
+  const ag = _agentInfo(agentId);
+  const tagsHtml = (tags || []).map(t =>
+    '<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:var(--surface-1,#111827);border:1px solid var(--border-subtle);color:var(--text-muted);margin-right:4px">'+t+'</span>'
+  ).join('');
+  flow.insertAdjacentHTML('beforeend',
+    '<div style="display:grid;grid-template-columns:28px 1fr;gap:10px;margin-bottom:12px">'+
+    _agentAvatar(ag, 28)+
+    '<div style="background:var(--surface-2,#0d1320);border:1px solid var(--border-subtle);border-left:3px solid '+ag.color+';border-radius:8px;padding:9px 12px">'+
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:12px;color:var(--text-muted)">'+
+    '<strong style="color:var(--text-primary)">'+ag.name+'</strong><span>'+ag.role+'</span>'+tagsHtml+'</div>'+
+    '<div style="font-size:13px;line-height:1.5;color:var(--text-secondary)">'+text+'</div>'+
+    '</div></div>');
+  flow.scrollTop = flow.scrollHeight;
+}
+
+function _renderV2Debate(flow, debate) {
+  if (!debate) return;
+  if (flow) flow.innerHTML = '';
+  const transcript = debate.transcript || {};
+  const verdict = { recommendation: debate.recommendation, confidence: debate.confidence, reasoning: debate.reasoning };
+  const round1 = transcript.round1 || {};
+  const round2 = transcript.round2 || {};
+  const round3 = transcript.round3 || {};
+  const stances = {};
+  for (const [nm, d] of Object.entries(round1)) stances[nm] = d.stance || 'neutral';
+  _buildRoster(stances);
+  _councilSteps(4);
+  const scoreMap = { proceed: 1, approve: 0.9, hold: 0, watch: 0.1, avoid: -0.9, reject: -1 };
+  _setGauge(scoreMap[(debate.recommendation || 'hold').toLowerCase()] || 0);
+  if (Object.keys(round1).length) {
+    _councilDivider('Round 1 — Analysis');
+    for (const [nm, d] of Object.entries(round1)) {
+      _councilMsg(nm, d.analysis || d.content || '[no data]', (d.key_points || []).slice(0, 3));
+    }
+  }
+  if (Object.keys(round2).length) {
+    _councilDivider('Round 2 — Cross-Examination');
+    for (const [nm, d] of Object.entries(round2)) {
+      _councilMsg(nm, d.challenge || d.content || '[no data]', d.targets || []);
+    }
+  }
+  if (Object.keys(round3).length) {
+    _councilDivider('Round 3 — Rebuttals');
+    for (const [nm, d] of Object.entries(round3)) {
+      _councilMsg(nm, d.rebuttal || d.content || d.analysis || '[no data]', []);
+    }
+  }
+  _councilDivider('Director Verdict');
+  _councilMsg('Director', verdict.reasoning || 'Debate concluded.', [(verdict.recommendation || 'hold').toUpperCase()]);
+  _showDecision(verdict);
+}
+
+async function runCouncilAssessment(topic) {
+  topic = (topic || 'market').trim();
+  const flow = document.getElementById('council-flow');
+  if (!flow) return;
+  flow.innerHTML = '';
+  _buildRoster({});
+  _councilSteps(0);
+  _setGauge(0);
+  const decCard = document.getElementById('council-decision-card');
+  if (decCard) decCard.style.display = 'none';
+  const badge = document.getElementById('council-decision-badge');
+  if (badge) { badge.textContent = '—'; badge.removeAttribute('style'); badge.className = 'badge badge-blue'; }
+  _councilDivider('Brief');
+  _councilMsg('Director', 'Council convened. Topic: ' + topic + '. Agents, deliver your independent assessments.', []);
+  _councilSteps(1);
+  try {
+    const resp = await fetch('http://127.0.0.1:8766/api/council/assess', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: topic, context: {} })
+    });
+    if (!resp.ok) throw new Error('Council server returned ' + resp.status);
+    const data = await resp.json();
+    _councilSteps(4);
+    const views = data.agent_views || {};
+    if (Object.keys(views).length) {
+      _councilDivider('Round 1 — Agent Views');
+      for (const [nm, stance] of Object.entries(views)) {
+        _councilMsg(nm, 'Stance on ' + topic + ': ' + (stance || 'neutral').toUpperCase(), [stance || 'neutral']);
+      }
+      _buildRoster(views);
+    }
+    _councilDivider('Director Verdict');
+    _councilMsg('Director', data.reasoning || 'Assessment complete.', [(data.recommendation || 'hold').toUpperCase()]);
+    const scoreMap = { proceed: 1, approve: 0.9, hold: 0, watch: 0.1, avoid: -0.9, reject: -1 };
+    _setGauge(scoreMap[(data.recommendation || 'hold').toLowerCase()] || 0);
+    _showDecision({ recommendation: data.recommendation, confidence: data.confidence, reasoning: data.reasoning });
+  } catch(e) {
+    _councilMsg('Director', 'Council unavailable: ' + e.message + '. Make sure the bot is running.', ['ERROR']);
+  }
+}
+
+async function _updateCouncilProviderBadges() {
+  try {
+    const r = await fetch('http://127.0.0.1:8766/api/council/providers',
+      { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) throw new Error('no server');
+    const pdata = await r.json();
+    const providers  = pdata.configured || {};
+    const available  = pdata.available  || [];
+    const badges = {
+      groq:        'council-prov-groq',
+      openrouter:  'council-prov-openrouter',
+      openai:      'council-prov-openai',
+    };
+    for (const [key, elemId] of Object.entries(badges)) {
+      const el = document.getElementById(elemId);
+      if (!el) continue;
+      const ok = available.includes(key) || providers[key] === true;
+      el.className   = ok ? 'badge badge-green' : 'badge badge-muted';
+      el.textContent = key.charAt(0).toUpperCase() + key.slice(1) + ' ' + (ok ? '✓' : '—');
+    }
+  } catch(_) { /* council server not up — badges stay grey */ }
+}
+
+// ── AI COUNCIL ───────────────────────────────────────────────────────
 async function loadCouncil() {
+  _updateCouncilProviderBadges();
+  _buildRoster({});
+  _councilSteps(-1);
+  _setGauge(0);
+
   const data = await DS.getIntelligence();
   const council = data.council || [];
   const fmt = DS.fmt;
-
-  const agentMap = {
-    'Quant':           { cls: 'quant',     role: 'Data Scientist',   icon: 'Q' },
-    'Sentiment':       { cls: 'sentiment', role: 'Macro Analyst',    icon: 'S' },
-    "Devil's Advocate":{ cls: 'devil',     role: 'Contrarian',       icon: 'D' },
-    'Risk':            { cls: 'risk',      role: 'Risk Manager',     icon: 'R' },
-    'Risk Manager':    { cls: 'risk',      role: 'Risk Manager',     icon: 'R' },
-    'Director':        { cls: 'director',  role: 'Portfolio Manager',icon: '★' },
-    'Quant Agent':     { cls: 'quant',     role: 'Quant',            icon: 'Q' },
-  };
-
   const flow = document.getElementById('council-flow');
-  flow.innerHTML = council.map(msg => {
-    const agent = agentMap[msg.agent] || { cls: 'quant', role: 'Agent', icon: msg.agent[0] };
-    return `
-      <div class="council-msg">
-        <div class="council-agent-avatar ${agent.cls}">${agent.icon}</div>
-        <div class="council-msg-body">
-          <div class="council-msg-header">
-            <span class="council-agent-name">${msg.agent}</span>
-            <span class="council-agent-role">${agent.role}</span>
-            <span class="text-muted" style="margin-left:auto;font-size:11px">${msg.time}</span>
-          </div>
-          <div class="council-msg-text">${msg.text}</div>
-        </div>
-      </div>
-    `;
-  }).join('') || '<div class="empty-state"><div class="empty-icon">🤖</div><div class="empty-title">No council session yet</div></div>';
+
+  if (council.length > 0) {
+    if (flow) flow.innerHTML = '';
+    council.forEach(msg => {
+      _councilMsg(msg.agent || 'Agent', msg.text || '', []);
+    });
+  } else {
+    const v2 = data.council_v2 || {};
+    const lastDebate = v2.last_debate;
+    if (lastDebate && lastDebate.transcript) {
+      _renderV2Debate(flow, lastDebate);
+    } else {
+      try {
+        const r2 = await fetch('http://127.0.0.1:8766/api/council/last', { signal: AbortSignal.timeout(3000) });
+        if (r2.ok) {
+          const ld = await r2.json();
+          if (ld && ld.transcript) { _renderV2Debate(flow, ld); }
+          else if (flow) { flow.innerHTML = "<div class='empty-state'><div class='empty-icon'>&#x1F916;</div><div class='empty-title'>No council session yet</div><div class='empty-desc'>Enter a topic above and click Run Assessment</div></div>"; }
+        } else { throw new Error('no data'); }
+      } catch(_) {
+        if (flow) flow.innerHTML = "<div class='empty-state'><div class='empty-icon'>&#x1F916;</div><div class='empty-title'>No council session yet</div><div class='empty-desc'>Enter a topic above and click Run Assessment</div></div>";
+      }
+    }
+  }
 
   // Signals table
-  const tbody = document.querySelector('#council-signals-table tbody');
-  tbody.innerHTML = (data.signals || []).map(s => `
+  const sigTbody = document.querySelector('#council-signals-table tbody');
+  if (sigTbody) sigTbody.innerHTML = (data.signals || []).map(s => `
     <tr>
       <td class="text-muted">${s.time ? fmtISTFull(s.time) : '—'}</td>
       <td class="td-primary">${s.symbol}</td>
@@ -2364,10 +2545,11 @@ async function loadCouncil() {
   const track = data.ai_track || {};
   const total = (track.wins||0) + (track.losses||0);
   const trackWr = total ? Math.round(track.wins/total*100) : 0;
-  document.getElementById('council-track').innerHTML = `
+  const ctEl = document.getElementById('council-track');
+  if (ctEl) ctEl.innerHTML = `
     <div class="health-metric"><span class="health-metric-label">Council Wins</span><span class="health-metric-value text-green">${track.wins||0}</span></div>
     <div class="health-metric"><span class="health-metric-label">Council Losses</span><span class="health-metric-value text-red">${track.losses||0}</span></div>
-    <div class="health-metric"><span class="health-metric-label">Council Win Rate</span><span class="health-metric-value">${trackWr}%</span></div>
+    <div class="health-metric"><span class="health-metric-label">Win Rate</span><span class="health-metric-value">${trackWr}%</span></div>
     <div class="divider"></div>
     <div class="progress-bar-wrap">
       <div class="progress-bar-label"><span>Win Rate</span><span>${trackWr}%</span></div>
@@ -2375,7 +2557,6 @@ async function loadCouncil() {
     </div>
   `;
 }
-
 // ── BACKTESTS ────────────────────────────────────────────────
 async function loadBacktests() {
   const data = await DS.getStrategies();
@@ -2878,6 +3059,8 @@ setTimeout(populateAccountSelector, 1500);
 // Shows all strategy metrics inline without leaving the strategies page.
 
 function showStrategyDetail(sid, name) {
+  if (!sid || sid === 'undefined') return;
+  name = (name === 'undefined') ? '' : (name || '');
   document.getElementById('strategy-detail-overlay').style.display = 'block';
   document.getElementById('strategy-detail-drawer').style.display  = 'block';
   document.getElementById('sd-title').textContent = name || 'Strategy';
@@ -2963,7 +3146,10 @@ function renderStrategyDetail(s) {
       This view is read-only monitoring. No changes can be made here.
     </div>
     <div style="margin-top:var(--space-4)">
-      <button class="btn btn-secondary btn-sm" style="width:100%;justify-content:center" onclick="requestCouncilReview('${s.id}','${(s.name||'').replace(/'/g,"\\'")}')">
+      <button class="btn btn-secondary btn-sm" style="width:100%;justify-content:center"
+
+        data-sid="${s.id||''}" data-sname="${s.name||''}" onclick="requestCouncilReview(this.dataset.sid, this.dataset.sname)">
+
         <i data-lucide="users" width="13" height="13"></i>&nbsp; Request AI Council Review
       </button>
     </div>

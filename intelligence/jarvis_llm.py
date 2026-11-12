@@ -81,15 +81,16 @@ _POSTMORTEM_DIR.mkdir(parents=True, exist_ok=True)
 class JarvisLLM:
 
     def __init__(self):
-        self._api_key = os.environ.get("GEMINI_API_KEY", "")
+        self._api_key  = os.environ.get("GEMINI_API_KEY", "")  # Gemini (primary)
+        self._groq_key = os.environ.get("GROQ_API_KEY", "")    # Groq (fallback)
         
-        self._model = "gemini-flash-latest"
+        self._model = "gemini-2.0-flash"
         try:
             hw_path = Path(CRAVE_ROOT) / "config" / "hardware.json"
             if hw_path.exists():
                 with open(hw_path, "r", encoding="utf-8") as f:
                     hw = json.load(f)
-                    self._model = hw.get("api_routing", {}).get("models", {}).get("gemini", "gemini-flash-latest")
+                    self._model = hw.get("api_routing", {}).get("models", {}).get("gemini", "gemini-2.0-flash")
         except Exception:
             pass
             
@@ -119,7 +120,50 @@ class JarvisLLM:
             logger.warning(f"[Jarvis] Gemini connection failed: {e}")
 
     def is_ready(self) -> bool:
-        return self._client is not None
+        """Jarvis is ready if Gemini client OR Groq key is available."""
+        return self._client is not None or bool(self._groq_key)
+
+
+    def _call_llm(self, prompt: str) -> str:
+        """
+        Unified LLM call: tries Gemini first, falls back to Groq.
+        Replaces direct self._client.models.generate_content() calls.
+        """
+        # Gemini path
+        if self._client is not None:
+            try:
+                response = self._client.models.generate_content(
+                    model=self._model, contents=prompt
+                )
+                return response.text.strip()
+            except Exception as e:
+                logger.warning(f"[Jarvis] Gemini call failed, trying Groq: {e}")
+
+        # Groq fallback
+        if self._groq_key:
+            try:
+                import requests as _req
+                groq_model = os.environ.get("GROQ_MODEL", "llama-3.1-70b-versatile")
+                resp = _req.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json={
+                        "model": groq_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 400,
+                    },
+                    headers={
+                        "Authorization": f"Bearer {self._groq_key}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=20,
+                )
+                if resp.status_code == 200:
+                    return resp.json()["choices"][0]["message"]["content"].strip()
+                raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text[:120]}")
+            except Exception as e:
+                raise RuntimeError(f"[Jarvis] Groq fallback failed: {e}")
+
+        raise RuntimeError("[Jarvis] No LLM configured (set GEMINI_API_KEY or GROQ_API_KEY)")
 
     # ─────────────────────────────────────────────────────────────────────────
     # SENTIMENT FILTER
@@ -305,11 +349,7 @@ Respond with ONLY a JSON object, nothing else:
 {{"sentiment": "LABEL", "confidence": 0-100, "key_driver": "one sentence max"}}"""
 
         try:
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=prompt
-            )
-            text     = response.text.strip()
+            text = self._call_llm(prompt)
 
             # Parse JSON response
             # Strip markdown code blocks if present

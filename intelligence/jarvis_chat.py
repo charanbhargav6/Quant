@@ -29,6 +29,9 @@ MODEL_COOLDOWN   = 300   # seconds before re-trying a dead model
 # The local Ollama model (qwen2.5:14b) is now our #1 priority for zero-cost, private inference
 FALLBACK_MODELS = [
     "ollama:qwen2.5:14b",
+    "groq:qwen/qwen3.8-27b",          # Groq — fast, free, works now
+    "groq:llama-3.1-70b-versatile",   # Groq fallback model
+    "gemini-2.0-flash",               # Gemini (needs valid GEMINI_API_KEY)
     "gemini-flash-latest",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
@@ -136,6 +139,39 @@ def call_model(model: str, system: str, msg: str, key: str) -> tuple:
         except _req.exceptions.ConnectionError:
             # Ollama not running
             return "Ollama is not running locally.", 503
+        except Exception as e:
+            return str(e), 500
+
+    # --- Groq Call (OpenAI-compat) ---
+    if model.startswith("groq:"):
+        import os as _os
+        groq_model = model.split(":", 1)[1]
+        groq_key   = _os.environ.get("GROQ_API_KEY", "").strip()
+        if not groq_key:
+            return "GROQ_API_KEY not set.", 503
+        try:
+            resp = _req.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json={
+                    "model": groq_model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": msg},
+                    ],
+                    "max_tokens": 2000,
+                    "temperature": 0.7,
+                },
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                text = resp.json()["choices"][0]["message"]["content"].strip()
+                return text, 200
+            err = resp.json().get("error", {}).get("message", resp.text[:120])
+            return err, resp.status_code
         except Exception as e:
             return str(e), 500
 

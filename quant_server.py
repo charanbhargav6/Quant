@@ -1262,6 +1262,42 @@ def api_intelligence():
     with _council_lock:
         msgs = list(_council[-30:])
 
+    # ── Pull latest debate from Council v2 server (port 8766) ────────────────
+    council_v2_last = None
+    council_v2_providers = []
+    council_v2_online = False
+    try:
+        import requests as _req
+        council_port = int(os.environ.get("COUNCIL_PORT", "8766"))
+        r = _req.get(f"http://127.0.0.1:{council_port}/api/council/last", timeout=2)
+        if r.status_code == 200:
+            body = r.json()
+            if body.get("status") != "no_debate_yet":
+                council_v2_last = body
+                # Flatten debate into council message format for the panel
+                r1 = body.get("transcript", {}).get("round1", {})
+                for agent_name, data in r1.items():
+                    msgs.append({
+                        "agent": agent_name,
+                        "text":  f"[{data.get('stance','?').upper()}] {data.get('analysis','')[:300]}",
+                        "time":  body.get("timestamp", "")[:16],
+                    })
+                # Director verdict
+                verdict = body.get("recommendation", "hold")
+                conf    = body.get("confidence", 0)
+                msgs.append({
+                    "agent": "Director",
+                    "text":  f"VERDICT: {verdict.upper()} ({conf}% confidence) — {body.get('reasoning','')[:300]}",
+                    "time":  body.get("timestamp", "")[:16],
+                })
+        # Provider status
+        rp = _req.get(f"http://127.0.0.1:{council_port}/api/council/providers", timeout=2)
+        if rp.status_code == 200:
+            council_v2_providers = rp.json().get("available", [])
+            council_v2_online = True
+    except Exception:
+        pass  # Council v2 optional — degrade gracefully
+
     # Latest signals from DB
     signals = []
     if db:
@@ -1293,9 +1329,15 @@ def api_intelligence():
             elif rm < 0: ai_losses += 1
 
     return jsonify({
-        "council":     msgs,
-        "signals":     signals,
-        "ai_track":    {"wins": ai_wins, "losses": ai_losses},
+        "council":            msgs,
+        "signals":            signals,
+        "ai_track":           {"wins": ai_wins, "losses": ai_losses},
+        "council_v2": {
+            "online":         council_v2_online,
+            "providers":      council_v2_providers,
+            "last_debate":    council_v2_last,
+            "advisory_only":  os.environ.get("COUNCIL_ADVISORY_ONLY", "true").lower() == "true",
+        },
     })
 
 @app.route("/api/intelligence/council", methods=["POST"])
@@ -3316,6 +3358,120 @@ def api_options():
     _opts_cache["data"] = result
     _opts_cache["ts"]   = _time.time()
     return jsonify(result)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUTE ALIASES — backward-compat shims so old dashboard calls don't 404
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/health")
+def api_health():
+    """Alias: lightweight health probe used by external monitors & tests."""
+    conn  = check_conn()
+    db    = get_db_agent()
+    db_ok = db is not None
+    return jsonify({
+        "status":      "ok",
+        "connection":  conn,
+        "database":    db_ok,
+        "server_time": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
+        "trading_mode": os.environ.get("TRADING_MODE", "paper"),
+    })
+
+@app.route("/api/signals")
+def api_signals():
+    """Alias: recent signal feed (dashboard Signal Feed widget)."""
+    db = get_db_agent()
+    signals = []
+    if db:
+        rows = db.query(
+            "SELECT symbol, direction, grade, confidence, was_traded, "
+            "skip_reason, signal_time FROM signals ORDER BY signal_time DESC LIMIT 50",
+            ()
+        )
+        for r in rows:
+            signals.append({
+                "time":        (r.get("signal_time") or "")[:16],
+                "symbol":      r.get("symbol"),
+                "direction":   r.get("direction"),
+                "grade":       r.get("grade"),
+                "confidence":  r.get("confidence"),
+                "traded":      bool(r.get("was_traded")),
+                "skip_reason": r.get("skip_reason"),
+            })
+    return jsonify({"signals": signals, "count": len(signals)})
+
+@app.route("/api/performance")
+def api_performance():
+    """Alias: trade performance summary (overview P&L widgets)."""
+    db = get_db_agent()
+    trades = []
+    stats  = {}
+    if db:
+        rows = db.query(
+            "SELECT symbol, direction, outcome, r_multiple, grade, "
+            "pnl_pct, open_time, close_time, is_paper "
+            "FROM trades ORDER BY close_time DESC LIMIT 100",
+            ()
+        )
+        for r in rows:
+            trades.append({
+                "symbol":    r.get("symbol"),
+                "direction": r.get("direction"),
+                "outcome":   r.get("outcome"),
+                "r":         r.get("r_multiple"),
+                "grade":     r.get("grade"),
+                "pnl_pct":   r.get("pnl_pct"),
+                "open_time": r.get("open_time"),
+                "close_time":r.get("close_time"),
+                "is_paper":  bool(r.get("is_paper")),
+            })
+        if trades:
+            rv    = [t["r"] for t in trades if t["r"] is not None]
+            wins  = sum(1 for x in rv if x > 0)
+            total = len(rv)
+            gp    = sum(x for x in rv if x > 0)
+            gl    = abs(sum(x for x in rv if x < 0))
+            stats = {
+                "total_trades":  total,
+                "win_rate":      round(wins / total * 100, 1) if total else 0,
+                "profit_factor": round(gp / gl, 2) if gl > 0 else 99.0,
+                "expectancy_r":  round(sum(rv) / total, 3) if total else 0,
+                "total_r":       round(sum(rv), 2),
+            }
+    return jsonify({"trades": trades, "stats": stats})
+
+@app.route("/api/council")
+def api_council():
+    """
+    Alias: unified Council endpoint.
+    Returns in-process council messages + Council v2 server last debate.
+    """
+    with _council_lock:
+        msgs = list(_council[-30:])
+
+    council_v2 = {}
+    try:
+        import requests as _req
+        port = int(os.environ.get("COUNCIL_PORT", "8766"))
+        r = _req.get(f"http://127.0.0.1:{port}/api/council/last", timeout=2)
+        if r.status_code == 200:
+            body = r.json()
+            if body.get("status") != "no_debate_yet":
+                council_v2 = body
+    except Exception:
+        pass
+
+    return jsonify({
+        "messages":    msgs,
+        "last_debate": council_v2 or None,
+        "advisory_only": os.environ.get("COUNCIL_ADVISORY_ONLY", "true").lower() == "true",
+    })
+
+@app.route("/api/candidates")
+def api_candidates():
+    """Alias: candidate strategies (redirects to strategies/candidates)."""
+    return api_strategy_candidates()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
