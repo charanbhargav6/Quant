@@ -50,6 +50,7 @@
     if (newPrice != null) {
       cells[2].textContent = fmtP(newPrice, info.market);
       cells[2].className = "mkt-price " + cc(tick.change_pct);
+      cells[2].classList.remove("mkt-unavail"); // clear unavailable state if price arrives
       info.tr.dataset.price = newPrice;
       flashCell(cells[2], up);
     }
@@ -65,6 +66,8 @@
       cells[6].textContent = spread;
     }
     cells[9].textContent = new Date().toLocaleTimeString();
+    // Update source badge when it changes (e.g. mt5_broker → yahoo_finance)
+    if (tick.source) cells[8].textContent = tick.source;
   }
 
   // ── Build a row from snapshot data ───────────────────────────────────────

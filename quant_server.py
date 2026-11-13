@@ -2417,7 +2417,8 @@ def _sse_push_loop():
                 pass
 
             # ── Market prices — ALL instruments, emit changed ticks ──────────
-            # Broadcasts every changed price to the dashboard SSE stream.
+            # Primary source: WebSocket cache (MT5 live ticks)
+            # Fallback: Yahoo Finance cache for instruments not in WS feed
             # Dashboard subscribes once and updates cells in-place.
             try:
                 from interfaces.websocket_manager import get_ws
@@ -2427,16 +2428,36 @@ def _sse_push_loop():
                 for sym, inst in INSTRUMENTS.items():
                     if inst.get("backtest_only"):
                         continue
-                    price = _ws.get_live_price(sym)
+                    price  = _ws.get_live_price(sym)
+                    source = "mt5_broker" if price and price > 0 else None
+
+                    # YF fallback for symbols not in WS cache
+                    if not price or price <= 0:
+                        with _yf_cache_lock:
+                            yf_row = _yf_cache.get(sym)
+                        if yf_row and yf_row.get("price") and yf_row["price"] > 0:
+                            price  = yf_row["price"]
+                            source = "yahoo_finance"
+
                     if price and abs(price - _sse_state["last_prices"].get(sym, 0)) > 0:
                         _sse_state["last_prices"][sym] = price
-                        changed[sym] = {
+                        tick_data = {
                             "price":      round(price, 6),
                             "label":      inst.get("label", sym),
                             "market":     inst.get("market", "unknown"),
                             "asset_class":inst.get("asset_class", "unknown"),
                             "exchange":   inst.get("exchange", "unknown"),
+                            "source":     source or "unknown",
                         }
+                        # Enrich with change_pct + bid/ask from YF cache if available
+                        with _yf_cache_lock:
+                            yf_row = _yf_cache.get(sym)
+                        if yf_row:
+                            if yf_row.get("change_pct") is not None:
+                                tick_data["change_pct"] = yf_row["change_pct"]
+                            if yf_row.get("change") is not None:
+                                tick_data["change"] = yf_row["change"]
+                        changed[sym] = tick_data
                 if changed:
                     _sse_broadcast("market", {"ticks": changed, "ts": now})
             except Exception:
@@ -2902,9 +2923,116 @@ def api_india():
 # ─────────────────────────────────────────────────────────────────────────────
 # Returns a snapshot of ALL configured instruments grouped by market type.
 # Covers: Forex, Crypto, Gold/Silver, US Stocks, Indian Stocks, Futures.
-# Prices sourced from WebSocket cache (same feed SSE uses).
+# Primary source: MT5 live ticks. Fallback: Yahoo Finance (yfinance) for all
+# instruments not covered by MT5 (crypto, US stocks, Indian stocks, silver).
 # Response is an SSE-friendly initial snapshot — browser then switches to SSE.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── Yahoo Finance ticker mapping (internal symbol → YF ticker) ───────────────
+_YF_TICKER_MAP = {
+    # Forex (MT5 primary — YF fallback when MT5 tick is 0)
+    "AUDUSD=X":    "AUDUSD=X",
+    "USDCAD=X":    "USDCAD=X",
+    "USDCHF=X":    "USDCHF=X",
+    "NZDUSD=X":    "NZDUSD=X",
+    "EURJPY=X":    "EURJPY=X",
+    "GBPJPY=X":    "GBPJPY=X",
+    "EURUSD=X":    "EURUSD=X",
+    "GBPUSD=X":    "GBPUSD=X",
+    "USDJPY=X":    "USDJPY=X",
+    # Metals
+    "XAUUSD=X":    "GC=F",          # Gold futures
+    "XAGUSD=X":    "SI=F",          # Silver futures
+    # Crypto
+    "BTCUSDT":     "BTC-USD",
+    "ETHUSDT":     "ETH-USD",
+    "SOLUSDT":     "SOL-USD",
+    # US Stocks / ETFs
+    "AAPL":        "AAPL",
+    "NVDA":        "NVDA",
+    "TSLA":        "TSLA",
+    "MSFT":        "MSFT",
+    "SPY":         "SPY",
+    "QQQ":         "QQQ",
+    # Indian stocks
+    "RELIANCE":    "RELIANCE.NS",
+    "TCS":         "TCS.NS",
+    "HDFCBANK":    "HDFCBANK.NS",
+    "INFY":        "INFY.NS",
+    "ICICIBANK":   "ICICIBANK.NS",
+    "SBIN":        "SBIN.NS",
+    "BHARTIARTL":  "BHARTIARTL.NS",
+    "ITC":         "ITC.NS",
+    "BAJFINANCE":  "BAJFINANCE.NS",
+    "TATAMOTORS":  "TATAMOTORS.BO",   # BSE ticker (NS version delisted on YF)
+    "MARUTI":      "MARUTI.NS",
+    "WIPRO":       "WIPRO.NS",
+    "AXISBANK":    "AXISBANK.NS",
+    "KOTAKBANK":   "KOTAKBANK.NS",
+    # Indices (used as proxy for futures)
+    "NIFTY_FUT":      "^NSEI",
+    "BANKNIFTY_FUT":  "^NSEBANK",
+}
+
+# ── YF price cache: {symbol: {price, prev_close, change_pct, source, ts}} ────
+_yf_cache: dict = {}
+_yf_cache_lock = threading.Lock()
+_yf_refreshing  = False
+_YF_REFRESH_INTERVAL = 30   # seconds between full YF refresh
+
+
+def _yf_refresh_all():
+    """Fetch latest prices from Yahoo Finance for all mapped symbols.
+    Runs in a daemon thread. Uses fast_info (single HTTP call per ticker, no history).
+    Results stored in _yf_cache for use by _markets_build_snapshot() and SSE loop.
+    """
+    global _yf_refreshing
+    if _yf_refreshing:
+        return
+    _yf_refreshing = True
+    try:
+        import yfinance as _yf
+        updated = {}
+        for sym, yf_ticker in _YF_TICKER_MAP.items():
+            try:
+                t  = _yf.Ticker(yf_ticker)
+                fi = t.fast_info
+                price      = getattr(fi, "last_price",     None)
+                prev_close = getattr(fi, "previous_close", None)
+                if price and price > 0:
+                    chg     = round(price - prev_close, 6) if prev_close and prev_close > 0 else None
+                    chg_pct = round(chg / prev_close * 100, 3) if chg is not None and prev_close else None
+                    updated[sym] = {
+                        "price":      round(float(price), 6),
+                        "prev_close": round(float(prev_close), 6) if prev_close else None,
+                        "change":     chg,
+                        "change_pct": chg_pct,
+                        "source":     "yahoo_finance",
+                        "ts":         datetime.now(timezone.utc).isoformat(),
+                    }
+            except Exception:
+                pass   # individual ticker failures are non-fatal
+        with _yf_cache_lock:
+            _yf_cache.update(updated)
+        log.info(f"[yf-refresh] Updated {len(updated)}/{len(_YF_TICKER_MAP)} instruments from Yahoo Finance")
+    except Exception as _ye:
+        log.debug(f"[yf-refresh] Error: {_ye}")
+    finally:
+        _yf_refreshing = False
+
+
+def _yf_refresh_loop():
+    """Daemon loop: refresh Yahoo Finance prices every _YF_REFRESH_INTERVAL seconds."""
+    import time as _t
+    # Initial fetch immediately at startup
+    _yf_refresh_all()
+    while True:
+        _t.sleep(_YF_REFRESH_INTERVAL)
+        _yf_refresh_all()
+
+
+# Start YF background refresh daemon
+threading.Thread(target=_yf_refresh_loop, daemon=True, name="yf-refresh").start()
 
 _markets_cache: dict = {"ts": 0, "data": None}
 _MARKETS_CACHE_TTL  = 10   # 10s live cache
@@ -3041,12 +3169,34 @@ def _markets_build_snapshot() -> dict:
                 except Exception:
                     pass
 
+            # Yahoo Finance fallback — covers all instruments with no live feed
+            if (not price or price <= 0) and sym in _YF_TICKER_MAP:
+                with _yf_cache_lock:
+                    yf_row = _yf_cache.get(sym)
+                if yf_row and yf_row.get("price") and yf_row["price"] > 0:
+                    price      = yf_row["price"]
+                    prev_close = yf_row.get("prev_close")
+                    source     = "yahoo_finance"
+                elif sym in _YF_TICKER_MAP and not _yf_refreshing:
+                    # Cache miss on first load — trigger a one-shot refresh
+                    threading.Thread(target=_yf_refresh_all, daemon=True, name="yf-oncall").start()
+
             if price and price > 0:
                 price  = round(price, 6)
                 source = source if source != "unavailable" else "ws_cache"
                 if prev_close and prev_close > 0:
                     change     = round(price - prev_close, 6)
                     change_pct = round(change / prev_close * 100, 3)
+                # Use pre-computed change_pct from YF cache if still None
+                if change_pct is None and source == "yahoo_finance":
+                    with _yf_cache_lock:
+                        _yf_row = _yf_cache.get(sym, {})
+                    if _yf_row.get("change_pct") is not None:
+                        change_pct = _yf_row["change_pct"]
+                    if _yf_row.get("change") is not None:
+                        change = _yf_row["change"]
+                    if _yf_row.get("prev_close") and not prev_close:
+                        prev_close = _yf_row["prev_close"]
 
             row = {
                 "symbol":      sym,
