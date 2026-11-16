@@ -851,7 +851,6 @@ class TradingLoop:
             # This was never built until now; check BEFORE spending any
             # more compute on this symbol.
             from core.position_tracker import positions
-            import os
             MAX_CONCURRENT_ORDERFLOW_BTC = int(os.environ.get("MAX_CONCURRENT_ORDERFLOW_BTC", "8"))
             open_count = positions.count_by_strategy("orderflow_btc")
             if open_count >= MAX_CONCURRENT_ORDERFLOW_BTC:
@@ -1305,8 +1304,7 @@ class TradingLoop:
             # debate (for dashboard display, Telegram, logging) but its verdict
             # cannot veto a trade or mutate SL/TP levels.
             # Set COUNCIL_ADVISORY_ONLY=false to restore full Council authority.
-            import os as _os
-            if _os.environ.get("COUNCIL_ADVISORY_ONLY", "true").lower() == "true":
+            if os.environ.get("COUNCIL_ADVISORY_ONLY", "true").lower() == "true":
                 council_result["decision"]      = "execute"   # override veto
                 council_result["sl_multiplier"] = 1.0         # no SL widening
                 council_result["tp_multiplier"] = 1.0         # no TP extension
