@@ -4,9 +4,9 @@ Trading Engine v11.0 — Central Configuration (Standalone)
 Extracted from CRAVE → Standalone Trading Engine
   ✅ All audit Part 4 additions (ML, MARKETS, PORTFOLIO_RISK, OPTIONS, INDIA)
   ✅ US Stock instruments (Session 5A)
-  ✅ Indian market instruments (Session 5B) — ENABLED with 14 stocks
-  ✅ Zerodha integration with auto-refresh
-  ✅ India VIX regime detection
+  🚫 Indian market instruments (Session 5B) — DISABLED (no Zerodha credentials)
+  🚫 Zerodha integration — DISABLED
+  🚫 India VIX regime detection — DISABLED
   ✅ Expiry day strategy support
   ✅ Fixed ML_DIR path bug
   ✅ Supabase dashboard backend
@@ -185,35 +185,31 @@ INSTRUMENTS = {
         "pip_size": 0.001, "enabled": False,
     },
 
-    # ── Crypto (Binance) ──────────────────────────────────────────────────
-    # FIX (post-Phase5): these were left tagged "exchange": "mt5" from the
-    # original MT5/XM-demo-CFD setup. trading_loop.py's OrderFlowAdapter
-    # branch (_CRYPTO_ORDERFLOW_SYMBOLS = {BTCUSDT, ETHUSDT, SOLUSDT}) has
-    # generated validated, Council-approved signals for these two the whole
-    # time, but broker_router.execute() read this "exchange" field and sent
-    # every one of them into _execute_mt5() -> MetaQuotes-Demo, which has no
-    # BTCUSD/ETHUSD dealing -> silent failure on ~all BTC/ETH live attempts.
-    # SOLUSDT was already correctly tagged "binance"; these two now match it.
+    # ── Crypto (MT5 CFDs) — routed through MT5 broker ────────────────────────
+    # Binance credentials not available; XM MT5 provides BTC/ETH/SOL as CFDs.
+    # Symbols on MT5: BTCUSD, ETHUSD, SOLUSD (see SYMBOL_MAP in mt5_agent.py).
+    # OrderFlowAdapter in trading_loop.py handles these; broker_router routes
+    # them to _execute_mt5() via exchange="mt5".
     "BTCUSDT": {
         "label": "Bitcoin", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
         "lot_size_type": "units", "currencies": ["BTC"],
-        "pip_size": 0.1, "funding_check": True, "enabled": True,
+        "pip_size": 0.1, "funding_check": False, "enabled": True,
     },
     "ETHUSDT": {
         "label": "Ethereum", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
         "lot_size_type": "units", "currencies": ["ETH"],
-        "pip_size": 0.01, "funding_check": True, "enabled": True,
+        "pip_size": 0.01, "funding_check": False, "enabled": True,
     },
     "SOLUSDT": {
         "label": "Solana", "asset_class": "crypto", "market": "crypto",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 30,
-        "sessions": ["london", "ny", "asian"], "exchange": "binance", "type": "futures",
+        "sessions": ["london", "ny", "asian"], "exchange": "mt5", "type": "futures",
         "lot_size_type": "units", "currencies": ["SOL"],
-        "pip_size": 0.001, "funding_check": True, "enabled": True,
+        "pip_size": 0.001, "funding_check": False, "enabled": True,
     },
 
     # ── Forex Majors ──────────────────────────────────────────────────────
@@ -536,7 +532,7 @@ INSTRUMENTS = {
         "kite_exchange": "NSE", "tradingsymbol": "NIFTY 50",
         "currencies": ["INR"], "pip_size": 0.05,
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
-        "enabled": True, "backtest_only": True,
+        "enabled": False, "backtest_only": True,
     },
     # NIFTY Futures (F&O)
     "NIFTY_FUT": {
@@ -763,15 +759,14 @@ KILL_ZONES = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 MARKETS = {
-    "crypto":    {"enabled": True,  "broker": "binance",  "max_heat_pct": 3.0},
-    # Forex and metals are routed by INSTRUMENTS through MT5. Keep the
-    # market metadata aligned with that execution truth; Alpaca credentials
-    # are not sufficient for these symbols in the current implementation.
+    # Crypto now routed through MT5 CFDs (BTCUSD, ETHUSD, SOLUSD on XM)
+    "crypto":    {"enabled": True,  "broker": "mt5",      "max_heat_pct": 3.0},
     "forex":     {"enabled": True,  "broker": "mt5",      "max_heat_pct": 2.0},
     "gold":      {"enabled": True,  "broker": "mt5",      "max_heat_pct": 2.0},
     "us_stocks": {"enabled": False, "broker": "alpaca",   "max_heat_pct": 2.0},
-    "india":     {"enabled": True,  "broker": "zerodha",  "max_heat_pct": 2.5},
-    "options":   {"enabled": True,  "broker": "zerodha",  "max_heat_pct": 1.5},
+    # India / Zerodha disabled — no active credentials
+    "india":     {"enabled": False, "broker": "zerodha",  "max_heat_pct": 2.5},
+    "options":   {"enabled": False, "broker": "zerodha",  "max_heat_pct": 1.5},
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

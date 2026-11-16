@@ -1425,53 +1425,88 @@ def api_compliance():
 def api_accounts():
     conn = check_conn()
     db   = get_db_agent()
-    
+    mt5  = get_broker_agent()
+
     accounts = []
     active_login = None
-    
+
+    # Determine currently live MT5 account login (process-wide singleton)
+    live_mt5_login = None
+    try:
+        if mt5 and mt5.is_connected():
+            info = mt5.get_account_info()
+            if info:
+                live_mt5_login = str(info.get("login", ""))
+    except Exception:
+        pass
+
     try:
         db_accounts = db.get_accounts()
         import json
-        
+
         for acc in db_accounts:
             acc_id = acc["id"]
-            login = str(acc["login"])
-            
-            # Check if this specific account is running in the background
-            is_running = acc.get("process_status") == "running"
-            
+            login  = str(acc["login"])
+
+            # Account is "connected" if its process_status says running
+            # OR if it matches the currently active MT5 singleton connection
+            is_running   = acc.get("process_status") == "running"
+            is_connected = is_running or (login == live_mt5_login)
+
+            # Enrich balance/equity from live MT5 if this is the active account
+            balance = acc["capital"]
+            equity  = acc["capital"]
+            leverage = 0
+            currency = "USD"
+            margin   = 0
+            free_margin = acc["capital"]
+            margin_level = 0
+            if login == live_mt5_login and mt5:
+                try:
+                    info = mt5.get_account_info()
+                    if info:
+                        balance      = info.get("balance",      balance)
+                        equity       = info.get("equity",       equity)
+                        leverage     = info.get("leverage",     0)
+                        currency     = info.get("currency",     "USD")
+                        margin       = info.get("margin",       0)
+                        free_margin  = info.get("margin_free",  free_margin)
+                        margin_level = info.get("margin_level", 0)
+                except Exception:
+                    pass
+
             try:
                 strats = json.loads(acc.get("strategies_enabled", '["all"]'))
-            except:
+            except Exception:
                 strats = ["all"]
-                
+
             accounts.append({
                 "id":            login,
                 "name":          acc["server"],
                 "type":          acc["account_type"],
-                "prop_firm":     None, # Could fetch from .env if needed
-                "balance":       acc["capital"],
-                "equity":        acc["capital"],
-                "profit":        0,
-                "free_margin":   acc["capital"],
-                "margin_level":  0,
-                "margin":        0,
-                "leverage":      0,
-                "currency":      "USD",
+                "prop_firm":     None,
+                "balance":       balance,
+                "equity":        equity,
+                "profit":        round(equity - balance, 2) if equity and balance else 0,
+                "free_margin":   free_margin,
+                "margin_level":  margin_level,
+                "margin":        margin,
+                "leverage":      leverage,
+                "currency":      currency,
                 "open_positions": 0,
-                "connected":     is_running,
-                "active":        is_running,
+                "connected":     is_connected,
+                "active":        is_connected,
                 "server":        acc["server"],
                 "live_trades":   [],
                 "live_win_rate": None,
                 "strategies_enabled": strats,
-                "port":          acc.get("port", 8765)
+                "port":          acc.get("port", 8765),
+                "broker":        acc.get("broker", "mt5"),
             })
-            
-            if is_running:
-                # If multiple are running, this just grabs the last one as a fallback for legacy UI needs
+
+            if is_connected and not active_login:
                 active_login = login
-                
+
     except Exception as e:
         log.error(f"[API] Error loading accounts: {e}")
 

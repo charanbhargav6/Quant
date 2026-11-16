@@ -50,11 +50,13 @@ SYMBOL_MAP = {
     "GC=F":      "XAUUSD",
     "XAGUSD=X":  "XAGUSD",
     "SI=F":      "XAGUSD",
-    # Crypto (MetaQuotes demo)
+    # Crypto (MT5 CFDs — BTCUSD, ETHUSD, SOLUSD on XM/MetaQuotes demo)
     "BTCUSDT":   "BTCUSD",
     "ETHUSDT":   "ETHUSD",
+    "SOLUSDT":   "SOLUSD",
     "BTC-USD":   "BTCUSD",
     "ETH-USD":   "ETHUSD",
+    "SOL-USD":   "SOLUSD",
 }
 
 # Reverse map for dashboard display
