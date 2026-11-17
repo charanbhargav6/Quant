@@ -2964,6 +2964,7 @@ def api_india():
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Yahoo Finance ticker mapping (internal symbol → YF ticker) ───────────────
+# India market is DISABLED — those symbols removed to cut YF batch size.
 _YF_TICKER_MAP = {
     # Forex (MT5 primary — YF fallback when MT5 tick is 0)
     "AUDUSD=X":    "AUDUSD=X",
@@ -2978,48 +2979,31 @@ _YF_TICKER_MAP = {
     # Metals
     "XAUUSD=X":    "GC=F",          # Gold futures
     "XAGUSD=X":    "SI=F",          # Silver futures
-    # Crypto
+    # Crypto (MT5 CFDs — YF used for price display only, not execution)
     "BTCUSDT":     "BTC-USD",
     "ETHUSDT":     "ETH-USD",
     "SOLUSDT":     "SOL-USD",
-    # US Stocks / ETFs
+    # US Stocks / ETFs (display only — us_stocks market disabled for trading)
     "AAPL":        "AAPL",
     "NVDA":        "NVDA",
     "TSLA":        "TSLA",
     "MSFT":        "MSFT",
     "SPY":         "SPY",
     "QQQ":         "QQQ",
-    # Indian stocks
-    "RELIANCE":    "RELIANCE.NS",
-    "TCS":         "TCS.NS",
-    "HDFCBANK":    "HDFCBANK.NS",
-    "INFY":        "INFY.NS",
-    "ICICIBANK":   "ICICIBANK.NS",
-    "SBIN":        "SBIN.NS",
-    "BHARTIARTL":  "BHARTIARTL.NS",
-    "ITC":         "ITC.NS",
-    "BAJFINANCE":  "BAJFINANCE.NS",
-    "TATAMOTORS":  "TATAMOTORS.BO",   # BSE ticker (NS version delisted on YF)
-    "MARUTI":      "MARUTI.NS",
-    "WIPRO":       "WIPRO.NS",
-    "AXISBANK":    "AXISBANK.NS",
-    "KOTAKBANK":   "KOTAKBANK.NS",
-    # Indices (used as proxy for futures)
-    "NIFTY_FUT":      "^NSEI",
-    "BANKNIFTY_FUT":  "^NSEBANK",
 }
 
 # ── YF price cache: {symbol: {price, prev_close, change_pct, source, ts}} ────
 _yf_cache: dict = {}
 _yf_cache_lock = threading.Lock()
 _yf_refreshing  = False
-_YF_REFRESH_INTERVAL = 30   # seconds between full YF refresh
+_YF_REFRESH_INTERVAL = 90   # seconds between full YF refresh (avoid rate-limit)
 
 
 def _yf_refresh_all():
     """Fetch latest prices from Yahoo Finance for all mapped symbols.
-    Runs in a daemon thread. Uses fast_info (single HTTP call per ticker, no history).
-    Results stored in _yf_cache for use by _markets_build_snapshot() and SSE loop.
+    Uses yf.download() batch call (1 HTTP round-trip for all tickers) instead of
+    per-ticker fast_info to avoid Yahoo rate-limiting mid-loop.
+    Results stored in _yf_cache for _markets_build_snapshot() and SSE loop.
     """
     global _yf_refreshing
     if _yf_refreshing:
@@ -3027,26 +3011,88 @@ def _yf_refresh_all():
     _yf_refreshing = True
     try:
         import yfinance as _yf
+        import time as _t
+
+        # Build reverse map: yf_ticker -> internal symbol (for multi-symbol lookup)
+        yf_to_sym = {v: k for k, v in _YF_TICKER_MAP.items()}
+        yf_tickers = list(set(_YF_TICKER_MAP.values()))
+
+        # Batch download: 1 HTTP call for all tickers, 2 days history to get prev_close
+        df_batch = None
+        try:
+            df_batch = _yf.download(
+                tickers=yf_tickers,
+                period="2d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+            )
+        except Exception as _de:
+            log.debug(f"[yf-refresh] Batch download failed: {_de}")
+
         updated = {}
-        for sym, yf_ticker in _YF_TICKER_MAP.items():
-            try:
-                t  = _yf.Ticker(yf_ticker)
-                fi = t.fast_info
-                price      = getattr(fi, "last_price",     None)
-                prev_close = getattr(fi, "previous_close", None)
-                if price and price > 0:
-                    chg     = round(price - prev_close, 6) if prev_close and prev_close > 0 else None
-                    chg_pct = round(chg / prev_close * 100, 3) if chg is not None and prev_close else None
-                    updated[sym] = {
-                        "price":      round(float(price), 6),
-                        "prev_close": round(float(prev_close), 6) if prev_close else None,
-                        "change":     chg,
-                        "change_pct": chg_pct,
-                        "source":     "yahoo_finance",
-                        "ts":         datetime.now(timezone.utc).isoformat(),
-                    }
-            except Exception:
-                pass   # individual ticker failures are non-fatal
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Parse batch results
+        if df_batch is not None and not df_batch.empty:
+            # multi-ticker: columns are (ticker, field); single-ticker: columns are field names
+            is_multi = hasattr(df_batch.columns, "levels") and len(df_batch.columns.levels) > 1
+            for yf_ticker in yf_tickers:
+                sym = yf_to_sym.get(yf_ticker)
+                if sym is None:
+                    continue
+                try:
+                    if is_multi:
+                        sub = df_batch[yf_ticker] if yf_ticker in df_batch.columns.get_level_values(0) else None
+                    else:
+                        sub = df_batch  # single ticker case
+                    if sub is None or sub.empty:
+                        continue
+                    sub = sub.dropna(subset=["Close"])
+                    if len(sub) == 0:
+                        continue
+                    price      = float(sub["Close"].iloc[-1])
+                    prev_close = float(sub["Close"].iloc[-2]) if len(sub) >= 2 else None
+                    if price > 0:
+                        chg     = round(price - prev_close, 6) if prev_close and prev_close > 0 else None
+                        chg_pct = round(chg / prev_close * 100, 3) if chg is not None and prev_close else None
+                        updated[sym] = {
+                            "price":      round(price, 6),
+                            "prev_close": round(prev_close, 6) if prev_close else None,
+                            "change":     chg,
+                            "change_pct": chg_pct,
+                            "source":     "yahoo_finance",
+                            "ts":         now_iso,
+                        }
+                except Exception:
+                    pass
+
+        # Fallback: per-ticker fast_info for any symbol the batch missed
+        missed = [sym for sym in _YF_TICKER_MAP if sym not in updated]
+        if missed:
+            for sym in missed:
+                yf_ticker = _YF_TICKER_MAP[sym]
+                try:
+                    fi    = _yf.Ticker(yf_ticker).fast_info
+                    price = getattr(fi, "last_price", None)
+                    prev  = getattr(fi, "previous_close", None)
+                    if price and price > 0:
+                        chg     = round(price - prev, 6) if prev and prev > 0 else None
+                        chg_pct = round(chg / prev * 100, 3) if chg is not None and prev else None
+                        updated[sym] = {
+                            "price":      round(float(price), 6),
+                            "prev_close": round(float(prev), 6) if prev else None,
+                            "change":     chg,
+                            "change_pct": chg_pct,
+                            "source":     "yahoo_finance",
+                            "ts":         now_iso,
+                        }
+                    _t.sleep(0.3)   # polite delay for individual fallback calls
+                except Exception:
+                    pass
+
         with _yf_cache_lock:
             _yf_cache.update(updated)
         log.info(f"[yf-refresh] Updated {len(updated)}/{len(_YF_TICKER_MAP)} instruments from Yahoo Finance")
