@@ -111,6 +111,8 @@ def live_price(mt5_agent, sym: str) -> float:
         from brokers.mt5_agent import SYMBOL_MAP
         import MetaTrader5 as mt5lib
         ms = SYMBOL_MAP.get(sym, sym)
+        # Ensure symbol is in Market Watch so ticks flow
+        mt5lib.symbol_select(ms, True)
         t  = mt5lib.symbol_info_tick(ms)
         if t:
             p = (t.bid + t.ask) / 2
@@ -3223,6 +3225,8 @@ def _markets_build_snapshot() -> dict:
                 try:
                     from brokers.mt5_agent import SYMBOL_MAP
                     mt5_sym = SYMBOL_MAP.get(sym, sym)
+                    # Ensure symbol is in Market Watch so tick is available
+                    _mt5lib.symbol_select(mt5_sym, True)
                     tick = _mt5lib.symbol_info_tick(mt5_sym)
                     if tick and tick.bid:
                         bid    = round(tick.bid, 6)
@@ -3355,10 +3359,16 @@ def api_markets():
         d["_stale"] = True
         return jsonify(d)
 
-    # Cold cache — return empty structure immediately, build in background
+    # Cold cache — wait up to 4s for a build to finish (avoids DATA UNAVAILABLE on first load)
     if not _markets_refreshing:
         t = threading.Thread(target=_markets_build_snapshot, daemon=True, name="markets-cold")
         t.start()
+    # Poll for up to 4 s so the first page-load gets real data
+    _deadline = _time.time() + 4.0
+    while _time.time() < _deadline:
+        _time.sleep(0.25)
+        if _markets_cache["data"]:
+            return jsonify(_markets_cache["data"])
 
     empty_groups = {"forex": [], "crypto": [], "gold": [], "us_stocks": [], "india": [], "futures": [], "other": []}
     return jsonify({

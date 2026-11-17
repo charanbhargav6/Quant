@@ -132,13 +132,24 @@
 
   // ── Initial snapshot fetch ────────────────────────────────────────────────
   var _loaded = false;
+  var _retryTimer = null;
   async function loadSnapshot() {
     var updated = document.getElementById("mkt-last-updated");
     try {
       var res  = await fetch("/api/markets");
       if (!res.ok) throw new Error("HTTP " + res.status);
       var data = await res.json();
-      var g    = data.groups || {};
+
+      // Server is still building the snapshot — retry after 3s
+      if (data._loading) {
+        if (updated) updated.textContent = "Markets loading…";
+        if (!_retryTimer) {
+          _retryTimer = setTimeout(function() { _retryTimer = null; loadSnapshot(); }, 3000);
+        }
+        return;
+      }
+
+      var g = data.groups || {};
 
       populateTab("mkt-tab-forex",     g.forex     || [], "forex");
       populateTab("mkt-tab-crypto",    g.crypto    || [], "crypto");
@@ -217,6 +228,7 @@
   }
   function deactivate() {
     _active = false;
+    if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
     if (window._mktSSE) { window._mktSSE.close(); window._mktSSE = null; }
   }
 
