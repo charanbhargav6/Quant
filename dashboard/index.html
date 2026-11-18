@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/layout.css" />
   <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/backtest.css" />
 
   <!-- ═══════════════════════════════════════════════════════════
        AUTO API MODE DETECTION
@@ -52,6 +53,7 @@
   <script src="js/pages/options-page.js"></script>
   <script src="js/account-selector.js"></script>
   <script src="js/pages/risk-page.js"></script>
+  <script src="js/pages/backtest-page.js"></script>
 
   <style>
     /* Page-specific inline overrides */
@@ -1238,31 +1240,11 @@
          PAGE: BACKTESTS
     ════════════════════════════════════════════════════════ -->
     <div class="page" id="page-backtests">
-      <div class="page-header">
-        <div class="page-title-group">
-          <h1 class="page-title">Backtests</h1>
-          <p class="page-subtitle">Walk-forward validation results and backtest history</p>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title"><i data-lucide="flask-conical" width="14" height="14"></i> WFO Backtest Results</div>
-        </div>
-        <div class="panel-body-flush" style="overflow-x:auto">
-          <table class="data-table" id="backtest-table" style="min-width:800px">
-            <thead>
-              <tr>
-                <th>Strategy</th><th>Period</th><th>Trades</th><th>Net P&L</th>
-                <th>Return %</th><th>Max DD</th><th>Sharpe</th>
-                <th>Win Rate</th><th>Exp R</th><th>Verdict</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="backtest-tbody"></tbody>
-          </table>
-        </div>
-      </div>
+      <div class="page-header"><div class="page-title-group">
+        <h1 class="page-title">Backtests</h1>
+        <p class="page-subtitle">Real MT5 data · causal backtest · Monte Carlo · walk-forward · sensitivity</p>
+      </div></div>
+      <div id="bt-root"></div>
     </div>
 
     <!-- ════════════════════════════════════════════════════
@@ -2573,31 +2555,9 @@ async function loadCouncil() {
 }
 // ── BACKTESTS ────────────────────────────────────────────────
 async function loadBacktests() {
-  const data = await DS.getStrategies();
-  const tbody = document.getElementById('backtest-tbody');
-  tbody.innerHTML = (data.strategies || []).map(s => {
-    const bt = s.static_backtest || {};
-    const isStable = (bt.expectancy_r||0) >= 0.2;
-    const verdict  = !bt.expectancy_r ? 'Not Tested' : isStable ? 'STABLE' : 'INCONSISTENT';
-    const netPnl   = bt.net_pnl != null ? DS.fmt.currency(bt.net_pnl) : '—';
-    const retPct   = bt.return_pct != null ? DS.fmt.pct(bt.return_pct) : '—';
-    const maxDd    = bt.max_drawdown != null ? bt.max_drawdown + '%' : '—';
-    const sharpe   = bt.sharpe != null ? (+bt.sharpe).toFixed(2) : '—';
-    const trades   = bt.total_trades || bt.trades || s.trades_db || 0;
-    return `<tr>
-      <td class="td-primary">${s.name}</td>
-      <td class="text-muted">${s.backtest_period || '—'}</td>
-      <td class="mono">${trades || '—'}</td>
-      <td class="mono ${(bt.net_pnl||0)>=0?'td-positive':'td-negative'}">${netPnl}</td>
-      <td class="mono ${(bt.return_pct||0)>=0?'td-positive':'td-negative'}">${retPct}</td>
-      <td class="mono text-muted">${maxDd}</td>
-      <td class="mono">${sharpe}</td>
-      <td class="mono">${bt.win_rate != null ? bt.win_rate + '%' : '—'}</td>
-      <td class="mono ${(bt.expectancy_r||0)>=0.2?'td-positive':bt.expectancy_r != null?'td-negative':''}">${bt.expectancy_r != null ? (bt.expectancy_r>0?'+':'')+bt.expectancy_r+'R' : '—'}</td>
-      <td><span class="badge ${verdict==='STABLE'?'badge-green':verdict==='INCONSISTENT'?'badge-red':'badge-muted'}">${verdict}</span></td>
-      <td><span class="badge ${s.live_ready?'badge-green':s.paper_only?'badge-amber':'badge-muted'}">${s.live_ready?'Live Ready':s.paper_only?'Paper Only':'Staging'}</span></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="11" class="table-empty">No backtest results available</td></tr>';
+  const el = document.getElementById('bt-root');
+  if (!el || !window.BacktestPage) return;
+  if (!el.dataset.mounted) { el.dataset.mounted = '1'; await BacktestPage.mount(el); }
 }
 
 // ── LOGS ─────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Markets Live — all asset classes, SSE-driven real-time updates.
  * Initial snapshot: GET /api/markets
  * Live ticks:       EventSource /api/stream  (event: "market", field: ticks)

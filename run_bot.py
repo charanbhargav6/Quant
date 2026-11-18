@@ -876,33 +876,16 @@ def main():
 
 
 def run_backtest_mode():
-    print("\n📊 Trading Engine v12.2 Backtest Mode")
+    """Backtest via the new pipeline (MT5 data -> backtest -> MC -> WFO -> sensitivity). Runs in this process; the
+    dashboard Backtest tab uses the same runner in a separate process."""
+    print("\n📊 Backtest pipeline")
     print("─────────────────────────────────────")
-    symbol = input("Symbol (e.g. BTCUSD, XAUUSD, ^NSEI, RELIANCE.NS): ").strip()
-    days   = int(input("Days (min 60 for gold, 30 for crypto): ").strip() or "60")
-    conf   = int(input("Min confidence % (recommended 55): ").strip() or "55")
-    try:
-        from backtesting.backtest_agent_v10 import BacktestAgentV10
-        bt = BacktestAgentV10()
-
-        print("\n1. Standard backtest with fees")
-        report = bt.run_backtest(symbol, days=days, min_confidence=conf)
-        print(bt.format_report(report))
-
-        if input("\nRun walk-forward validation? (y/n): ").strip().lower() == "y":
-            total = int(input("Total days (e.g. 365): ").strip() or "365")
-            print(f"\nWalk-forward: {total}d total, 180d train, 30d test...")
-            wf = bt.run_walk_forward(symbol, total_days=total,
-                                      min_confidence=conf)
-            print(bt.format_walk_forward(wf))
-
-        if input("\nRun multi-market comparison? (y/n): ").strip().lower() == "y":
-            print("\nRunning on all markets...")
-            multi = bt.run_multi_market(days=days, min_confidence=conf)
-            print(bt.format_multi_market(multi))
-
-    except Exception as e:
-        print(f"Backtest error: {e}")
+    ref = input("Strategy id (e.g. trend_pa_gold, volatility_breakout_xau, candidate:<id>): ").strip()
+    symbol = input("Symbol (blank = strategy default): ").strip()
+    days = int(input("Days 30-730 (default 180): ").strip() or "180")
+    from backtesting.pipeline import runner
+    args = ["--run", "--strategy", ref, "--days", str(days)] + (["--symbol", symbol] if symbol else [])
+    runner.main(args)
 
 
 def run_setup_wizard():

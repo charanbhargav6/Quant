@@ -1659,6 +1659,10 @@ register_account_routes(app, get_db_agent, log)
 from core.supervisor_endpoints import register_supervisor_routes
 register_supervisor_routes(app, get_db_agent, log)
 
+# Backtest tab: MT5 data -> backtest -> Monte Carlo -> WFO -> sensitivity (runs in a separate process)
+from core.backtest_endpoints import register_backtest_routes
+register_backtest_routes(app, get_db_agent, log)
+
 @app.route("/api/accounts/<acc_id>/strategies", methods=["POST"])
 def api_account_strategies(acc_id):
     data = request.get_json()

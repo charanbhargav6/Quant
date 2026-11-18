@@ -99,3 +99,7 @@ _archive/
 # Session debug scripts
 investigate*.py
 patch*.py
+# backtest pipeline artifacts
+data/mt5_cache/
+State/backtests/
+Database/backtest_runs.db*
