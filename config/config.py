@@ -349,7 +349,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "energy", "enabled": True,
+        "sector": "energy", "enabled": False,
     },
     "TCS": {
         "label": "Tata Consultancy Services", "asset_class": "stocks_india", "market": "india",
@@ -362,7 +362,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "technology", "enabled": True,
+        "sector": "technology", "enabled": False,
     },
     "HDFCBANK": {
         "label": "HDFC Bank", "asset_class": "stocks_india", "market": "india",
@@ -375,7 +375,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "banking", "enabled": True,
+        "sector": "banking", "enabled": False,
     },
     "INFY": {
         "label": "Infosys", "asset_class": "stocks_india", "market": "india",
@@ -388,7 +388,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "technology", "enabled": True,
+        "sector": "technology", "enabled": False,
     },
 
     # ── NEW: Additional high-liquidity Indian stocks ───────────────────────
@@ -403,7 +403,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "banking", "enabled": True,
+        "sector": "banking", "enabled": False,
     },
     "SBIN": {
         "label": "State Bank of India", "asset_class": "stocks_india", "market": "india",
@@ -416,7 +416,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "banking", "enabled": True,
+        "sector": "banking", "enabled": False,
     },
     "BHARTIARTL": {
         "label": "Bharti Airtel", "asset_class": "stocks_india", "market": "india",
@@ -429,7 +429,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "telecom", "enabled": True,
+        "sector": "telecom", "enabled": False,
     },
     "ITC": {
         "label": "ITC Limited", "asset_class": "stocks_india", "market": "india",
@@ -442,7 +442,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "fmcg", "enabled": True,
+        "sector": "fmcg", "enabled": False,
     },
     "BAJFINANCE": {
         "label": "Bajaj Finance", "asset_class": "stocks_india", "market": "india",
@@ -455,7 +455,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "finance", "enabled": True,
+        "sector": "finance", "enabled": False,
     },
     "TATAMOTORS": {
         "label": "Tata Motors", "asset_class": "stocks_india", "market": "india",
@@ -468,7 +468,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "automotive", "enabled": True,
+        "sector": "automotive", "enabled": False,
     },
     "MARUTI": {
         "label": "Maruti Suzuki", "asset_class": "stocks_india", "market": "india",
@@ -481,7 +481,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "automotive", "enabled": True,
+        "sector": "automotive", "enabled": False,
     },
     "WIPRO": {
         "label": "Wipro", "asset_class": "stocks_india", "market": "india",
@@ -494,7 +494,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "technology", "enabled": True,
+        "sector": "technology", "enabled": False,
     },
     "AXISBANK": {
         "label": "Axis Bank", "asset_class": "stocks_india", "market": "india",
@@ -507,7 +507,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "banking", "enabled": True,
+        "sector": "banking", "enabled": False,
     },
     "KOTAKBANK": {
         "label": "Kotak Mahindra Bank", "asset_class": "stocks_india", "market": "india",
@@ -520,7 +520,7 @@ INSTRUMENTS = {
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "circuit_breaker_pct": 10.0,
         "earnings_blackout": True, "gap_risk": False,
-        "sector": "banking", "enabled": True,
+        "sector": "banking", "enabled": False,
     },
 
     "NIFTY50": {
@@ -545,7 +545,7 @@ INSTRUMENTS = {
         "currencies": ["INR"], "pip_size": 0.05,
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "fo_expiry_day": "Thursday",
-        "margin_required": True, "enabled": True,
+        "margin_required": True, "enabled": False,
     },
     "BANKNIFTY_FUT": {
         "label": "Bank Nifty Futures", "asset_class": "index_futures", "market": "india",
@@ -557,7 +557,7 @@ INSTRUMENTS = {
         "currencies": ["INR"], "pip_size": 0.05,
         "market_hours_utc": {"open": "04:00", "close": "10:00"},
         "fo_expiry_day": "Wednesday",
-        "margin_required": True, "enabled": True,
+        "margin_required": True, "enabled": False,
     },
 
     # ── yfinance India tickers (backtest only) ─────────────────────────────
@@ -566,42 +566,42 @@ INSTRUMENTS = {
         "sl_mult": 1.5, "rr": 2.0, "min_days": 60,
         "sessions": ["india_open_drive"], "exchange": "yfinance", "type": "index",
         "lot_size_type": "shares", "currencies": ["INR"],
-        "pip_size": 0.05, "backtest_only": True, "enabled": True,
+        "pip_size": 0.05, "backtest_only": True, "enabled": False,
     },
     "^BSESN": {
         "label": "Sensex (yfinance)", "asset_class": "indices", "market": "india",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 60,
         "sessions": ["india_open_drive"], "exchange": "yfinance", "type": "index",
         "lot_size_type": "shares", "currencies": ["INR"],
-        "pip_size": 0.05, "backtest_only": True, "enabled": True,
+        "pip_size": 0.05, "backtest_only": True, "enabled": False,
     },
     "RELIANCE.NS": {
         "label": "Reliance (yfinance)", "asset_class": "stocks_india", "market": "india",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 60,
         "sessions": ["india_open_drive"], "exchange": "yfinance", "type": "equity",
         "lot_size_type": "shares", "currencies": ["INR"],
-        "pip_size": 0.05, "backtest_only": True, "enabled": True,
+        "pip_size": 0.05, "backtest_only": True, "enabled": False,
     },
     "TCS.NS": {
         "label": "TCS (yfinance)", "asset_class": "stocks_india", "market": "india",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 60,
         "sessions": ["india_open_drive"], "exchange": "yfinance", "type": "equity",
         "lot_size_type": "shares", "currencies": ["INR"],
-        "pip_size": 0.05, "backtest_only": True, "enabled": True,
+        "pip_size": 0.05, "backtest_only": True, "enabled": False,
     },
     "ICICIBANK.NS": {
         "label": "ICICI Bank (yfinance)", "asset_class": "stocks_india", "market": "india",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 60,
         "sessions": ["india_open_drive"], "exchange": "yfinance", "type": "equity",
         "lot_size_type": "shares", "currencies": ["INR"],
-        "pip_size": 0.05, "backtest_only": True, "enabled": True,
+        "pip_size": 0.05, "backtest_only": True, "enabled": False,
     },
     "SBIN.NS": {
         "label": "SBI (yfinance)", "asset_class": "stocks_india", "market": "india",
         "sl_mult": 1.5, "rr": 2.0, "min_days": 60,
         "sessions": ["india_open_drive"], "exchange": "yfinance", "type": "equity",
         "lot_size_type": "shares", "currencies": ["INR"],
-        "pip_size": 0.05, "backtest_only": True, "enabled": True,
+        "pip_size": 0.05, "backtest_only": True, "enabled": False,
     },
 }
 

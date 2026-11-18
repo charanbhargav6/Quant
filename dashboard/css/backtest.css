@@ -1,0 +1,324 @@
+/* ============================================================
+   CRAVE QUANT DASHBOARD — Backtest Tab Styles
+   Matches base.css design tokens; loaded via index.html link.
+   ============================================================ */
+
+/* ── Root container ──────────────────────────────────────── */
+.bt-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+/* ── Launch form ─────────────────────────────────────────── */
+.bt-launch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.bt-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.bt-field label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.bt-field input,
+.bt-field select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 6px 10px;
+  min-width: 140px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.bt-field input:focus,
+.bt-field select:focus {
+  border-color: var(--border-focus);
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.bt-btn {
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 18px;
+  transition: opacity 0.15s, background 0.15s;
+  white-space: nowrap;
+  align-self: flex-end;
+}
+
+.bt-btn:hover  { opacity: 0.88; }
+.bt-btn:active { opacity: 0.75; }
+.bt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.bt-btn.danger {
+  background: var(--red);
+}
+
+/* ── Hint text below form ────────────────────────────────── */
+.bt-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+  line-height: 1.5;
+  width: 100%;
+}
+
+/* ── Banners (error / warn) ──────────────────────────────── */
+.bt-banner {
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.bt-banner.err  { background: var(--red-dim);   color: var(--red-text);   border: 1px solid rgba(239,68,68,0.25); }
+.bt-banner.warn { background: var(--amber-dim); color: var(--amber-text); border: 1px solid rgba(245,158,11,0.25); }
+
+/* ── Active-job header ───────────────────────────────────── */
+.bt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.bt-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bt-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+/* ── Overall progress bar ────────────────────────────────── */
+.bt-overall { flex: 1; min-width: 160px; }
+
+.bt-bar {
+  background: var(--bg-overlay);
+  border-radius: 99px;
+  height: 6px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.bt-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 99px;
+  transition: width 0.4s ease;
+  font-style: normal;
+}
+.bt-bar.sm { height: 3px; margin-top: 4px; margin-bottom: 0; }
+
+/* ── Phase stepper ───────────────────────────────────────── */
+.bt-steps {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.bt-step {
+  flex: 1;
+  min-width: 120px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.bt-step:hover      { border-color: var(--border-default); background: var(--bg-hover); }
+.bt-step.sel        { border-color: var(--accent-primary); background: var(--accent-dim); }
+.bt-step.pass       { border-color: rgba(16,185,129,0.3); }
+.bt-step.fail,
+.bt-step.negative,
+.bt-step.inconclusive { border-color: rgba(239,68,68,0.25); }
+.bt-step.running    { border-color: rgba(59,130,246,0.4); }
+
+.bt-step .n { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+.bt-step .t { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.bt-step .m { font-size: 10px; color: var(--text-muted); margin-top: 3px; min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Metric tiles ────────────────────────────────────────── */
+.bt-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.bt-tile {
+  flex: 1;
+  min-width: 100px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+}
+.bt-tile .l { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 4px; }
+.bt-tile .v { font-size: 20px; font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); }
+
+/* ── Two-column chart + log ──────────────────────────────── */
+.bt-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+@media (max-width: 700px) { .bt-two { grid-template-columns: 1fr; } }
+
+.bt-chart {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  overflow: hidden;
+}
+
+/* ── Live log ────────────────────────────────────────────── */
+.bt-log {
+  background: var(--bg-void);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  max-height: 160px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+}
+.bt-log .info    { color: var(--text-secondary); }
+.bt-log .warning { color: var(--amber-text); }
+.bt-log .error   { color: var(--red-text); }
+
+/* ── Verdict banner ──────────────────────────────────────── */
+.bt-verdict {
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.bt-verdict b    { font-size: 14px; font-weight: 800; letter-spacing: 0.03em; }
+.bt-verdict span { color: var(--text-secondary); }
+.bt-verdict.ok   { background: var(--green-dim); border: 1px solid rgba(16,185,129,0.3); color: var(--green-text); }
+.bt-verdict.bad  { background: var(--red-dim);   border: 1px solid rgba(239,68,68,0.25); color: var(--red-text); }
+.bt-verdict.mid  { background: var(--amber-dim); border: 1px solid rgba(245,158,11,0.25); color: var(--amber-text); }
+
+/* ── Status pills ────────────────────────────────────────── */
+.bt-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.bt-pill.pass,
+.bt-pill.completed  { background: var(--green-dim);  color: var(--green-text); }
+.bt-pill.running    { background: var(--accent-dim);  color: var(--accent-secondary); }
+.bt-pill.queued     { background: var(--accent-dim);  color: var(--accent-secondary); }
+.bt-pill.fail,
+.bt-pill.failed,
+.bt-pill.negative,
+.bt-pill.error      { background: var(--red-dim);     color: var(--red-text); }
+.bt-pill.inconclusive { background: var(--amber-dim); color: var(--amber-text); }
+.bt-pill.pending,
+.bt-pill.skipped    { background: var(--bg-overlay);  color: var(--text-muted); }
+.bt-pill.cancelled  { background: var(--bg-overlay);  color: var(--text-muted); }
+
+/* ── History table ───────────────────────────────────────── */
+.bt-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bt-t {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.bt-t th {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.bt-t td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.bt-t tr:last-child td { border-bottom: none; }
+.bt-t tr.clk { cursor: pointer; transition: background 0.1s; }
+.bt-t tr.clk:hover { background: var(--bg-hover); }
+.bt-t tr.clk.sel   { background: var(--bg-active); }
+.bt-t .r { text-align: right; font-family: var(--font-mono); }
+
+/* ── Checks table value colours ──────────────────────────── */
+.bt-ok  { color: var(--green-text); font-weight: 700; }
+.bt-bad { color: var(--red-text);   font-weight: 700; }
+
+/* ── Sensitivity classification pills ───────────────────── */
+.bt-cls { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.bt-cls.plateau { background: var(--green-dim); color: var(--green-text); }
+.bt-cls.spike   { background: var(--red-dim);   color: var(--red-text); }
+.bt-cls.cliff   { background: var(--amber-dim); color: var(--amber-text); }
+.bt-cls.noise   { background: var(--bg-overlay); color: var(--text-muted); }
+
+/* ── Generic note / small text ───────────────────────────── */
+.bt-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 2px 0;
+}
+
+/* ── Positive / negative number spans ───────────────────── */
+.pos { color: var(--green-text); }
+.neg { color: var(--red-text); }
+
+/* ── Panel body flush (for history table) ────────────────── */
+.panel-body-flush {
+  padding: 0;
+}
