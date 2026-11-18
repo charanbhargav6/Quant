@@ -41,4 +41,5 @@ bcrypt>=4.0.0
 
 # ─── v12 Intelligence Layer ──────────────
 feedparser>=6.0.0
-MetaTrader5>=5.0.0
+MetaTrader5>=5.0.0; platform_system == "Windows"
+pyarrow>=14

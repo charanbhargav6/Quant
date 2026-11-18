@@ -1001,23 +1001,20 @@ class TelegramInterface:
             self.send(f"❌ Broker status error: {e}")
 
     def _cmd_backtest(self, args: str):
-        """Run quick backtest from Telegram. Usage: /backtest XAUUSD 60"""
+        """Queue a pipeline backtest. Usage: /backtest list | /backtest <strategy_id|candidate:id> [days] [symbol]"""
         parts = args.strip().split()
-        symbol = parts[0].upper() if parts else "XAUUSD"
-        days   = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 60
-
-        self.send(f"📊 Running backtest: {symbol} {days}d ...")
         try:
-            from backtesting.backtest_agent_v10 import BacktestAgentV10
-            bt     = BacktestAgentV10()
-            report = bt.run_backtest(symbol, days=days)
-            text   = bt.format_report(report)
-            # Split into chunks (Telegram max 4096 chars)
-            for chunk in [text[i:i+3500] for i in range(0, len(text), 3500)]:
-                self.send(f"<pre>{chunk}</pre>")
+            from core.backtest_endpoints import submit_backtest
+            from backtesting.pipeline.strategies import list_backtestable
+            if not parts or parts[0] == "list":
+                ok = [s["ref"] for s in list_backtestable() if s["backtestable"]]
+                self.send("Usage: /backtest &lt;strategy_id&gt; [days] [symbol]\nBacktestable: " + ", ".join(ok)); return
+            days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 180
+            symbol = parts[2] if len(parts) > 2 else None
+            jid = submit_backtest(parts[0], symbol, days)
+            self.send(f"📊 Backtest queued: <code>{jid}</code>. Progress is on the dashboard Backtest tab; I will message when it finishes.")
         except Exception as e:
-            self.send(f"❌ Backtest failed: {e}")
-
+            self.send(f"❌ Backtest not started: {e}")
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 tg = TelegramInterface()
