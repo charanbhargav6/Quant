@@ -103,3 +103,11 @@ patch*.py
 data/mt5_cache/
 State/backtests/
 Database/backtest_runs.db*
+
+# review venv and bundle (local only, not for repo)
+bt_review_venv/
+backtests_review/
+backtests.zip
+
+# patcher backups
+*.bak_bt
