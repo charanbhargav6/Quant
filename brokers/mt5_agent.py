@@ -135,6 +135,32 @@ class MT5Agent:
                         logger.info(f"[MT5] Auto-detected terminal: {p}")
                         break
 
+            # AUTO-LAUNCH: If the terminal is not already running, start it.
+            # mt5.initialize() blocks indefinitely if no terminal process is found.
+            # We check for a running terminal64.exe and launch it if missing.
+            import subprocess, time as _time
+            import psutil
+            _terminal_running = any(
+                "terminal64" in (p.name() or "").lower()
+                for p in psutil.process_iter(["name"])
+            )
+            if not _terminal_running and terminal_path and os.path.exists(terminal_path):
+                logger.info(f"[MT5] Terminal not running — launching: {terminal_path}")
+                subprocess.Popen(
+                    [terminal_path],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                )
+                # Wait for terminal to start and open its IPC pipe (up to 20 s)
+                for _i in range(20):
+                    _time.sleep(1)
+                    if any("terminal64" in (p.name() or "").lower()
+                           for p in psutil.process_iter(["name"])):
+                        logger.info(f"[MT5] Terminal started (waited {_i+1}s)")
+                        break
+                else:
+                    logger.warning("[MT5] Terminal may not have started in 20s — trying anyway")
+                _time.sleep(5)  # extra settle time for IPC pipe to open
+
             if terminal_path and os.path.exists(terminal_path):
                 init_ok = mt5.initialize(path=terminal_path)
             else:
