@@ -105,7 +105,7 @@ _px = {}
 
 def live_price(mt5_agent, sym: str) -> float:
     c = _px.get(sym)
-    if c and time.time() - c["ts"] < 3:
+    if c and time.time() - c["ts"] < 0.8:   # reduced from 3s → 0.8s for near-realtime ticks
         return c["p"]
     try:
         from brokers.mt5_agent import SYMBOL_MAP
@@ -2507,10 +2507,44 @@ def _sse_push_loop():
         except Exception as e:
             log.debug(f"[SSE push loop] {e}")
 
-        _time.sleep(2)
+        _time.sleep(1)
 
 # Start the SSE push loop in a daemon thread
 threading.Thread(target=_sse_push_loop, daemon=True, name="sse-push").start()
+
+
+def _mt5_tick_poll_loop():
+    """
+    Background thread — polls MT5 symbol_info_tick() every 1 s for all active
+    instruments and stores results in _px cache so the SSE loop sees fresh prices.
+    Runs independently of the SSE loop so price fetch never blocks heartbeat.
+    """
+    import time as _t
+    _t.sleep(8)  # wait for MT5 agent to connect first
+    from config.config import MARKETS
+    while True:
+        try:
+            import MetaTrader5 as _mt5
+            from brokers.mt5_agent import SYMBOL_MAP
+            if _mt5.account_info() is not None:   # only poll when connected
+                for sym, inst in MARKETS.items():
+                    if not inst.get("enabled", False):
+                        continue
+                    if inst.get("exchange") not in ("mt5", "binance"):
+                        continue
+                    ms = SYMBOL_MAP.get(sym, sym)
+                    try:
+                        tk = _mt5.symbol_info_tick(ms)
+                        if tk and tk.bid > 0:
+                            _px[sym] = {"p": (tk.bid + tk.ask) / 2, "ts": _t.time()}
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        _t.sleep(1)
+
+
+threading.Thread(target=_mt5_tick_poll_loop, daemon=True, name="mt5-tick-poll").start()
 
 
 @app.route("/api/stream")

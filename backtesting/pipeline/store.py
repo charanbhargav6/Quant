@@ -121,7 +121,15 @@ class JobState:
         if not force and t - self._t_snap < 0.5: return
         self._t_snap = t; self.snap["updated_at"] = now()
         p = self.dir / "snapshot.json"; tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.snap, default=str), encoding="utf-8"); os.replace(tmp, p)
+        tmp.write_text(json.dumps(self.snap, default=str), encoding="utf-8")
+        # Windows antivirus / file-lock can block os.replace on first write.
+        # Retry up to 3 times with a short sleep before giving up.
+        for _attempt in range(3):
+            try:
+                os.replace(tmp, p); break
+            except PermissionError:
+                if _attempt == 2: raise
+                time.sleep(0.05)
 
     def _overall(self):
         tot = 0.0
