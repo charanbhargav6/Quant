@@ -206,7 +206,10 @@ class LegacyAdapterStrategy(Strategy):
         extra = ad.prepare(d)
         ctx = {"ticker": self.symbol, "df": extra.get("df", d), **{k: v for k, v in extra.items() if k != "df"}}
         n = len(d); out = Signals.empty(n)
-        for j in range(200, n - 1):
+        # range(200, n): include the last bar so the causality guard (which
+        # truncates df to j+1 bars, making j == n-1) sees the same signal
+        # as the full run. The engine never enters on the final bar anyway.
+        for j in range(200, n):
             s = ad.analyze(ctx, j)
             dr = s.get("direction")
             if dr is None: continue
