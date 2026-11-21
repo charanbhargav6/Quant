@@ -47,7 +47,7 @@ SYMBOL_MAP = {
     "GBPJPY=X":  "GBPJPY",
     # Gold / Silver
     "XAUUSD=X":  "GOLD",       # XM broker uses GOLD, not XAUUSD
-    "GC=F":      "XAUUSD",
+    "GC=F":      "GOLD",          # XM broker uses GOLD (same as XAUUSD=X mapping)
     "XAGUSD=X":  "XAGUSD",
     "SI=F":      "XAGUSD",
     # Crypto (MT5 CFDs — BTCUSD, ETHUSD, SOLUSD on XM/MetaQuotes demo)

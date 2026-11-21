@@ -92,15 +92,15 @@ def analyze_orderflow(df: pd.DataFrame, current_idx: int, lookback: int = 50, bi
     recent['bull_vol'] = np.where(recent['close'] >= recent['open'], recent['volume'], 0)
     recent['bear_vol'] = np.where(recent['close'] < recent['open'],  recent['volume'], 0)
     
-    bull_vol = recent['bull_vol'].sum()
-    bear_vol = recent['bear_vol'].sum()
+    bull_vol = float(recent['bull_vol'].sum())
+    bear_vol = float(recent['bear_vol'].sum())
     total_vol = bull_vol + bear_vol
-    
+
     if total_vol == 0:
-        delta_pct = 0
+        delta_pct = 0.0
     else:
-        # Range from -100 to +100
-        delta_pct = ((bull_vol - bear_vol) / total_vol) * 100
+        # Range from -100 to +100  (cast to float first to prevent int64 overflow on tick-count volumes)
+        delta_pct = ((bull_vol - bear_vol) / total_vol) * 100.0
 
     score = 0
     breakdown = []
