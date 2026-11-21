@@ -28,7 +28,7 @@
 const ConnMgr = (() => {
 
   // ── Config ─────────────────────────────────────────────────────────────
-  const STALE_THRESHOLD_MS = 4_000;    // no heartbeat for 4s → STALE (server sends every 1s)
+  const STALE_THRESHOLD_MS = 8_000;    // no heartbeat for 8s → STALE (server sends every 1s)
   const RECONNECT_DELAYS_MS = [2000, 4000, 8000, 15000, 30000];  // backoff
   const MAX_RECONNECT       = 12;      // then DISCONNECTED
 

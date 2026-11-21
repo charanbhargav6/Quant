@@ -2829,13 +2829,23 @@ ConnMgr.on('heartbeat', (d) => {
   const el = document.getElementById('overview-server-time');
   if (el) el.textContent = d.server_time || '';
 
-  // Broker chip
+  // Broker chip — debounced: require 3 consecutive readings before flipping
+  // Prevents 'Paper Mode' flicker from a single transient MT5 IPC timeout
   const brokerChip = document.getElementById('broker-status-chip');
   const brokerText = document.getElementById('broker-status-text');
   if (brokerChip && brokerText) {
     const isLive = d.mt5 || d.binance || d.zerodha;
-    brokerText.textContent = isLive ? 'Engine Live' : 'Paper Mode';
-    brokerChip.className = `status-chip ${isLive ? 'live' : 'paper'}`;
+    if (!window._brokerDbounce) window._brokerDbounce = { count: 0, last: isLive };
+    if (isLive === window._brokerDbounce.last) {
+      window._brokerDbounce.count = Math.min(window._brokerDbounce.count + 1, 10);
+    } else {
+      window._brokerDbounce.count = 1;
+      window._brokerDbounce.last = isLive;
+    }
+    if (window._brokerDbounce.count >= 3) {
+      brokerText.textContent = isLive ? 'Engine Live' : 'Paper Mode';
+      brokerChip.className = `status-chip ${isLive ? 'live' : 'paper'}`;
+    }
   }
 });
 

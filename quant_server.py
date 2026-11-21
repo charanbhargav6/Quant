@@ -2314,22 +2314,170 @@ _sse_state = {
     "last_prices":   {},   # symbol → price snapshot
 }
 
-def _sse_push_loop():
+
+# ── Shared async MT5/DB state updated by _sse_data_loop ───────────────────────
+# Heartbeat thread reads ONLY from these; never calls blocking MT5 IPC directly.
+_async_state_lock = threading.Lock()
+_async_state = {
+    "mt5_connected": False,          # updated every 5 s by _sse_data_loop
+    "mt5_miss_count": 0,             # consecutive False reads before flipping chip
+    "account_info": {},
+    "positions": [],
+    "circuit_breaker": False,
+    "daily_pnl_pct": 0.0,
+    "consecutive_losses": 0,
+    "market_changed": {},            # sym → tick_data, drained by heartbeat loop
+    "ts": "",
+}
+
+
+def _sse_data_loop():
     """
-    Background thread — runs every 2 s.
-    Reads already-computed state (same sources as REST endpoints).
-    Sends SSE frames only when something changed.
+    Slow background thread (every 5 s) — calls blocking MT5 IPC + DB.
+    Writes results into _async_state; heartbeat thread reads from there.
+    This decouples heartbeat timing from MT5 latency.
     """
-    import time as _time
-    _time.sleep(6)  # wait for broker init before first poll
+    import time as _t
+    _t.sleep(8)   # let broker init finish first
+    _mt5_miss_consecutive = 0
     while True:
         try:
-            conn  = check_conn()
-            mt5   = get_broker_agent()
-            db    = get_db_agent()
-            now   = datetime.now(timezone.utc).isoformat()
+            mt5 = get_broker_agent()
+            db  = get_db_agent()
 
-            # ── Heartbeat (always) ─────────────────────────────────────────
+            # ── MT5 connection check (non-blocking: use cached _conn) ──────
+            # is_connected() calls account_info() — that's the slow call.
+            # We run it here (slow thread) and cache the result.
+            mt5_ok = False
+            if mt5:
+                try:
+                    mt5_ok = mt5.is_connected()
+                except Exception:
+                    mt5_ok = False
+
+            # Debounce: require 3 consecutive misses before declaring offline
+            # (protects against transient IPC blips)
+            if not mt5_ok:
+                _mt5_miss_consecutive += 1
+            else:
+                _mt5_miss_consecutive = 0
+
+            mt5_stable = mt5_ok or (_mt5_miss_consecutive < 3)
+
+            # ── Account info + P&L ────────────────────────────────────────
+            acct = {}
+            if mt5_ok and mt5:
+                try:
+                    acct = mt5.get_account_info() or {}
+                except Exception:
+                    pass
+
+            today_real = 0.0
+            if db and acct:
+                try:
+                    rows = db.query(
+                        "SELECT pnl_pct FROM trades WHERE date(close_time)=date('now') "
+                        "AND is_paper=0 AND pnl_pct IS NOT NULL", ()
+                    )
+                    bal = acct.get("balance", 1.0)
+                    today_real = sum((r.get("pnl_pct", 0) or 0) * bal / 100 for r in rows)
+                except Exception:
+                    pass
+
+            # ── Positions ─────────────────────────────────────────────────
+            positions = []
+            if mt5_ok and mt5:
+                try:
+                    positions = mt5.get_positions()
+                except Exception:
+                    pass
+
+            # ── Circuit breaker ───────────────────────────────────────────
+            cb, dd, cbl = False, 0.0, 0
+            try:
+                from core.streak_state import streak
+                st  = streak.get_status()
+                cb  = bool(st.get("circuit_breaker_active", False))
+                dd  = float(str(st.get("today_pnl_pct", 0)).replace("%", ""))
+                cbl = int(st.get("consecutive_losses", 0))
+            except Exception:
+                pass
+
+            # ── Market prices ─────────────────────────────────────────────
+            changed_mkt = {}
+            try:
+                from interfaces.websocket_manager import get_ws
+                _ws = get_ws()
+                from config.config import INSTRUMENTS
+                for sym, inst in INSTRUMENTS.items():
+                    if inst.get("backtest_only"):
+                        continue
+                    price  = _ws.get_live_price(sym)
+                    source = "mt5_broker" if price and price > 0 else None
+                    if not price or price <= 0:
+                        with _yf_cache_lock:
+                            yf_row = _yf_cache.get(sym)
+                        if yf_row and yf_row.get("price") and yf_row["price"] > 0:
+                            price  = yf_row["price"]
+                            source = "yahoo_finance"
+                    if price and price > 0:
+                        td = {
+                            "price":      round(price, 6),
+                            "label":      inst.get("label", sym),
+                            "market":     inst.get("market", "unknown"),
+                            "asset_class":inst.get("asset_class", "unknown"),
+                            "exchange":   inst.get("exchange", "unknown"),
+                            "source":     source or "unknown",
+                        }
+                        with _yf_cache_lock:
+                            yf_row = _yf_cache.get(sym)
+                        if yf_row:
+                            if yf_row.get("change_pct") is not None:
+                                td["change_pct"] = yf_row["change_pct"]
+                            if yf_row.get("change") is not None:
+                                td["change"] = yf_row["change"]
+                        changed_mkt[sym] = td
+            except Exception:
+                pass
+
+            with _async_state_lock:
+                _async_state["mt5_connected"]      = mt5_stable
+                _async_state["mt5_miss_count"]     = _mt5_miss_consecutive
+                _async_state["account_info"]        = acct
+                _async_state["today_real"]          = today_real
+                _async_state["positions"]           = positions
+                _async_state["circuit_breaker"]     = cb
+                _async_state["daily_pnl_pct"]       = dd
+                _async_state["consecutive_losses"]  = cbl
+                _async_state["market_changed"]      = changed_mkt
+                _async_state["ts"]                  = datetime.now(timezone.utc).isoformat()
+
+        except Exception as e:
+            log.debug(f"[SSE data loop] {e}")
+
+        _t.sleep(5)   # slow poll — heartbeat is decoupled
+
+
+threading.Thread(target=_sse_data_loop, daemon=True, name="sse-data").start()
+
+
+def _sse_push_loop():
+    """
+    Fast heartbeat thread — fires every 1 s using ONLY pre-cached _async_state.
+    Never calls blocking MT5 IPC directly — that's _sse_data_loop's job.
+    This guarantees heartbeats arrive within 1 s regardless of MT5 latency.
+    """
+    import time as _time
+    _time.sleep(6)  # wait for broker init before first heartbeat
+    while True:
+        try:
+            with _async_state_lock:
+                s = dict(_async_state)   # snapshot
+
+            now = datetime.now(timezone.utc).isoformat()
+            mt5_ok = s.get("mt5_connected", False)
+
+            # ── Heartbeat (ALWAYS first — must not block) ──────────────────
             ws_status = {}
             try:
                 from interfaces.websocket_manager import get_ws
@@ -2338,46 +2486,34 @@ def _sse_push_loop():
                 pass
 
             _sse_broadcast("heartbeat", {
-                "ts":           now,
-                "server_time":  datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
-                "mt5":          conn.get("mt5", False),
-                "binance":      conn.get("binance", False),
-                "zerodha":      conn.get("zerodha", False),
-                "ws_status":    ws_status,
-                "clients":      len(_sse_clients),
+                "ts":          now,
+                "server_time": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
+                "mt5":         mt5_ok,
+                "binance":     False,
+                "zerodha":     False,
+                "ws_status":   ws_status,
+                "clients":     len(_sse_clients),
             })
 
-            # ── Broker status flip ─────────────────────────────────────────
-            mt5_now = conn.get("mt5", False)
-            if mt5_now != _sse_state["mt5_connected"]:
-                _sse_state["mt5_connected"] = mt5_now
+            # ── Broker status flip (debounced — only on stable state change) ─
+            if mt5_ok != _sse_state["mt5_connected"]:
+                _sse_state["mt5_connected"] = mt5_ok
                 _sse_broadcast("broker_status", {
                     "broker":    "mt5",
-                    "connected": mt5_now,
-                    "status":    "connected" if mt5_now else "disconnected",
+                    "connected": mt5_ok,
+                    "status":    "connected" if mt5_ok else "disconnected",
                     "ts":        now,
                 })
 
-            # ── Equity + P&L ───────────────────────────────────────────────
-            if conn.get("mt5") and mt5:
-                info = mt5.get_account_info() or {}
-                equity  = info.get("equity",  0.0)
-                balance = info.get("balance", 1.0)
-                unreal  = info.get("profit",  0.0)
-
-                # Realized today from DB
-                today_real = 0.0
-                if db:
-                    rows = db.query(
-                        "SELECT pnl_pct FROM trades WHERE date(close_time)=date('now') "
-                        "AND is_paper=0 AND pnl_pct IS NOT NULL", ()
-                    )
-                    today_real = sum((r.get("pnl_pct", 0) or 0) * balance / 100 for r in rows)
-
+            # ── Equity + P&L (from cache) ──────────────────────────────────
+            acct    = s.get("account_info", {})
+            equity  = acct.get("equity",  0.0)
+            balance = acct.get("balance", 1.0)
+            unreal  = acct.get("profit",  0.0)
+            today_real = s.get("today_real", 0.0)
+            if acct and mt5_ok:
                 today_pnl = today_real + unreal
                 pnl_pct   = round(today_pnl / balance * 100, 3) if balance > 0 else 0.0
-
-                # Emit only if equity moved ≥ 0.05 %
                 equity_delta_pct = abs(equity - _sse_state["equity"]) / max(balance, 1) * 100
                 if equity_delta_pct >= 0.05:
                     _sse_state["equity"] = equity
@@ -2392,120 +2528,64 @@ def _sse_push_loop():
                         "ts":              now,
                     })
 
-                # ── Positions diff ─────────────────────────────────────────
-                positions = mt5.get_positions()
-                for pos in positions:
+            # ── Positions (from cache) ─────────────────────────────────────
+            if mt5_ok:
+                for pos in s.get("positions", []):
                     ticket = pos.get("ticket", pos.get("id", 0))
                     profit = round(pos.get("profit", 0), 2)
                     prev   = _sse_state["positions"].get(ticket, None)
                     if prev is None or abs(profit - prev) > 0.50:
-                        sym     = pos.get("symbol", "")
-                        price   = live_price(mt5, sym) if sym else 0.0
-                        entry   = pos.get("entry_price", 0)
-                        sym_up  = sym.upper()
-                        if "JPY" in sym_up:          mult = 100
-                        elif "XAU" in sym_up:        mult = 10
+                        sym    = pos.get("symbol", "")
+                        price  = live_price(None, sym) if sym else 0.0
+                        entry  = pos.get("entry_price", 0)
+                        sym_up = sym.upper()
+                        if "JPY" in sym_up:                             mult = 100
+                        elif "XAU" in sym_up:                           mult = 10
                         elif any(c in sym_up for c in ("BTC","ETH","SOL")): mult = 1
-                        else:                        mult = 10000
+                        else:                                           mult = 10000
                         direction = pos.get("direction", "buy")
                         pips = round((price - entry) * mult, 1) if direction == "buy" \
                                else round((entry - price) * mult, 1)
-
                         _sse_state["positions"][ticket] = profit
                         _sse_broadcast("position", {
-                            "ticket":        ticket,
-                            "symbol":        sym,
-                            "direction":     direction,
-                            "current_price": round(price, 5),
-                            "profit":        profit,
-                            "profit_pct":    round(profit / max(balance, 1) * 100, 3),
-                            "pips_moved":    pips,
-                            "change_type":   "price",
-                            "ts":            now,
+                            "ticket": ticket, "symbol": sym, "direction": direction,
+                            "current_price": round(price, 5), "profit": profit,
+                            "profit_pct": round(profit / max(balance, 1) * 100, 3),
+                            "pips_moved": pips, "change_type": "price", "ts": now,
                         })
-
-                # Clean up closed positions
-                live_tickets = {p.get("ticket", p.get("id", 0)) for p in positions}
+                live_tickets = {p.get("ticket", p.get("id", 0)) for p in s.get("positions", [])}
                 for ticket in list(_sse_state["positions"].keys()):
                     if ticket not in live_tickets:
                         del _sse_state["positions"][ticket]
 
-            # ── Risk / circuit breaker diff ────────────────────────────────
-            try:
-                from core.streak_state import streak
-                st  = streak.get_status()
-                cb  = bool(st.get("circuit_breaker_active", False))
-                dd  = float(str(st.get("today_pnl_pct", 0)).replace("%", ""))
-                cbl = int(st.get("consecutive_losses", 0))
+            # ── Risk (from cache) ──────────────────────────────────────────
+            cb  = s.get("circuit_breaker", False)
+            dd  = s.get("daily_pnl_pct", 0.0)
+            cbl = s.get("consecutive_losses", 0)
+            if cb != _sse_state["circuit_breaker"] or abs(dd - _sse_state["daily_pnl_pct"]) >= 0.2:
+                _sse_state["circuit_breaker"] = cb
+                _sse_state["daily_pnl_pct"]   = dd
+                level = "critical" if cb or dd < -3.5 else "warning" if dd < -2.0 else "info"
+                text  = ("Circuit breaker ACTIVE — trading halted" if cb
+                         else f"Daily P&L: {dd:+.2f}%  ({cbl} consecutive losses)")
+                _sse_broadcast("risk", {
+                    "circuit_breaker": cb, "daily_pnl_pct": dd,
+                    "consecutive_losses": cbl, "level": level, "text": text, "ts": now,
+                })
 
-                if cb != _sse_state["circuit_breaker"] or abs(dd - _sse_state["daily_pnl_pct"]) >= 0.2:
-                    _sse_state["circuit_breaker"] = cb
-                    _sse_state["daily_pnl_pct"]   = dd
-                    level = "critical" if cb or dd < -3.5 else "warning" if dd < -2.0 else "info"
-                    text  = (
-                        "Circuit breaker ACTIVE — trading halted" if cb
-                        else f"Daily P&L: {dd:+.2f}%  ({cbl} consecutive losses)"
-                    )
-                    _sse_broadcast("risk", {
-                        "circuit_breaker":    cb,
-                        "daily_pnl_pct":      dd,
-                        "consecutive_losses": cbl,
-                        "level":              level,
-                        "text":               text,
-                        "ts":                 now,
-                    })
-            except Exception:
-                pass
-
-            # ── Market prices — ALL instruments, emit changed ticks ──────────
-            # Primary source: WebSocket cache (MT5 live ticks)
-            # Fallback: Yahoo Finance cache for instruments not in WS feed
-            # Dashboard subscribes once and updates cells in-place.
-            try:
-                from interfaces.websocket_manager import get_ws
-                _ws = get_ws()
+            # ── Market prices (from cache) ─────────────────────────────────
+            mkt = s.get("market_changed", {})
+            if mkt:
                 changed = {}
-                from config.config import INSTRUMENTS
-                for sym, inst in INSTRUMENTS.items():
-                    if inst.get("backtest_only"):
-                        continue
-                    price  = _ws.get_live_price(sym)
-                    source = "mt5_broker" if price and price > 0 else None
-
-                    # YF fallback for symbols not in WS cache
-                    if not price or price <= 0:
-                        with _yf_cache_lock:
-                            yf_row = _yf_cache.get(sym)
-                        if yf_row and yf_row.get("price") and yf_row["price"] > 0:
-                            price  = yf_row["price"]
-                            source = "yahoo_finance"
-
-                    if price and abs(price - _sse_state["last_prices"].get(sym, 0)) > 0:
-                        _sse_state["last_prices"][sym] = price
-                        tick_data = {
-                            "price":      round(price, 6),
-                            "label":      inst.get("label", sym),
-                            "market":     inst.get("market", "unknown"),
-                            "asset_class":inst.get("asset_class", "unknown"),
-                            "exchange":   inst.get("exchange", "unknown"),
-                            "source":     source or "unknown",
-                        }
-                        # Enrich with change_pct + bid/ask from YF cache if available
-                        with _yf_cache_lock:
-                            yf_row = _yf_cache.get(sym)
-                        if yf_row:
-                            if yf_row.get("change_pct") is not None:
-                                tick_data["change_pct"] = yf_row["change_pct"]
-                            if yf_row.get("change") is not None:
-                                tick_data["change"] = yf_row["change"]
-                        changed[sym] = tick_data
+                for sym, td in mkt.items():
+                    if abs(td.get("price", 0) - _sse_state["last_prices"].get(sym, 0)) > 0:
+                        _sse_state["last_prices"][sym] = td["price"]
+                        changed[sym] = td
                 if changed:
                     _sse_broadcast("market", {"ticks": changed, "ts": now})
-            except Exception:
-                pass
 
         except Exception as e:
-            log.debug(f"[SSE push loop] {e}")
+            log.debug(f"[SSE heartbeat loop] {e}")
 
         _time.sleep(1)
 
